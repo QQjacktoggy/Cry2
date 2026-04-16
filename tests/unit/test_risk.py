@@ -12,7 +12,7 @@ from bot.core.events import MarketEvent
 
 class TestPositionSizer:
     def test_fixed_fractional(self):
-        sizer = PositionSizer(max_risk_per_trade_pct=1.0)
+        sizer = PositionSizer(max_risk_per_trade_pct=1.0, max_position_value_pct=100.0)
         qty = sizer.calculate_fixed_fractional(
             equity=10000.0,
             entry_price=42000.0,
@@ -32,7 +32,7 @@ class TestPositionSizer:
         assert qty == 0.0
 
     def test_atr_based(self):
-        sizer = PositionSizer(max_risk_per_trade_pct=1.0)
+        sizer = PositionSizer(max_risk_per_trade_pct=1.0, max_position_value_pct=100.0)
         qty = sizer.calculate_atr_based(
             equity=10000.0,
             entry_price=42000.0,
