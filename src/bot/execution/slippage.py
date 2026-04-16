@@ -69,7 +69,7 @@ class SlippageModel:
             # Volume-weighted: base + impact * (trade_size / bar_volume)
             base_pct = self.bps_base / 10000.0
             if bar_volume > 0 and quantity > 0:
-                volume_ratio = (quantity * price) / (bar_volume * price)
+                volume_ratio = quantity / bar_volume
                 impact = self.volume_impact_factor * volume_ratio
             else:
                 impact = 0.0
