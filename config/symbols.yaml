@@ -1,0 +1,29 @@
+symbols:
+  active:
+    - symbol: BTCUSDT
+      category: primary
+    - symbol: ETHUSDT
+      category: primary
+    - symbol: BNBUSDT
+      category: secondary
+    - symbol: SOLUSDT
+      category: secondary
+    - symbol: XRPUSDT
+      category: secondary
+
+  candidates:
+    - symbol: DOGEUSDT
+      category: grid_candidate
+    - symbol: AVAXUSDT
+      category: grid_candidate
+    - symbol: LINKUSDT
+      category: trend_candidate
+    - symbol: ADAUSDT
+      category: candidate
+    - symbol: MATICUSDT
+      category: candidate
+
+  screening_rules:
+    min_30d_avg_volume_usdt: 500_000_000
+    max_30d_avg_funding_rate_abs: 0.0005
+    max_min_order_value_usdt: 10
