@@ -3,9 +3,9 @@
 
 import argparse
 import asyncio
-from contextlib import suppress
 import signal
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
