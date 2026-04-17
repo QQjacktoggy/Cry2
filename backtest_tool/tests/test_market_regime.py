@@ -2,10 +2,9 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
-from backtest_tool.strategies.market_regime import REGIME_LABELS, MarketRegimeDetector
 from backtest_tool.engine.strategy_selector import StrategySelector
+from backtest_tool.strategies.market_regime import REGIME_LABELS, MarketRegimeDetector
 
 
 def _make_ohlcv(n: int = 500, seed: int = 42) -> pd.DataFrame:

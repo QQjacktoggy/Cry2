@@ -12,7 +12,7 @@ import pandas as pd
 import structlog
 from tqdm import tqdm
 
-from backtest_tool.engine.runner import BacktestResult, BacktestRunner
+from backtest_tool.engine.runner import BacktestRunner
 from backtest_tool.strategies.base_vbt import BaseVBTStrategy
 
 logger = structlog.get_logger(__name__)

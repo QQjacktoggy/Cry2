@@ -2,7 +2,6 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from backtest_tool.strategies.indicators.volume import (
     compute_volume_filter,

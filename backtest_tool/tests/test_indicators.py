@@ -2,11 +2,14 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
-from backtest_tool.strategies.indicators.atr import compute_atr, compute_atr_percentile
 from backtest_tool.strategies.indicators.adx import compute_adx
-from backtest_tool.strategies.indicators.bollinger import compute_bollinger, compute_rsi, compute_ema
+from backtest_tool.strategies.indicators.atr import compute_atr, compute_atr_percentile
+from backtest_tool.strategies.indicators.bollinger import (
+    compute_bollinger,
+    compute_ema,
+    compute_rsi,
+)
 from backtest_tool.strategies.indicators.donchian import compute_donchian
 
 

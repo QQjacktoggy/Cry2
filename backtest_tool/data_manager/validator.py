@@ -198,7 +198,7 @@ class DataValidator:
 
         return result
 
-    def validate_all(self, store: "DataStore") -> list[ValidationResult]:
+    def validate_all(self, store: DataStore) -> list[ValidationResult]:
         """Validate all datasets in the store.
 
         Args:
@@ -207,7 +207,6 @@ class DataValidator:
         Returns:
             List of ValidationResult for each dataset.
         """
-        from backtest_tool.data_manager.store import DataStore
 
         results: list[ValidationResult] = []
         available = store.list_available()

@@ -1,22 +1,19 @@
 """Tests for HTML report generation."""
 
-import tempfile
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from backtest_tool.reports.charts import (
-    equity_curve_chart,
-    drawdown_chart,
-    monthly_heatmap,
     daily_pnl_bar,
-    trade_pnl_histogram,
+    drawdown_chart,
+    equity_curve_chart,
     equity_overlay,
+    monthly_heatmap,
+    trade_pnl_histogram,
 )
-from backtest_tool.reports.trade_log import render_trade_log
 from backtest_tool.reports.tearsheet import render_monthly_table, render_yearly_table
+from backtest_tool.reports.trade_log import render_trade_log
 
 
 def _make_equity(n: int = 365) -> pd.Series:

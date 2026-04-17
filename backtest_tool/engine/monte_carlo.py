@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 import structlog
 
 if TYPE_CHECKING:

@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 
 from backtest_tool.engine.cost_model import CostModel
-from backtest_tool.engine.runner import BacktestRunner, BacktestResult
 from backtest_tool.engine.param_scanner import ParamScanner
+from backtest_tool.engine.runner import BacktestResult, BacktestRunner
 from backtest_tool.strategies.trend_donchian_vbt import TrendDonchianVBT
 
 

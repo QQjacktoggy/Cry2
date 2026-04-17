@@ -31,7 +31,7 @@ class CostModel:
     slippage_bps: float = 2.0
 
     @classmethod
-    def from_config(cls, config: dict) -> "CostModel":
+    def from_config(cls, config: dict) -> CostModel:
         """Create CostModel from backtest_config.yaml dict.
 
         Args:
@@ -51,7 +51,7 @@ class CostModel:
         )
 
     @classmethod
-    def from_yaml(cls, path: str) -> "CostModel":
+    def from_yaml(cls, path: str) -> CostModel:
         """Load CostModel from a YAML config file.
 
         Args:

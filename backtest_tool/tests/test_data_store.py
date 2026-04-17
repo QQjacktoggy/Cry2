@@ -1,13 +1,12 @@
 """Tests for DataStore: Parquet CRUD operations."""
 
 import tempfile
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from backtest_tool.data_manager.store import DataStore, KLINE_COLUMNS
+from backtest_tool.data_manager.store import DataStore
 
 
 def _make_kline_df(n: int = 100, start_ts: int = 1672531200000, interval_ms: int = 14400000) -> pd.DataFrame:

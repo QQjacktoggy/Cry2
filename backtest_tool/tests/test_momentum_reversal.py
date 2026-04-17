@@ -2,10 +2,9 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
-from backtest_tool.strategies.momentum_reversal_vbt import MomentumReversalVBT
 from backtest_tool.strategies import STRATEGY_MAP
+from backtest_tool.strategies.momentum_reversal_vbt import MomentumReversalVBT
 
 
 def _make_ohlcv(n: int = 450) -> pd.DataFrame:

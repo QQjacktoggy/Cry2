@@ -6,11 +6,9 @@ Compatible with the parent project's data format.
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-import pyarrow as pa
 import pyarrow.parquet as pq
 import structlog
 

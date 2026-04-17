@@ -257,7 +257,7 @@ class DataImporter:
 
     def _download_funding_rates(
         self,
-        client: "Client",
+        client: Client,
         symbol: str,
         start: str,
         end: str | None = None,

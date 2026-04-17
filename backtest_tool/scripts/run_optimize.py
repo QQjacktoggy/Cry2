@@ -14,8 +14,6 @@ import argparse
 import sys
 from pathlib import Path
 
-import yaml
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -89,7 +87,7 @@ def main():
         print(f"  #{i}: {args.target}={target_val:.4f}  |  {weights_str}")
 
     # Generate comparison report with optimization
-    print(f"\n📝 Generating report...")
+    print("\n📝 Generating report...")
     reporter = HTMLReportGenerator()
     output_path = reporter.generate_comparison(
         results_list, filename=args.output, optimization_result=opt_result

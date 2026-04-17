@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from backtest_tool.strategies.trend_donchian_vbt import TrendDonchianVBT
-from backtest_tool.strategies.mean_reversion_bb_vbt import MeanReversionBBVBT
-from backtest_tool.strategies.grid_futures_vbt import GridFuturesVBT
 from backtest_tool.strategies.funding_arb_vbt import FundingArbVBT
+from backtest_tool.strategies.grid_futures_vbt import GridFuturesVBT
+from backtest_tool.strategies.mean_reversion_bb_vbt import MeanReversionBBVBT
+from backtest_tool.strategies.trend_donchian_vbt import TrendDonchianVBT
 
 
 def _make_ohlcv(n: int = 500) -> pd.DataFrame:

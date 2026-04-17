@@ -6,7 +6,6 @@ and styled tables for offline viewing.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -24,7 +23,6 @@ from backtest_tool.reports.charts import (
 )
 from backtest_tool.reports.tearsheet import render_monthly_table, render_yearly_table
 from backtest_tool.reports.trade_log import render_trade_log
-
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 

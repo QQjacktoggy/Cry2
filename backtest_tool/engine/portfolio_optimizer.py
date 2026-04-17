@@ -247,7 +247,7 @@ class PortfolioOptimizer:
 
     def risk_parity(
         self,
-        strategy_results: dict[str, "BacktestResult"],
+        strategy_results: dict[str, BacktestResult],
         min_allocation: float = 0.0,
         max_allocation: float = 0.80,
     ) -> dict[str, float]:

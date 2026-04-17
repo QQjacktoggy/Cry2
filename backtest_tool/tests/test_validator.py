@@ -2,9 +2,8 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
-from backtest_tool.data_manager.validator import DataValidator, ValidationResult
+from backtest_tool.data_manager.validator import DataValidator
 
 
 def _make_valid_kline_df(n: int = 100) -> pd.DataFrame:

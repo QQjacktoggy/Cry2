@@ -6,8 +6,7 @@ documenting all available datasets, their date ranges, and validation status.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 
 import structlog
 
@@ -41,7 +40,7 @@ class CatalogManager:
             key = f"{vr.symbol}_{vr.timeframe}"
             val_map[key] = vr
 
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
         lines: list[str] = []
 
         lines.append("# 📋 Data Catalog — 回測資料目錄\n")
