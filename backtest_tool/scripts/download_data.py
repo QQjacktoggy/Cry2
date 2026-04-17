@@ -3,7 +3,7 @@
 
 Usage:
     python -m backtest_tool.scripts.download_data --symbol BTCUSDT --timeframe 4h --start 2023-01-01
-    python -m backtest_tool.scripts.download_data --symbol ETHUSDT --timeframe 1h --start 2024-01-01 --end 2024-12-31
+    python -m backtest_tool.scripts.download_data --symbol BTCUSDT ETHUSDT --timeframe 4h 1h --start 2024-01-01 --funding
 """
 
 import argparse
@@ -18,28 +18,37 @@ from backtest_tool.data_manager import CatalogManager, DataImporter, DataStore
 
 def main():
     parser = argparse.ArgumentParser(description="Download data from Binance API")
-    parser.add_argument("--symbol", type=str, required=True, help="Symbol (e.g., BTCUSDT)")
-    parser.add_argument("--timeframe", type=str, required=True, help="Timeframe (e.g., 1h, 4h, 1d)")
+    parser.add_argument("--symbol", type=str, nargs="+", required=True, help="Symbols (e.g., BTCUSDT ETHUSDT)")
+    parser.add_argument("--timeframe", type=str, nargs="+", required=True, help="Timeframes (e.g., 1h 4h)")
     parser.add_argument("--start", type=str, required=True, help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", type=str, default=None, help="End date (YYYY-MM-DD), defaults to now")
-    parser.add_argument("--data-type", choices=["klines", "funding"], default="klines",
-                        help="Data type (default: klines)")
+    parser.add_argument("--funding", action="store_true", help="Also download funding rates")
     args = parser.parse_args()
 
     store = DataStore()
     importer = DataImporter(store)
     catalog = CatalogManager(store)
 
-    print(f"📡 Downloading {args.symbol} {args.timeframe} from {args.start} to {args.end or 'now'}...")
+    print(f"📡 Downloading {args.symbol} × {args.timeframe} from {args.start} to {args.end or 'now'}...")
+    if args.funding:
+        print("   Including funding rates")
 
     try:
-        if args.data_type == "klines":
-            df = importer.download_klines(args.symbol, args.timeframe, args.start, args.end)
-        else:
-            df = importer.download_funding(args.symbol, args.start, args.end)
+        summary = importer.download_from_binance(
+            symbols=args.symbol,
+            timeframes=args.timeframe,
+            start=args.start,
+            end=args.end,
+            include_funding=args.funding,
+        )
 
-        print(f"✅ Downloaded {len(df)} rows")
-        print(f"   Date range: {df.index[0]} → {df.index[-1]}")
+        print(f"\n✅ Klines downloaded: {summary['klines_downloaded']}")
+        if args.funding:
+            print(f"✅ Funding downloaded: {summary['funding_downloaded']}")
+        if summary["errors"]:
+            print(f"⚠️  Errors: {len(summary['errors'])}")
+            for e in summary["errors"]:
+                print(f"   {e}")
 
     except Exception as e:
         print(f"❌ Download failed: {e}")

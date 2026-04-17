@@ -159,18 +159,28 @@ class DataImporter:
                             pbar.update(1)
                             continue
 
-                        # Check for existing data (incremental download)
+                        # Check for existing data — only do incremental
+                        # if requested start is after existing data end
                         existing = self.store.load_klines(symbol, tf)
                         actual_start = start
                         if not existing.empty:
+                            first_ts = existing["timestamp"].min()
                             last_ts = existing["timestamp"].max()
-                            actual_start = pd.Timestamp(last_ts, unit="ms").strftime("%Y-%m-%d")
-                            logger.info(
-                                "Incremental download",
-                                symbol=symbol,
-                                timeframe=tf,
-                                from_date=actual_start,
-                            )
+                            req_start_ms = int(pd.Timestamp(start).timestamp() * 1000)
+                            req_end_ms = int(pd.Timestamp(end).timestamp() * 1000) if end else None
+
+                            # Requested range is before existing → download as-is
+                            # Requested range overlaps/extends → start from last existing
+                            if req_end_ms and req_end_ms < first_ts:
+                                pass  # use original start/end
+                            elif req_start_ms >= first_ts:
+                                actual_start = pd.Timestamp(last_ts, unit="ms").strftime("%Y-%m-%d")
+                                logger.info(
+                                    "Incremental download",
+                                    symbol=symbol,
+                                    timeframe=tf,
+                                    from_date=actual_start,
+                                )
 
                         klines = client.get_historical_klines(
                             symbol=symbol,

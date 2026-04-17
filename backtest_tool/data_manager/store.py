@@ -49,13 +49,15 @@ FUNDING_DTYPES = {"timestamp": "int64", "symbol": "object", "funding_rate": "flo
 class DataStore:
     """Parquet-based data store for klines and funding rates."""
 
-    def __init__(self, data_dir: str = "./data") -> None:
+    _DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+    def __init__(self, data_dir: str | None = None) -> None:
         """Initialize data store and create directory structure.
 
         Args:
-            data_dir: Root directory for data storage.
+            data_dir: Root directory for data storage. Defaults to backtest_tool/data/.
         """
-        self.data_dir = Path(data_dir)
+        self.data_dir = Path(data_dir) if data_dir else self._DEFAULT_DATA_DIR
         self.klines_dir = self.data_dir / "klines"
         self.funding_dir = self.data_dir / "funding"
         self.klines_dir.mkdir(parents=True, exist_ok=True)
