@@ -1,0 +1,30 @@
+risk_limits:
+  # Per trade
+  max_risk_per_trade_pct: 1.0
+  max_position_value_pct: 20.0
+  max_leverage: 3
+  hard_max_leverage: 5
+
+  # Daily
+  daily_loss_limit_pct: 3.0
+  daily_trade_count_limit: 50
+
+  # Weekly
+  weekly_loss_limit_pct: 8.0
+
+  # Margin
+  maintenance_margin_ratio_min: 50
+
+  # Circuit breaker
+  circuit_breaker_bar_pct: 5.0
+  circuit_breaker_cooldown_min: 30
+
+  # Kill switch
+  max_consecutive_errors: 5
+  max_api_latency_ms: 3000
+  ws_disconnect_timeout_sec: 60
+  ws_kill_switch_timeout_sec: 300
+
+  # Auto-deleveraging
+  margin_reduce_threshold_pct: 50
+  margin_reduce_amount_pct: 30

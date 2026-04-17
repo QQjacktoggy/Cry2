@@ -1,0 +1,55 @@
+version: "3.8"
+
+services:
+  bot:
+    build: .
+    container_name: binance-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - bot-data:/app/data
+      - bot-logs:/app/logs
+      - ./config:/app/config:ro
+    environment:
+      - PYTHONPATH=/app/src
+    command: python scripts/run_paper.py
+    networks:
+      - bot-network
+
+  dashboard:
+    build: .
+    container_name: binance-dashboard
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - bot-data:/app/data:ro
+      - bot-logs:/app/logs:ro
+    ports:
+      - "8501:8501"
+    command: streamlit run src/bot/monitoring/dashboard/app.py --server.port=8501 --server.address=0.0.0.0
+    networks:
+      - bot-network
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=3600
+    networks:
+      - bot-network
+
+volumes:
+  bot-data:
+    driver: local
+  bot-logs:
+    driver: local
+
+networks:
+  bot-network:
+    driver: bridge

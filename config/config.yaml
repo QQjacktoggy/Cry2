@@ -1,0 +1,26 @@
+project: binance-futures-bot
+version: "1.0"
+
+environment: paper   # backtest | paper | live
+
+includes:
+  - strategies.yaml
+  - risk_limits.yaml
+  - symbols.yaml
+  - environments/${environment}.yaml
+
+paths:
+  data_dir: ./data
+  logs_dir: ./logs
+  results_dir: ./data/backtest_results
+
+logging:
+  level: INFO
+  format: json
+  rotation: daily
+  max_days: 7
+
+telegram:
+  enabled: true
+  bot_token_env: TELEGRAM_BOT_TOKEN
+  chat_id_env: TELEGRAM_CHAT_ID

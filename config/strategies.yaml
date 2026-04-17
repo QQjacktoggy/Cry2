@@ -1,0 +1,60 @@
+strategies:
+  funding_arb:
+    enabled: true
+    symbols: [BTCUSDT, ETHUSDT]
+    timeframe: 8h
+    funding_rate_threshold_annual: 15.0    # > 15% annualized -> enter
+    funding_rate_exit_annual: 5.0          # < 5% -> exit
+    max_hold_days: 7
+    max_exposure_pct: 20.0
+    leverage: 1
+
+  grid_futures:
+    enabled: true
+    symbols: [BTCUSDT, ETHUSDT]
+    timeframe: 4h
+    upper_price: auto      # 20-day high * 1.02
+    lower_price: auto      # 20-day low * 0.98
+    grid_count: 20
+    grid_spacing: geometric   # arithmetic | geometric
+    leverage: 2
+    per_grid_size_pct: 1.0
+    trend_filter:
+      enabled: true
+      ema_period: 200
+      timeframe: 4h
+    stop_loss_atr_mult: 1.0
+
+  trend_donchian:
+    enabled: true
+    symbols: [BTCUSDT, ETHUSDT, SOLUSDT]
+    timeframe: 4h
+    entry_period: 20
+    exit_period: 10
+    adx_period: 14
+    adx_threshold: 25
+    atr_period: 14
+    atr_stop_mult: 2.0
+    risk_per_trade_pct: 1.0
+    leverage: 2
+
+  mean_reversion_bb:
+    enabled: true
+    symbols: [BTCUSDT, ETHUSDT]
+    timeframe: 1h
+    bb_period: 20
+    bb_std: 2.0
+    rsi_period: 14
+    rsi_oversold: 30
+    rsi_overbought: 70
+    volatility_filter:
+      atr_percentile: 70
+    stop_loss_pct: 1.5
+    take_profit: bb_middle
+    leverage: 2
+
+capital_allocation:
+  funding_arb: 0.60
+  trend_donchian: 0.25
+  grid_futures: 0.10
+  mean_reversion_bb: 0.05

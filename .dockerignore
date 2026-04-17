@@ -1,0 +1,17 @@
+.git
+.env
+.env.*
+!.env.example
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+data/
+logs/
+notebooks/
+tests/
+docs/
+.vscode/
+.idea/
+*.md
+!README.md
