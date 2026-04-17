@@ -29,6 +29,7 @@ class FundingArbVBT(BaseVBTStrategy):
         "funding_rate_exit_annual": 5.0,
         "max_hold_days": 7,
         "leverage": 1,
+        "delta_neutral": False,
     }
     required_timeframe = "8h"
 
@@ -36,18 +37,21 @@ class FundingArbVBT(BaseVBTStrategy):
     def prepare_data(
         klines: pd.DataFrame,
         funding: pd.DataFrame,
+        spot_klines: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
-        """Merge kline and funding rate data for this strategy.
+        """Merge kline, funding rate, and optional spot data.
 
         Funding rates are recorded every 8h. This method forward-fills
         the funding rate onto kline bars for signal generation.
 
         Args:
-            klines: DataFrame with OHLCV data and DatetimeIndex.
+            klines: DataFrame with futures OHLCV data and DatetimeIndex.
             funding: DataFrame with funding_rate column and DatetimeIndex.
+            spot_klines: Optional spot market OHLCV (for delta-neutral simulation).
 
         Returns:
-            Merged DataFrame with 'funding_rate' and 'annual_rate' columns.
+            Merged DataFrame with 'funding_rate', 'annual_rate', and optionally
+            'spot_return' and 'spot_cumulative' columns.
         """
         df = klines.copy()
 
@@ -60,6 +64,17 @@ class FundingArbVBT(BaseVBTStrategy):
 
         # Annualized rate: funding_rate × 3 (per day) × 365 × 100 (percentage)
         df["annual_rate"] = df["funding_rate"] * 3 * 365 * 100
+
+        # Delta-neutral: add spot return (long spot to hedge short futures)
+        if spot_klines is not None and not spot_klines.empty:
+            spot_close = spot_klines["close"].reindex(df.index, method="ffill")
+            spot_ret = spot_close.pct_change()
+            df["spot_return"] = spot_ret.fillna(0.0)
+            df["spot_cumulative"] = (1 + df["spot_return"]).cumprod() - 1
+        else:
+            df["spot_return"] = 0.0
+            df["spot_cumulative"] = 0.0
+
         return df
 
     def generate_entries(self, ohlcv: pd.DataFrame) -> pd.Series:

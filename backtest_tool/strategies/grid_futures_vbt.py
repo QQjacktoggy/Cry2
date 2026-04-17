@@ -29,6 +29,8 @@ class GridFuturesVBT(BaseVBTStrategy):
         "range_period": 20,
         "ema_period": 200,
         "leverage": 2,
+        "dynamic_grid": False,
+        "grid_atr_period": 14,
     }
     required_timeframe = "4h"
 
@@ -66,6 +68,36 @@ class GridFuturesVBT(BaseVBTStrategy):
         trend[close < ema * 0.99] = -1
         return trend
 
+    def _compute_zone_fractions(self, ohlcv: pd.DataFrame) -> tuple[float, float]:
+        """Compute dynamic buy/sell zone fractions based on ATR percentile.
+
+        High ATR → wider zones (buy at 25%, sell at 75%) → fewer trades
+        Low ATR  → narrower zones (buy at 40%, sell at 60%) → more trades
+
+        Returns:
+            Tuple of (buy_zone_fraction, sell_zone_fraction).
+        """
+        if not self.params.get("dynamic_grid", False):
+            return 0.33, 0.67
+
+        from backtest_tool.strategies.indicators.atr import compute_atr_percentile
+
+        vol_high = compute_atr_percentile(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"],
+            atr_period=self.params.get("grid_atr_period", 14),
+            lookback=100,
+            percentile=80.0,
+        )
+
+        high_vol_ratio = float(vol_high.mean()) if not vol_high.empty else 0.5
+
+        buy_frac = 0.25 + (1 - high_vol_ratio) * 0.15
+        sell_frac = 0.75 - (1 - high_vol_ratio) * 0.15
+        buy_frac = max(0.10, min(0.45, buy_frac))
+        sell_frac = max(0.55, min(0.90, sell_frac))
+
+        return buy_frac, sell_frac
+
     def generate_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
         """Generate long entry signals: price in lower channel zone + bullish/ranging.
 
@@ -84,7 +116,8 @@ class GridFuturesVBT(BaseVBTStrategy):
         close = ohlcv["close"]
 
         # Buy zone: lower third of channel
-        buy_zone_top = lower + (upper - lower) * 0.33
+        buy_frac, sell_frac = self._compute_zone_fractions(ohlcv)
+        buy_zone_top = lower + (upper - lower) * buy_frac
         in_buy_zone = close <= buy_zone_top
 
         # Trend filter: only long in bullish or ranging
@@ -109,7 +142,8 @@ class GridFuturesVBT(BaseVBTStrategy):
         close = ohlcv["close"]
 
         # Sell zone: upper third of channel
-        sell_zone_bottom = lower + (upper - lower) * 0.67
+        _, sell_frac = self._compute_zone_fractions(ohlcv)
+        sell_zone_bottom = lower + (upper - lower) * sell_frac
         exits = close >= sell_zone_bottom
 
         return exits.fillna(False)
@@ -132,7 +166,8 @@ class GridFuturesVBT(BaseVBTStrategy):
         close = ohlcv["close"]
 
         # Short zone: upper third of channel
-        short_zone_bottom = lower + (upper - lower) * 0.67
+        _, sell_frac = self._compute_zone_fractions(ohlcv)
+        short_zone_bottom = lower + (upper - lower) * sell_frac
         in_short_zone = close >= short_zone_bottom
 
         # Trend filter: only short in bearish or ranging
@@ -157,7 +192,8 @@ class GridFuturesVBT(BaseVBTStrategy):
         close = ohlcv["close"]
 
         # Cover zone: lower third of channel
-        cover_zone_top = lower + (upper - lower) * 0.33
+        buy_frac, _ = self._compute_zone_fractions(ohlcv)
+        cover_zone_top = lower + (upper - lower) * buy_frac
         short_exits = close <= cover_zone_top
 
         return short_exits.fillna(False)

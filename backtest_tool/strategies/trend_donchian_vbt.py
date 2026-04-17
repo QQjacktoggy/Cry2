@@ -35,6 +35,8 @@ class TrendDonchianVBT(BaseVBTStrategy):
         "sl_stop_pct": 0,
         "max_hold_bars": 0,
         "leverage": 2,
+        "volume_confirm": False,
+        "ema_slope_filter": False,
     }
     required_timeframe = "4h"
 
@@ -61,6 +63,20 @@ class TrendDonchianVBT(BaseVBTStrategy):
         )
 
         entries = (ohlcv["close"] > entry_upper) & (adx > self.params["adx_threshold"])
+
+        # Optional: volume breakout confirmation (volume > 1.5× 20-bar avg)
+        if self.params.get("volume_confirm") and "volume" in ohlcv.columns:
+            from backtest_tool.strategies.indicators.volume import compute_volume_ma_ratio
+            vol_ratio = compute_volume_ma_ratio(ohlcv["volume"], window=20)
+            entries = entries & (vol_ratio > 1.5)
+
+        # Optional: EMA slope filter (EMA20 slope direction)
+        if self.params.get("ema_slope_filter"):
+            from backtest_tool.strategies.indicators.bollinger import compute_ema
+            ema20 = compute_ema(ohlcv["close"], 20)
+            ema_slope_up = ema20 > ema20.shift(3)
+            entries = entries & ema_slope_up
+
         return entries.fillna(False)
 
     def generate_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
@@ -101,6 +117,20 @@ class TrendDonchianVBT(BaseVBTStrategy):
         )
 
         short_entries = (ohlcv["close"] < entry_lower) & (adx > self.params["adx_threshold"])
+
+        # Optional: volume breakout confirmation (volume spike confirms breakdown)
+        if self.params.get("volume_confirm") and "volume" in ohlcv.columns:
+            from backtest_tool.strategies.indicators.volume import compute_volume_ma_ratio
+            vol_ratio = compute_volume_ma_ratio(ohlcv["volume"], window=20)
+            short_entries = short_entries & (vol_ratio > 1.5)
+
+        # Optional: EMA slope filter (EMA20 slope direction — inverted for shorts)
+        if self.params.get("ema_slope_filter"):
+            from backtest_tool.strategies.indicators.bollinger import compute_ema
+            ema20 = compute_ema(ohlcv["close"], 20)
+            ema_slope_down = ema20 < ema20.shift(3)
+            short_entries = short_entries & ema_slope_down
+
         return short_entries.fillna(False)
 
     def generate_short_exits(self, ohlcv: pd.DataFrame) -> pd.Series:

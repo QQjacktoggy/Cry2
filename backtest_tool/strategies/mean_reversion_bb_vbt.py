@@ -35,6 +35,8 @@ class MeanReversionBBVBT(BaseVBTStrategy):
         "atr_percentile": 50,
         "atr_lookback": 100,
         "leverage": 1,
+        "use_atr_stop": False,
+        "atr_stop_mult": 2.0,
     }
     required_timeframe = "1h"
 
@@ -166,7 +168,16 @@ class MeanReversionBBVBT(BaseVBTStrategy):
 
         freq = FREQ_MAP.get(self.required_timeframe, self.required_timeframe)
         total_fees = fees + slippage
-        sl_stop = self.params["stop_loss_pct"] / 100.0
+
+        # Determine stop loss
+        if self.params.get("use_atr_stop", False):
+            from backtest_tool.strategies.indicators.atr import compute_atr
+            atr = compute_atr(ohlcv["high"], ohlcv["low"], ohlcv["close"], 14)
+            avg_atr_ratio = float((atr / ohlcv["close"]).mean())
+            atr_mult = self.params.get("atr_stop_mult", 2.0)
+            sl_stop = avg_atr_ratio * atr_mult
+        else:
+            sl_stop = self.params["stop_loss_pct"] / 100.0
 
         portfolio = vbt.Portfolio.from_signals(
             close=close,
