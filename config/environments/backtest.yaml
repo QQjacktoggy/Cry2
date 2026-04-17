@@ -9,4 +9,4 @@ execution:
   fee_rate_maker: 0.0002
   fee_rate_taker: 0.0004
 
-initial_capital: 10000
+initial_capital: 150
