@@ -109,6 +109,24 @@ class BacktestRunner:
         trades = self._extract_trades(portfolio)
         equity = portfolio.value()
 
+        # Add context metrics
+        metrics["initial_capital"] = capital
+        metrics["leverage"] = lev
+        metrics["final_value"] = float(equity.iloc[-1]) if len(equity) > 0 else capital
+        metrics["total_pnl"] = metrics["final_value"] - capital
+
+        # Convert fractions to percentages for display
+        for key in ("total_return", "annualized_return", "max_drawdown", "win_rate", "volatility_ann"):
+            if key in metrics:
+                metrics[key] = metrics[key] * 100
+        # Alias
+        metrics["annual_return"] = metrics.get("annualized_return", 0.0)
+
+        # Cost model info
+        metrics["maker_fee"] = self.cost_model.maker_rate * 100
+        metrics["taker_fee"] = self.cost_model.taker_rate * 100
+        metrics["slippage_bps"] = self.cost_model.slippage_bps
+
         config_summary = {
             **self.cost_model.summary(),
             "initial_capital": capital,

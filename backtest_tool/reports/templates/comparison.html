@@ -20,7 +20,7 @@
         {% for row in comparison_rows %}
         <tr>
             <td><strong>{{ row.label }}</strong></td>
-            {% for val in row.values %}
+            {% for val in row["values"] %}
             <td class="{{ val.css_class }}">{{ val.display }}</td>
             {% endfor %}
         </tr>
