@@ -298,7 +298,7 @@ class BacktestRunner:
                     metrics["max_dd_recovery_bars"] = 0.0
                     metrics["avg_dd_recovery_bars"] = 0.0
 
-                metrics["ulcer_index"] = float(np.sqrt(np.mean(dd_series**2)))
+                metrics["ulcer_index"] = float(np.sqrt(np.mean((dd_series * 100) ** 2)))
             else:
                 metrics["max_dd_recovery_bars"] = 0.0
                 metrics["avg_dd_recovery_bars"] = 0.0
