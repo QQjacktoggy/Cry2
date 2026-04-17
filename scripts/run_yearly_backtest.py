@@ -158,7 +158,7 @@ def _print_monthly_table(monthly: list[dict[str, Any]], initial_capital: float) 
             f"{'TOTAL':<12} "
             f"{initial_capital:>12.2f} "
             f"{monthly[-1]['end_equity']:>12.2f} "
-            f"{'+'if total_profit>=0 else ''}{total_profit:>11.2f} "
+            f"{'+' if total_profit >= 0 else ''}{total_profit:>11.2f} "
             f"{total_ret:>9.2%}"
         )
     print("=" * 72)
