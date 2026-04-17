@@ -1,33 +1,46 @@
-# 參數掃描空間定義
+# 參數掃描空間定義 (擴展版 - 來自 OPTIMIZATION_PLAN.md)
 param_spaces:
   trend_donchian:
-    entry_period: [10, 15, 20, 25, 30, 40]
-    exit_period: [5, 7, 10, 15]
-    adx_threshold: [20, 25, 30, 35]
-    atr_stop_mult: [1.0, 1.5, 2.0, 2.5, 3.0]
+    entry_period: [10, 15, 20, 25, 30, 40, 55]
+    exit_period: [5, 7, 10, 15, 20]
+    adx_threshold: [20, 25, 30, 35, 40]
+    atr_stop_mult: [1.0, 1.5, 2.0, 2.5, 3.0, 4.0]
+    sl_stop_pct: [0, 2.0, 3.0, 5.0]
     leverage: [1, 2, 3]
 
   mean_reversion_bb:
-    bb_period: [15, 20, 25, 30]
-    bb_std: [1.5, 2.0, 2.5, 3.0]
+    bb_period: [15, 20, 25, 30, 40]
+    bb_std: [1.5, 2.0, 2.5, 3.0, 3.5]
     rsi_period: [10, 14, 21]
-    rsi_oversold: [20, 25, 30, 35]
-    rsi_overbought: [65, 70, 75, 80]
+    rsi_oversold: [15, 20, 25, 30]
+    rsi_overbought: [70, 75, 80, 85]
+    stop_loss_pct: [1.0, 1.5, 2.0, 3.0, 5.0]
+    atr_percentile: [30, 50, 70]
     leverage: [1, 2]
 
   grid_futures:
-    grid_count: [10, 15, 20, 30]
-    ema_period: [100, 150, 200]
+    grid_count: [10, 15, 20, 30, 40, 50]
+    range_period: [10, 15, 20, 30, 40]
+    ema_period: [50, 100, 150, 200, 300]
     leverage: [1, 2, 3]
 
   funding_arb:
-    funding_rate_threshold_annual: [10, 12, 15, 20, 25]
-    funding_rate_exit_annual: [3, 5, 7, 10]
-    max_hold_days: [3, 5, 7, 14]
+    funding_rate_threshold_annual: [5, 8, 10, 12, 15, 20]
+    funding_rate_exit_annual: [1, 2, 3, 5, 7]
+    max_hold_days: [1, 2, 3, 5, 7, 14]
+    leverage: [1, 2]
+
+  momentum_reversal:
+    lookback: [7, 10, 14, 21, 30]
+    rsi_period: [10, 14, 21]
+    rsi_oversold: [20, 25, 30, 35]
+    rsi_overbought: [65, 70, 75, 80]
+    return_threshold: [-3.0, -5.0, -7.0, -10.0]
+    leverage: [1, 2]
 
 # 組合最佳化
 portfolio_optimization:
-  allocation_step: 0.05           # 5% 步進
-  min_allocation: 0.0             # 最小配置比例
-  max_allocation: 0.80            # 最大配置比例（單策略不超過 80%）
-  target_metric: sharpe_ratio     # 最佳化目標
+  allocation_step: 0.05
+  min_allocation: 0.0
+  max_allocation: 0.80
+  target_metric: sharpe_ratio

@@ -147,6 +147,10 @@ class BaseVBTStrategy(ABC):
             short_exits = short_exits.fillna(False).astype(bool)
             kwargs["short_exits"] = short_exits
 
+        # Position sizing
+        size_kwargs = self._get_size_kwargs(ohlcv)
+        kwargs.update(size_kwargs)
+
         portfolio = vbt.Portfolio.from_signals(**kwargs)
 
         logger.info(
@@ -157,6 +161,27 @@ class BaseVBTStrategy(ABC):
         )
 
         return portfolio
+
+    def _get_size_kwargs(self, ohlcv: pd.DataFrame) -> dict[str, Any]:
+        """Compute position sizing parameters for VBT.
+
+        Supports two modes based on self.params:
+        - 'full' (default): Use 100% of available capital.
+        - 'fixed_fraction': Use a fixed fraction of capital.
+
+        Args:
+            ohlcv: DataFrame with OHLCV data.
+
+        Returns:
+            Dict of VBT kwargs for size/size_type.
+        """
+        size_mode = self.params.get("size_mode", "full")
+
+        if size_mode == "fixed_fraction":
+            fraction = self.params.get("size_fraction", 0.5)
+            return {"size": fraction, "size_type": "percent"}
+
+        return {}
 
     def get_param_combinations(self, param_space: dict[str, list]) -> list[dict]:
         """Generate all parameter combinations from a parameter space.

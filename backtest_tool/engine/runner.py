@@ -216,8 +216,6 @@ class BacktestRunner:
         Returns:
             Dict of metric name → value.
         """
-        stats = portfolio.stats()
-
         # Map VBT stats to our metric names
         metrics: dict[str, float] = {}
 
@@ -277,6 +275,38 @@ class BacktestRunner:
                 metrics["max_dd_duration_bars"] = 0.0
         except Exception:
             metrics["max_dd_duration_bars"] = 0.0
+
+        # Recovery metrics
+        try:
+            equity = portfolio.value()
+            cummax = equity.cummax()
+            dd_series = (equity - cummax) / cummax
+
+            dd_threshold = -1e-8
+            in_dd = dd_series < dd_threshold
+            if in_dd.any():
+                groups = (~in_dd).cumsum()
+                dd_groups = in_dd.groupby(groups)
+                recovery_lengths = []
+                for _, group in dd_groups:
+                    if group.any():
+                        recovery_lengths.append(len(group))
+                if recovery_lengths:
+                    metrics["max_dd_recovery_bars"] = float(max(recovery_lengths))
+                    metrics["avg_dd_recovery_bars"] = float(np.mean(recovery_lengths))
+                else:
+                    metrics["max_dd_recovery_bars"] = 0.0
+                    metrics["avg_dd_recovery_bars"] = 0.0
+
+                metrics["ulcer_index"] = float(np.sqrt(np.mean(dd_series**2)))
+            else:
+                metrics["max_dd_recovery_bars"] = 0.0
+                metrics["avg_dd_recovery_bars"] = 0.0
+                metrics["ulcer_index"] = 0.0
+        except Exception:
+            metrics["max_dd_recovery_bars"] = 0.0
+            metrics["avg_dd_recovery_bars"] = 0.0
+            metrics["ulcer_index"] = 0.0
 
         # Calmar ratio
         if metrics["max_drawdown"] != 0:

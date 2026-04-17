@@ -1,0 +1,123 @@
+# 最佳化參數設定 (Optimized Parameters)
+# 填入來自 run_param_scan.py 的最佳結果
+
+optimized_params:
+  grid_futures:
+    BTCUSDT:
+      grid_count: 20
+      range_period: 20
+      ema_period: 200
+      leverage: 2
+    ETHUSDT:
+      grid_count: 20
+      range_period: 20
+      ema_period: 200
+      leverage: 2
+    SOLUSDT:
+      grid_count: 20
+      range_period: 20
+      ema_period: 200
+      leverage: 2
+    universal:
+      grid_count: 20
+      range_period: 20
+      ema_period: 200
+      leverage: 2
+
+  trend_donchian:
+    BTCUSDT:
+      entry_period: 20
+      exit_period: 10
+      adx_threshold: 25
+      atr_stop_mult: 2.0
+      sl_stop_pct: 0
+      leverage: 2
+    ETHUSDT:
+      entry_period: 20
+      exit_period: 10
+      adx_threshold: 25
+      atr_stop_mult: 2.0
+      sl_stop_pct: 0
+      leverage: 2
+    SOLUSDT:
+      entry_period: 20
+      exit_period: 10
+      adx_threshold: 25
+      atr_stop_mult: 2.0
+      sl_stop_pct: 0
+      leverage: 2
+    universal:
+      entry_period: 20
+      exit_period: 10
+      adx_threshold: 25
+      atr_stop_mult: 2.0
+      sl_stop_pct: 0
+      leverage: 2
+
+  mean_reversion_bb:
+    BTCUSDT:
+      bb_period: 20
+      bb_std: 2.0
+      rsi_period: 14
+      rsi_oversold: 30
+      rsi_overbought: 70
+      stop_loss_pct: 1.5
+      atr_percentile: 50
+      leverage: 1
+    ETHUSDT:
+      bb_period: 20
+      bb_std: 2.0
+      rsi_period: 14
+      rsi_oversold: 30
+      rsi_overbought: 70
+      stop_loss_pct: 1.5
+      atr_percentile: 50
+      leverage: 1
+    SOLUSDT:
+      bb_period: 20
+      bb_std: 2.0
+      rsi_period: 14
+      rsi_oversold: 30
+      rsi_overbought: 70
+      stop_loss_pct: 1.5
+      atr_percentile: 50
+      leverage: 1
+    universal:
+      bb_period: 20
+      bb_std: 2.0
+      rsi_period: 14
+      rsi_oversold: 30
+      rsi_overbought: 70
+      stop_loss_pct: 1.5
+      atr_percentile: 50
+      leverage: 1
+
+  funding_arb:
+    BTCUSDT:
+      funding_rate_threshold_annual: 15.0
+      funding_rate_exit_annual: 5.0
+      max_hold_days: 7
+      leverage: 1
+    ETHUSDT:
+      funding_rate_threshold_annual: 15.0
+      funding_rate_exit_annual: 5.0
+      max_hold_days: 7
+      leverage: 1
+    SOLUSDT:
+      funding_rate_threshold_annual: 15.0
+      funding_rate_exit_annual: 5.0
+      max_hold_days: 7
+      leverage: 1
+    universal:
+      funding_rate_threshold_annual: 15.0
+      funding_rate_exit_annual: 5.0
+      max_hold_days: 7
+      leverage: 1
+
+# 最佳時間框架
+best_timeframes:
+  trend_donchian: 4h
+  mean_reversion_bb: 1h
+  grid_futures: 4h
+  funding_arb: 8h
+  momentum_reversal: 1d
