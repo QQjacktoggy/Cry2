@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+    <h1>📈 {{ strategy_name }} 回測報告</h1>
+    <div class="subtitle">{{ symbol }} | {{ timeframe }} | {{ start_date }} → {{ end_date }}</div>
+    <div class="meta">初始資金: ${{ initial_capital | format_number }} | 槓桿: {{ leverage }}x | 手續費: {{ fee_rate }}% | 滑價: {{ slippage_bps }} bps</div>
+</div>
+
+<h2>📊 績效摘要</h2>
+<div class="metrics-grid">
+    {% for metric in metrics_cards %}
+    <div class="metric-card">
+        <div class="label">{{ metric.label }}</div>
+        <div class="value {{ metric.css_class }}">{{ metric.value }}</div>
+    </div>
+    {% endfor %}
+</div>
+
+<h2>📈 權益曲線</h2>
+<div class="chart-container">{{ equity_chart | safe }}</div>
+
+<h2>📉 回撤分析</h2>
+<div class="chart-container">{{ drawdown_chart | safe }}</div>
+
+<h2>🗓️ 月度收益</h2>
+<div class="chart-container">{{ monthly_heatmap | safe }}</div>
+
+<h2>📅 每日損益</h2>
+<div class="chart-container">{{ daily_pnl_chart | safe }}</div>
+
+<h2>📊 交易損益分佈</h2>
+<div class="chart-container">{{ pnl_histogram | safe }}</div>
+
+{{ monthly_table | safe }}
+
+{{ yearly_table | safe }}
+
+<h2>📋 逐筆交易明細</h2>
+{{ trade_log | safe }}
+
+<h2>⚙️ 回測設定</h2>
+<div class="config-section">
+    <h3>策略參數</h3>
+    <pre>{{ params_yaml }}</pre>
+    <h3>成本模型</h3>
+    <pre>{{ config_yaml }}</pre>
+</div>
+{% endblock %}

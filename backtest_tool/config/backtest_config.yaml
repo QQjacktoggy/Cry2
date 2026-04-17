@@ -1,0 +1,30 @@
+# 回測全域配置
+backtest:
+  initial_capital: 10000          # 初始資金 (USDT)
+  default_leverage: 2             # 預設槓桿
+
+  # 手續費
+  fees:
+    maker_rate: 0.0002            # 0.02%
+    taker_rate: 0.0004            # 0.04%
+    default_type: taker           # 預設使用 taker 費率
+
+  # 滑價
+  slippage:
+    model: fixed_bps              # fixed_bps | volume_weighted
+    fixed_bps: 2.0                # 2 basis points
+
+  # 報告
+  report:
+    language: zh-TW               # zh-TW | en
+    output_dir: reports/output
+    include_trade_log: true
+    include_charts: true
+    chart_theme: plotly_dark      # plotly | plotly_dark | seaborn
+
+  # 資料
+  data:
+    default_timeframe: 4h
+    default_symbols:
+      - BTCUSDT
+      - ETHUSDT

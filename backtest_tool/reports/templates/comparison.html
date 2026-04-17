@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+    <h1>📊 多策略比較報告</h1>
+    <div class="subtitle">{{ symbols | join(', ') }} | {{ start_date }} → {{ end_date }}</div>
+    <div class="meta">初始資金: ${{ initial_capital | format_number }}</div>
+</div>
+
+<h2>📋 策略比較摘要</h2>
+<table class="comparison-table">
+    <thead>
+        <tr>
+            <th>指標</th>
+            {% for name in strategy_names %}
+            <th>{{ name }}</th>
+            {% endfor %}
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in comparison_rows %}
+        <tr>
+            <td><strong>{{ row.label }}</strong></td>
+            {% for val in row.values %}
+            <td class="{{ val.css_class }}">{{ val.display }}</td>
+            {% endfor %}
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2>📈 權益曲線比較</h2>
+<div class="chart-container">{{ equity_overlay | safe }}</div>
+
+{% for name, section in strategy_sections.items() %}
+<h2>📊 {{ name }} 績效</h2>
+<div class="metrics-grid">
+    {% for metric in section.metrics_cards %}
+    <div class="metric-card">
+        <div class="label">{{ metric.label }}</div>
+        <div class="value {{ metric.css_class }}">{{ metric.value }}</div>
+    </div>
+    {% endfor %}
+</div>
+{% endfor %}
+
+{% if optimization_result %}
+<h2>🏆 最佳配置建議</h2>
+<div class="config-section">
+    <h3>最佳資金配置 ({{ optimization_target }})</h3>
+    <table class="comparison-table">
+        <thead>
+            <tr>
+                <th>排名</th>
+                {% for name in strategy_names %}
+                <th>{{ name }}</th>
+                {% endfor %}
+                <th>{{ optimization_target }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for alloc in top_allocations %}
+            <tr{% if loop.first %} class="best"{% endif %}>
+                <td>{{ loop.index }}</td>
+                {% for name in strategy_names %}
+                <td>{{ alloc.allocation[name] | format_pct }}</td>
+                {% endfor %}
+                <td><strong>{{ alloc[optimization_target] | format_number_4 }}</strong></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}
