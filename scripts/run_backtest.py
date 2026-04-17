@@ -120,6 +120,7 @@ def main() -> None:
         metrics=metrics,
         run_id=results["run_id"],
         output_dir=config.get("paths", {}).get("results_dir", "./data/backtest_results"),
+        fills=results.get("fills", []),
     )
     print(f"\nReport: {report_path}")
 
