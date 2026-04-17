@@ -244,3 +244,58 @@ class PortfolioOptimizer:
             metrics["calmar_ratio"] = 0.0
 
         return metrics
+
+    def risk_parity(
+        self,
+        strategy_results: dict[str, "BacktestResult"],
+        min_allocation: float = 0.0,
+        max_allocation: float = 0.80,
+    ) -> dict[str, float]:
+        """Compute risk parity allocation: inverse-volatility weighting.
+
+        Strategies with higher volatility receive lower allocation.
+        Uses the annualized volatility from each strategy's metrics.
+
+        Args:
+            strategy_results: Dict mapping strategy name to BacktestResult.
+            min_allocation: Minimum allocation per strategy (clamped).
+            max_allocation: Maximum allocation per strategy (clamped).
+
+        Returns:
+            Dict mapping strategy name → allocation fraction (sum = 1.0).
+        """
+        strategy_names = list(strategy_results.keys())
+        n = len(strategy_names)
+
+        if n == 0:
+            return {}
+        if n == 1:
+            return {strategy_names[0]: 1.0}
+
+        vols = {}
+        for name, result in strategy_results.items():
+            vol = result.metrics.get("volatility_ann", 0.0)
+            # Guard against zero or near-zero volatility
+            vols[name] = max(abs(vol), 1e-6)
+
+        inv_vols = {name: 1.0 / v for name, v in vols.items()}
+        total_inv = sum(inv_vols.values())
+
+        raw_allocs = {name: inv_v / total_inv for name, inv_v in inv_vols.items()}
+
+        # Clamp to [min, max] and renormalize
+        clamped = {name: max(min_allocation, min(max_allocation, w)) for name, w in raw_allocs.items()}
+        total_clamped = sum(clamped.values())
+
+        if total_clamped <= 0:
+            equal = 1.0 / n
+            return {name: equal for name in strategy_names}
+
+        final = {name: w / total_clamped for name, w in clamped.items()}
+
+        logger.info(
+            "Risk parity allocation computed",
+            allocations=final,
+        )
+
+        return final
