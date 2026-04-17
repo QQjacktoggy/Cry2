@@ -1,0 +1,14 @@
+exchange:
+  name: binance
+  mode: testnet
+  base_url: https://testnet.binancefuture.com
+  ws_url: wss://stream.binancefuture.com
+  api_key_env: BINANCE_TESTNET_API_KEY
+  api_secret_env: BINANCE_TESTNET_API_SECRET
+
+execution:
+  executor: live
+  slippage_model: fixed_bps
+  slippage_bps: 2
+
+initial_capital: 10000

@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "binance-futures-bot"
+version = "1.0.0"
+description = "Binance USDT Perpetual Futures automated trading system"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.1.0",
+    "numpy>=1.25.0",
+    "pyarrow>=14.0.0",
+    "pandas-ta>=0.3.14b1",
+    "python-binance>=1.0.19",
+    "optuna>=3.4.0",
+    "matplotlib>=3.8.0",
+    "plotly>=5.18.0",
+    "streamlit>=1.28.0",
+    "pytest>=7.4.0",
+    "structlog>=23.2.0",
+    "pyyaml>=6.0.1",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "apscheduler>=3.10.4",
+    "websockets>=12.0",
+    "python-telegram-bot>=20.7",
+    "python-dotenv>=1.0.0",
+    "aiohttp>=3.9.0",
+    "jinja2>=3.1.0",
+]
+
+[project.optional-dependencies]
+gcp = [
+    "google-cloud-secret-manager>=2.16.0",
+    "google-cloud-storage>=2.13.0",
+    "google-cloud-logging>=3.8.0",
+    "google-cloud-monitoring>=2.17.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.23.0",
+    "black>=23.11.0",
+    "ruff>=0.1.6",
+    "mypy>=1.7.0",
+    "pre-commit>=3.5.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+ignore = ["B007", "B027", "B905", "E501", "UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/bot/core/exceptions.py" = ["N818"]
+"src/bot/monitoring/dashboard/pages/*.py" = ["N999"]
+"src/bot/strategy/grid_futures.py" = ["SIM103"]
+"src/bot/strategy/indicators/bollinger.py" = ["SIM108"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = false
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+disable_error_code = ["import-untyped"]

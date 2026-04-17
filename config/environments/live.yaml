@@ -1,0 +1,19 @@
+exchange:
+  name: binance
+  mode: live
+  base_url: https://fapi.binance.com
+  ws_url: wss://fstream.binance.com
+  api_key_env: BINANCE_API_KEY
+  api_secret_env: BINANCE_API_SECRET
+
+execution:
+  executor: live
+  slippage_model: fixed_bps
+  slippage_bps: 2
+
+initial_capital: 10000
+
+safety:
+  require_confirmation: true
+  confirmation_string: CONFIRM_LIVE_TRADING
+  max_position_value_usdt: 100
