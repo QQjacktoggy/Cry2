@@ -10,7 +10,7 @@
 
 - [功能特色](#功能特色)
 - [系統需求](#系統需求)
-- [快速開始](#快速開始)
+- [快速開始（本地端）](#快速開始本地端)
 - [環境設定](#環境設定)
 - [配置說明](#配置說明)
 - [使用方法](#使用方法)
@@ -46,37 +46,73 @@
 
 ## 系統需求
 
-- Python **3.11+**
+- **Git**（用於複製儲存庫）
+- Python **3.11+**（確認版本：`python --version` 或 `python3 --version`）
 - pip 23+
 - （可選）Docker & Docker Compose
-- 幣安帳戶及 API 金鑰（回測不需要；Paper Trading 需 Testnet 金鑰）
+- 幣安帳戶及 API 金鑰（**回測不需要**；Paper Trading 需 Testnet 金鑰）
 
 ---
 
-## 快速開始
+## 快速開始（本地端）
+
+> 以下步驟不需要幣安 API 金鑰即可完成環境驗證（使用回測模式）。
+
+### macOS / Linux
 
 ```bash
 # 1. 複製儲存庫
 git clone https://github.com/QQjacktoggy/Cry2.git
 cd Cry2
 
-# 2. 建立虛擬環境
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+# 2. 建立並啟用虛擬環境
+python3 -m venv .venv
+source .venv/bin/activate
 
-# 3. 安裝依賴
+# 3. 安裝所有依賴（含開發工具）
+pip install -e ".[dev]"
+
+# 4. 複製環境變數範本（API 金鑰可暫時留空，回測不需要）
+cp .env.example .env
+
+# 5. 驗證安裝是否正常（執行單元測試，不需要 API 金鑰）
+PYTHONPATH=src python -m pytest tests/ -q
+
+# 6. 下載歷史資料（回測用，需要網路連線）
+python scripts/download_data.py --symbols BTCUSDT ETHUSDT --start 2024-01-01
+
+# 7. 執行回測
+python scripts/run_backtest.py --start 2024-01-01 --end 2024-12-31
+```
+
+### Windows（PowerShell）
+
+```powershell
+# 1. 複製儲存庫
+git clone https://github.com/QQjacktoggy/Cry2.git
+cd Cry2
+
+# 2. 建立並啟用虛擬環境
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+
+# 3. 安裝所有依賴（含開發工具）
 pip install -e ".[dev]"
 
 # 4. 複製環境變數範本
-cp .env.example .env
-# 填入你的 API 金鑰（見「環境設定」）
+copy .env.example .env
 
-# 5. 下載歷史資料（回測用）
+# 5. 驗證安裝是否正常（執行單元測試，不需要 API 金鑰）
+$env:PYTHONPATH="src"; python -m pytest tests/ -q
+
+# 6. 下載歷史資料（回測用，需要網路連線）
 python scripts/download_data.py --symbols BTCUSDT ETHUSDT --start 2024-01-01
 
-# 6. 執行回測
+# 7. 執行回測
 python scripts/run_backtest.py --start 2024-01-01 --end 2024-12-31
 ```
+
+> 💡 **提示**：若 PowerShell 顯示「無法執行腳本」，請先執行 `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` 解除限制。
 
 ---
 
