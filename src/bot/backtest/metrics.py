@@ -82,6 +82,7 @@ class MetricsCalculator:
             "payoff_ratio": self.payoff_ratio(),
             "total_fees": self.total_fees(),
             "final_equity": self.final_equity(),
+            "monthly_returns": self.monthly_returns(),
         }
 
     def total_return(self) -> float:
@@ -187,6 +188,39 @@ class MetricsCalculator:
         avg_w = self.avg_win()
         avg_l = abs(self.avg_loss())
         return safe_divide(avg_w, avg_l)
+
+    def monthly_returns(self) -> list[dict[str, Any]]:
+        """Calculate per-month profit breakdown.
+
+        Returns:
+            List of dicts with year, month, start_equity, end_equity,
+            profit, return_pct for each month in the equity curve.
+        """
+        if self.equity_series.empty or len(self.equity_series) < 2:
+            return []
+
+        # Resample equity to month-end values
+        monthly_equity = self.equity_series.resample("ME").last().dropna()
+        if monthly_equity.empty:
+            return []
+
+        results: list[dict[str, Any]] = []
+        prev_equity = self.initial_capital
+
+        for ts, end_eq in monthly_equity.items():
+            profit = float(end_eq) - prev_equity
+            ret_pct = profit / prev_equity if prev_equity != 0 else 0.0
+            results.append({
+                "year": ts.year,
+                "month": ts.month,
+                "start_equity": round(prev_equity, 2),
+                "end_equity": round(float(end_eq), 2),
+                "profit": round(profit, 2),
+                "return_pct": round(ret_pct, 4),
+            })
+            prev_equity = float(end_eq)
+
+        return results
 
     def total_fees(self) -> float:
         """Total commission paid."""
