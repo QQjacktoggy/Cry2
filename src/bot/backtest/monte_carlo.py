@@ -11,8 +11,6 @@ from typing import Any
 import numpy as np
 import structlog
 
-from bot.utils.math_utils import safe_divide
-
 logger = structlog.get_logger(__name__)
 
 
@@ -71,37 +69,42 @@ class MonteCarloSimulator:
         final_eq = np.array(final_equities)
         max_dds = np.array(max_drawdown_pcts)
 
+        final_equity_summary = {
+            "mean": float(np.mean(final_eq)),
+            "median": float(np.median(final_eq)),
+            "std": float(np.std(final_eq)),
+            "p5": float(np.percentile(final_eq, 5)),
+            "p25": float(np.percentile(final_eq, 25)),
+            "p75": float(np.percentile(final_eq, 75)),
+            "p95": float(np.percentile(final_eq, 95)),
+            "min": float(np.min(final_eq)),
+            "max": float(np.max(final_eq)),
+        }
+        max_drawdown_summary = {
+            "mean": float(np.mean(max_dds)),
+            "median": float(np.median(max_dds)),
+            "p5": float(np.percentile(max_dds, 5)),
+            "p95": float(np.percentile(max_dds, 95)),
+            "worst": float(np.min(max_dds)),
+        }
+        ruin_probability = float(np.mean(final_eq < initial_capital * 0.5))
+        profit_probability = float(np.mean(final_eq > initial_capital))
+
         result = {
             "num_simulations": self.num_simulations,
             "num_trades": n_trades,
             "initial_capital": initial_capital,
-            "final_equity": {
-                "mean": float(np.mean(final_eq)),
-                "median": float(np.median(final_eq)),
-                "std": float(np.std(final_eq)),
-                "p5": float(np.percentile(final_eq, 5)),
-                "p25": float(np.percentile(final_eq, 25)),
-                "p75": float(np.percentile(final_eq, 75)),
-                "p95": float(np.percentile(final_eq, 95)),
-                "min": float(np.min(final_eq)),
-                "max": float(np.max(final_eq)),
-            },
-            "max_drawdown_pct": {
-                "mean": float(np.mean(max_dds)),
-                "median": float(np.median(max_dds)),
-                "p5": float(np.percentile(max_dds, 5)),
-                "p95": float(np.percentile(max_dds, 95)),
-                "worst": float(np.min(max_dds)),
-            },
-            "ruin_probability": float(np.mean(final_eq < initial_capital * 0.5)),
-            "profit_probability": float(np.mean(final_eq > initial_capital)),
+            "final_equity": final_equity_summary,
+            "max_drawdown_pct": max_drawdown_summary,
+            "ruin_probability": ruin_probability,
+            "profit_probability": profit_probability,
         }
 
         logger.info(
             "monte_carlo_complete",
-            mean_equity=result["final_equity"]["mean"],
-            profit_prob=result["profit_probability"],
-            ruin_prob=result["ruin_probability"],
+            mean_equity=final_equity_summary["mean"],
+            profit_prob=profit_probability,
+            ruin_prob=ruin_probability,
         )
 
         return result

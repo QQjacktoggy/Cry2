@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
 """Download historical K-line and funding rate data from Binance."""
 
-import sys
 import argparse
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from bot.config.loader import load_config
+import structlog
+
 from bot.config.env import load_env
 from bot.core.logger import setup_logging
 from bot.data.fetcher import BinanceFetcher
-from bot.data.storage import ParquetStorage
 from bot.data.funding_rate import FundingRateManager
-from bot.utils.time_utils import parse_date, datetime_to_ms
-
-import structlog
+from bot.data.storage import ParquetStorage
+from bot.utils.time_utils import datetime_to_ms, parse_date
 
 logger = structlog.get_logger(__name__)
 
@@ -47,7 +46,7 @@ def main() -> None:
                 storage.save_klines(df, symbol, tf)
                 print(f"  Saved {len(df)} candles")
             else:
-                print(f"  No data returned")
+                print("  No data returned")
 
         if args.funding:
             print(f"Downloading {symbol} funding rates...")

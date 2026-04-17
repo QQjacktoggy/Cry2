@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from decimal import Decimal, ROUND_DOWN
+from decimal import ROUND_DOWN, Decimal
 
 
 def round_to_tick(price: float, tick_size: float) -> float:

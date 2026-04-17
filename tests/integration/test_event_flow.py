@@ -1,10 +1,10 @@
 """Integration test: Strategy → Risk → Execution event flow."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from bot.core.constants import EventType, OrderSide, OrderType
+from bot.core.constants import EventType, OrderSide
 from bot.core.event_bus import EventBus
-from bot.core.events import FillEvent, MarketEvent, OrderEvent, SignalEvent
+from bot.core.events import FillEvent, OrderEvent, SignalEvent
 
 
 class TestEventFlow:
@@ -48,7 +48,7 @@ class TestEventFlow:
 
         # Publish signal
         signal = SignalEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             strategy_name="test",
             symbol="BTCUSDT",
             side=OrderSide.BUY,
@@ -69,7 +69,7 @@ class TestEventFlow:
 
         event_bus.subscribe(EventType.SIGNAL.value, lambda e: all_signals.append(e))
 
-        ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        ts = datetime(2024, 1, 1, tzinfo=UTC)
         for strategy in ["strategy_a", "strategy_b", "strategy_c"]:
             signal = SignalEvent(
                 timestamp=ts,

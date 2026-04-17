@@ -1,12 +1,12 @@
 """Tests for execution layer."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from bot.core.constants import OrderSide, OrderType, PositionSide, EventType
-from bot.core.events import FillEvent, OrderEvent
+from bot.core.constants import EventType, OrderSide, OrderType, PositionSide
+from bot.core.events import OrderEvent
 from bot.execution.fee_model import FeeModel
-from bot.execution.slippage import SlippageModel
 from bot.execution.funding_model import FundingModel
+from bot.execution.slippage import SlippageModel
 
 
 class TestFeeModel:
@@ -60,7 +60,7 @@ class TestSimExecutor:
         sim_executor.set_bar_data("BTCUSDT", 42000.0, 1000.0)
 
         order = OrderEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             strategy_name="test",
             symbol="BTCUSDT",
             side=OrderSide.BUY,
@@ -80,7 +80,7 @@ class TestSimExecutor:
         sim_executor.set_bar_data("BTCUSDT", 42000.0, 1000.0)
 
         order = OrderEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             strategy_name="test",
             symbol="BTCUSDT",
             side=OrderSide.BUY,

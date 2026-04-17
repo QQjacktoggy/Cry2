@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 """Run a backtest with configured strategies."""
 
-import sys
 import argparse
+import sys
 from pathlib import Path
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from bot.config.loader import load_config
+import structlog
+
+from bot.backtest.engine import BacktestEngine
+from bot.backtest.metrics import MetricsCalculator
+from bot.backtest.report import ReportGenerator
 from bot.config.env import load_env
+from bot.config.loader import load_config
 from bot.core.logger import setup_logging
 from bot.data.storage import ParquetStorage
 from bot.execution.fee_model import FeeModel
 from bot.execution.slippage import SlippageModel
-from bot.backtest.engine import BacktestEngine
-from bot.backtest.metrics import MetricsCalculator
-from bot.backtest.report import ReportGenerator
 from bot.strategy.registry import StrategyRegistry, register_default_strategies
-from bot.utils.time_utils import parse_date, datetime_to_ms
-
-import structlog
+from bot.utils.time_utils import datetime_to_ms, parse_date
 
 logger = structlog.get_logger(__name__)
 

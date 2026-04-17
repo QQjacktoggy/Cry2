@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import structlog
 
 from bot.core.constants import OrderSide, OrderType
@@ -109,9 +107,8 @@ class OrderManager:
         """Cancel all open orders for a symbol."""
         cancelled = 0
         for order_id, order in list(self._open_orders.items()):
-            if order.symbol == symbol:
-                if self.cancel_order(symbol, order_id):
-                    cancelled += 1
+            if order.symbol == symbol and self.cancel_order(symbol, order_id):
+                cancelled += 1
         return cancelled
 
     def get_open_orders(self, symbol: str | None = None) -> list[Order]:

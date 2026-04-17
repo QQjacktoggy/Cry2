@@ -5,8 +5,8 @@ from __future__ import annotations
 from bot.core.constants import (
     BINANCE_FUTURES_BASE_URL,
     BINANCE_FUTURES_TESTNET_URL,
-    BINANCE_FUTURES_WS_URL,
     BINANCE_FUTURES_WS_TESTNET_URL,
+    BINANCE_FUTURES_WS_URL,
 )
 
 

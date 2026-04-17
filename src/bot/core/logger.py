@@ -15,7 +15,6 @@ from typing import Any
 
 import structlog
 
-
 SENSITIVE_KEYS = frozenset({
     "api_key", "api_secret", "secret", "password", "token",
     "binance_api_key", "binance_api_secret",

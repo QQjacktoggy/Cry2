@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 class BaseClock(ABC):
@@ -32,7 +32,7 @@ class RealClock(BaseClock):
 
     def now(self) -> datetime:
         """Return current UTC datetime."""
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     def now_ms(self) -> int:
         """Return current time as Unix milliseconds."""
@@ -54,7 +54,7 @@ class SimClock(BaseClock):
 
     def now(self) -> datetime:
         """Return simulated UTC datetime."""
-        return datetime.fromtimestamp(self._current_ms / 1000, tz=timezone.utc)
+        return datetime.fromtimestamp(self._current_ms / 1000, tz=UTC)
 
     def now_ms(self) -> int:
         """Return simulated time as Unix milliseconds."""

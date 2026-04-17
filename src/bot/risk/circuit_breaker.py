@@ -6,7 +6,7 @@ Pauses new orders for a configurable cooldown period (default 30 min).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -44,7 +44,7 @@ class CircuitBreaker:
 
         # Check if cooldown has expired
         if self._trip_time:
-            elapsed = datetime.now(timezone.utc) - self._trip_time
+            elapsed = datetime.now(UTC) - self._trip_time
             if elapsed >= timedelta(minutes=self.cooldown_minutes):
                 self.reset()
                 return False
@@ -67,7 +67,7 @@ class CircuitBreaker:
 
         if bar_change_pct >= self.bar_change_threshold_pct:
             self._tripped = True
-            self._trip_time = datetime.now(timezone.utc)
+            self._trip_time = datetime.now(UTC)
             self._trip_reason = (
                 f"{event.symbol} bar change {bar_change_pct:.2f}% "
                 f"exceeds threshold {self.bar_change_threshold_pct}%"
@@ -93,9 +93,9 @@ class CircuitBreaker:
 
     def get_status(self) -> dict[str, Any]:
         """Get circuit breaker status."""
-        remaining_min = 0
+        remaining_min = 0.0
         if self._tripped and self._trip_time:
-            elapsed = (datetime.now(timezone.utc) - self._trip_time).total_seconds() / 60
+            elapsed = (datetime.now(UTC) - self._trip_time).total_seconds() / 60
             remaining_min = max(0, self.cooldown_minutes - elapsed)
 
         return {

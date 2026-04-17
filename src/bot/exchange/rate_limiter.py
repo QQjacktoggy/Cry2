@@ -5,13 +5,11 @@ Binance futures: 2400 request weight per minute.
 
 from __future__ import annotations
 
-import time
 import threading
+import time
 from collections import deque
 
 import structlog
-
-from bot.core.exceptions import RateLimitError
 
 logger = structlog.get_logger(__name__)
 
@@ -41,13 +39,12 @@ class RateLimiter:
 
             current_weight = sum(w for _, w in self._requests)
 
-            if current_weight + weight > self.max_weight:
+            if current_weight + weight > self.max_weight and self._requests:
                 # Wait until oldest request expires
-                if self._requests:
-                    wait_time = self._requests[0][0] + self.window_seconds - now
-                    if wait_time > 0:
-                        logger.warning("rate_limit_wait", wait_seconds=wait_time)
-                        time.sleep(wait_time)
+                wait_time = self._requests[0][0] + self.window_seconds - now
+                if wait_time > 0:
+                    logger.warning("rate_limit_wait", wait_seconds=wait_time)
+                    time.sleep(wait_time)
 
             self._requests.append((time.time(), weight))
 

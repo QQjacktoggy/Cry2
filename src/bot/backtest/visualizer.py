@@ -104,8 +104,8 @@ class BacktestVisualizer:
     ) -> Any:
         """Plot monthly returns heatmap."""
         try:
-            import matplotlib.pyplot as plt
             import matplotlib.colors as mcolors
+            import matplotlib.pyplot as plt
         except ImportError:
             return None
 
@@ -132,7 +132,7 @@ class BacktestVisualizer:
         fig, ax = plt.subplots(figsize=(12, max(4, len(pivot) * 0.8)))
 
         # Color map: red for negative, green for positive
-        cmap = plt.cm.RdYlGn
+        cmap = plt.get_cmap("RdYlGn")
         norm = mcolors.TwoSlopeNorm(vmin=pivot.min().min(), vcenter=0, vmax=max(pivot.max().max(), 1))
 
         im = ax.imshow(pivot.values, cmap=cmap, norm=norm, aspect="auto")

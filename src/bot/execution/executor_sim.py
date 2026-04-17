@@ -6,8 +6,7 @@ and liquidation. Signals generated at bar close are executed at next bar open.
 
 from __future__ import annotations
 
-from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -16,7 +15,6 @@ from bot.core.constants import (
     OrderSide,
     OrderType,
     PositionSide,
-    FUNDING_INTERVAL_MS,
 )
 from bot.core.event_bus import EventBus
 from bot.core.events import FillEvent, FundingEvent, OrderEvent, RejectEvent
@@ -190,7 +188,7 @@ class SimExecutor(BaseExecutor):
         self._balance += realized_pnl
 
         # Create fill event
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         fill = FillEvent(
             timestamp=now,
             strategy_name=order.strategy_name,
@@ -220,7 +218,7 @@ class SimExecutor(BaseExecutor):
     def _reject_order(self, order: OrderEvent, reason: str, client_order_id: str) -> None:
         """Reject an order and publish event."""
         reject = RejectEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             strategy_name=order.strategy_name,
             symbol=order.symbol,
             reason=reason,

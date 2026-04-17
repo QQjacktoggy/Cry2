@@ -1,6 +1,6 @@
 """Tests for the event bus."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from bot.core.constants import EventType
 from bot.core.events import MarketEvent
@@ -16,7 +16,7 @@ class TestEventBus:
         event_bus.subscribe(EventType.MARKET.value, handler)
 
         event = MarketEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             symbol="BTCUSDT",
             timeframe="4h",
             open=42000.0,
@@ -43,7 +43,7 @@ class TestEventBus:
         event_bus.subscribe(EventType.MARKET.value, handler_b)
 
         event = MarketEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             symbol="BTCUSDT",
             timeframe="4h",
             open=42000.0,
@@ -67,7 +67,7 @@ class TestEventBus:
         event_bus.unsubscribe(EventType.MARKET.value, handler)
 
         event = MarketEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             symbol="BTCUSDT",
             timeframe="4h",
             open=42000.0,
@@ -94,7 +94,7 @@ class TestEventBus:
         event_bus.subscribe(EventType.MARKET.value, good_handler)
 
         event = MarketEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             symbol="BTCUSDT",
             timeframe="4h",
             open=42000.0,
@@ -110,7 +110,7 @@ class TestEventBus:
     def test_event_count(self, event_bus):
         event_bus.subscribe(EventType.MARKET.value, lambda e: None)
         event = MarketEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             symbol="BTCUSDT",
             timeframe="4h",
             open=42000.0,

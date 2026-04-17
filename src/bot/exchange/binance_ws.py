@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import structlog
 
@@ -96,7 +97,7 @@ class BinanceWebSocket:
                                 self.on_message(data)
                         except json.JSONDecodeError:
                             pass
-            except Exception as e:
+            except Exception:
                 self._reconnect_count += 1
                 if self._reconnect_count > self._max_reconnects:
                     break

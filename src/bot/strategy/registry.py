@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Type
+from typing import Any
 
 import structlog
 
@@ -14,16 +14,16 @@ logger = structlog.get_logger(__name__)
 class StrategyRegistry:
     """Registry for strategy classes. Supports dynamic loading."""
 
-    _registry: dict[str, Type[BaseStrategy]] = {}
+    _registry: dict[str, type[BaseStrategy]] = {}
 
     @classmethod
-    def register(cls, name: str, strategy_class: Type[BaseStrategy]) -> None:
+    def register(cls, name: str, strategy_class: type[BaseStrategy]) -> None:
         """Register a strategy class."""
         cls._registry[name] = strategy_class
         logger.info("strategy_registered", name=name)
 
     @classmethod
-    def get(cls, name: str) -> Type[BaseStrategy]:
+    def get(cls, name: str) -> type[BaseStrategy]:
         """Get a strategy class by name."""
         if name not in cls._registry:
             raise KeyError(f"Strategy '{name}' not registered. Available: {list(cls._registry.keys())}")
@@ -71,8 +71,8 @@ def register_default_strategies() -> None:
     """Register all built-in strategies."""
     from bot.strategy.funding_arb import FundingArbStrategy
     from bot.strategy.grid_futures import GridFuturesStrategy
-    from bot.strategy.trend_donchian import TrendDonchianStrategy
     from bot.strategy.mean_reversion_bb import MeanReversionBBStrategy
+    from bot.strategy.trend_donchian import TrendDonchianStrategy
 
     StrategyRegistry.register("funding_arb", FundingArbStrategy)
     StrategyRegistry.register("grid_futures", GridFuturesStrategy)

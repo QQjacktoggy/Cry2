@@ -11,9 +11,8 @@ from typing import Any
 
 import structlog
 
-from bot.core.constants import OrderSide, OrderType
-from bot.core.exceptions import ExchangeError, OrderRejected, RateLimitError
-from bot.core.types import Position, SymbolInfo
+from bot.core.exceptions import ExchangeError, RateLimitError
+from bot.core.types import Position
 from bot.exchange.rate_limiter import RateLimiter
 from bot.exchange.testnet import EndpointConfig
 from bot.utils.retry import retry_with_backoff

@@ -5,14 +5,13 @@ When margin ratio drops below threshold, auto-deleverages positions.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 import structlog
 
-from bot.core.constants import EventType, OrderSide, OrderType, PositionSide
+from bot.core.constants import OrderSide, OrderType, PositionSide
 from bot.core.event_bus import EventBus
-from bot.core.events import LiquidationEvent, OrderEvent, SignalEvent
+from bot.core.events import LiquidationEvent, OrderEvent
 from bot.core.types import Position
 
 logger = structlog.get_logger(__name__)
@@ -70,7 +69,7 @@ class LiquidationGuard:
 
             # Publish liquidation event
             event = LiquidationEvent(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 symbol="ALL",
                 margin_ratio=margin_ratio,
                 maintenance_margin=maintenance_margin,
@@ -98,7 +97,7 @@ class LiquidationGuard:
             # Create reduce-only order
             side = OrderSide.SELL if pos.side == PositionSide.LONG else OrderSide.BUY
             order = OrderEvent(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 strategy_name=pos.strategy_name,
                 symbol=pos.symbol,
                 side=side,

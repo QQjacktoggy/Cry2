@@ -6,13 +6,12 @@ Bullish: only long grids. Bearish: only short grids. Ranging: both.
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import structlog
 
-from bot.core.constants import OrderSide, OrderType, PositionSide
-from bot.core.events import FillEvent, MarketEvent, SignalEvent
+from bot.core.constants import OrderSide
+from bot.core.events import MarketEvent, SignalEvent
 from bot.strategy.base import BaseStrategy
 from bot.strategy.indicators.atr import calculate_atr
 from bot.strategy.indicators.bollinger import calculate_ema

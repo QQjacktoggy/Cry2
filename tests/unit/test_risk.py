@@ -1,13 +1,11 @@
 """Tests for risk management modules."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from bot.core.constants import OrderSide, EventType
-from bot.core.events import FillEvent, SignalEvent
+from bot.core.events import MarketEvent
 from bot.risk.circuit_breaker import CircuitBreaker
 from bot.risk.kill_switch import KillSwitch, KillSwitchState
 from bot.risk.position_sizer import PositionSizer
-from bot.core.events import MarketEvent
 
 
 class TestPositionSizer:
@@ -48,7 +46,7 @@ class TestCircuitBreaker:
     def test_normal_bar(self):
         cb = CircuitBreaker(bar_change_threshold_pct=5.0)
         event = MarketEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             symbol="BTCUSDT",
             timeframe="4h",
             open=42000.0,
@@ -63,7 +61,7 @@ class TestCircuitBreaker:
     def test_extreme_bar(self):
         cb = CircuitBreaker(bar_change_threshold_pct=5.0)
         event = MarketEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             symbol="BTCUSDT",
             timeframe="4h",
             open=42000.0,
@@ -78,7 +76,7 @@ class TestCircuitBreaker:
     def test_reset(self):
         cb = CircuitBreaker(bar_change_threshold_pct=5.0)
         event = MarketEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             symbol="BTCUSDT",
             timeframe="4h",
             open=42000.0,

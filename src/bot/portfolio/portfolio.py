@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 import structlog
 
-from bot.core.constants import EventType, OrderSide
+from bot.core.constants import EventType
 from bot.core.event_bus import EventBus
 from bot.core.events import FillEvent, MarketEvent
 from bot.core.types import AccountSnapshot, Position
@@ -76,7 +75,7 @@ class Portfolio:
 
     def record_equity(self, timestamp: datetime | None = None) -> None:
         """Record current equity for equity curve tracking."""
-        ts = timestamp or datetime.now(timezone.utc)
+        ts = timestamp or datetime.now(UTC)
         self._equity_history.append((ts, self.equity))
 
     @property
@@ -125,7 +124,7 @@ class Portfolio:
     def take_snapshot(self) -> AccountSnapshot:
         """Create an account snapshot."""
         return AccountSnapshot(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             total_equity=self.equity,
             available_balance=self._cash,
             total_unrealized_pnl=self.unrealized_pnl,

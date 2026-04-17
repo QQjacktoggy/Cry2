@@ -1,32 +1,32 @@
 #!/usr/bin/env python3
 """Run paper trading on Binance Testnet."""
 
-import sys
-import asyncio
-import signal
 import argparse
+import asyncio
+from contextlib import suppress
+import signal
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+import structlog
+
+from bot.config.env import get_secret, load_env
 from bot.config.loader import load_config
-from bot.config.env import load_env, get_secret
-from bot.core.logger import setup_logging
-from bot.core.event_bus import EventBus
 from bot.core.clock import RealClock
 from bot.core.constants import EventType
+from bot.core.event_bus import EventBus
+from bot.core.logger import setup_logging
 from bot.data.feed_live import LiveFeed
-from bot.execution.executor_live import LiveExecutor
 from bot.exchange.binance_rest import BinanceRestClient
-from bot.portfolio.portfolio import Portfolio
-from bot.risk.risk_manager import RiskManager
-from bot.risk.kill_switch import KillSwitch
-from bot.risk.circuit_breaker import CircuitBreaker
+from bot.execution.executor_live import LiveExecutor
 from bot.monitoring.telegram_notifier import TelegramNotifier
-from bot.monitoring.health_check import HealthCheck
+from bot.portfolio.portfolio import Portfolio
+from bot.risk.circuit_breaker import CircuitBreaker
+from bot.risk.kill_switch import KillSwitch
+from bot.risk.risk_manager import RiskManager
 from bot.strategy.registry import StrategyRegistry, register_default_strategies
-
-import structlog
 
 logger = structlog.get_logger(__name__)
 
@@ -48,8 +48,12 @@ async def main() -> None:
 
     # Exchange
     exchange_cfg = config.get("exchange", {})
-    api_key = get_secret(exchange_cfg.get("api_key_env", "BINANCE_TESTNET_API_KEY"), required=False)
-    api_secret = get_secret(exchange_cfg.get("api_secret_env", "BINANCE_TESTNET_API_SECRET"), required=False)
+    api_key = get_secret(
+        exchange_cfg.get("api_key_env", "BINANCE_TESTNET_API_KEY"), required=False
+    )
+    api_secret = get_secret(
+        exchange_cfg.get("api_secret_env", "BINANCE_TESTNET_API_SECRET"), required=False
+    )
 
     client = BinanceRestClient(
         api_key=api_key,
@@ -73,6 +77,15 @@ async def main() -> None:
     })
     kill_switch = KillSwitch(event_bus=event_bus)
     circuit_breaker = CircuitBreaker()
+    logger.debug(
+        "paper_runtime_components_ready",
+        components=[
+            portfolio.__class__.__name__,
+            risk_manager.__class__.__name__,
+            kill_switch.__class__.__name__,
+            circuit_breaker.__class__.__name__,
+        ],
+    )
 
     # Telegram
     tg_cfg = config.get("telegram", {})
@@ -117,14 +130,16 @@ async def main() -> None:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    logger.info("paper_trading_started", symbols=all_symbols, strategies=[s.name for s in strategies])
+    logger.info(
+        "paper_trading_started",
+        symbols=all_symbols,
+        strategies=[s.name for s in strategies],
+    )
     notifier.send_sync("🟢 Paper trading started")
 
     # Run feed
-    try:
+    with suppress(asyncio.CancelledError):
         await feed.start_async()
-    except asyncio.CancelledError:
-        pass
 
     logger.info("paper_trading_stopped")
     notifier.send_sync("🔴 Paper trading stopped")

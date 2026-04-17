@@ -6,18 +6,17 @@ and publishes FillEvents on completion.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 import structlog
 
-from bot.core.constants import EventType, OrderSide, OrderType, PositionSide
+from bot.core.constants import OrderType
 from bot.core.event_bus import EventBus
 from bot.core.events import FillEvent, OrderEvent, RejectEvent
 from bot.core.types import Position
+from bot.exchange.account import AccountManager
 from bot.exchange.binance_rest import BinanceRestClient
 from bot.exchange.order_manager import OrderManager
-from bot.exchange.account import AccountManager
 from bot.execution.executor_base import BaseExecutor
 from bot.utils.id_generator import generate_client_order_id
 
@@ -57,7 +56,7 @@ class LiveExecutor(BaseExecutor):
             # If market order, it should be filled immediately
             if order.order_type == OrderType.MARKET:
                 fill = FillEvent(
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     strategy_name=order.strategy_name,
                     symbol=order.symbol,
                     side=order.side,
@@ -81,7 +80,7 @@ class LiveExecutor(BaseExecutor):
 
         except Exception as e:
             reject = RejectEvent(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 strategy_name=order.strategy_name,
                 symbol=order.symbol,
                 reason=str(e),

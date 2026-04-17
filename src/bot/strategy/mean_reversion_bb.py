@@ -14,6 +14,7 @@ import structlog
 
 from bot.core.constants import OrderSide, PositionSide
 from bot.core.events import MarketEvent, SignalEvent
+from bot.core.types import Position
 from bot.strategy.base import BaseStrategy
 from bot.strategy.indicators.atr import calculate_atr
 from bot.strategy.indicators.bollinger import calculate_bollinger, calculate_rsi

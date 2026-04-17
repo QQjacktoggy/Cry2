@@ -1,8 +1,6 @@
 """Tests for clock implementations."""
 
-from datetime import datetime, timezone
-
-from bot.core.clock import SimClock, RealClock
+from datetime import UTC, datetime
 
 
 class TestSimClock:
@@ -26,13 +24,13 @@ class TestSimClock:
     def test_now_returns_datetime(self, sim_clock):
         dt = sim_clock.now()
         assert isinstance(dt, datetime)
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
 
 class TestRealClock:
     def test_now_returns_utc(self, real_clock):
         dt = real_clock.now()
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_now_ms_is_positive(self, real_clock):
         assert real_clock.now_ms() > 0

@@ -1,20 +1,20 @@
 """Tests for core event types."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from bot.core.constants import EventType, OrderSide, OrderType
+from bot.core.constants import EventType, OrderSide
 from bot.core.events import (
-    MarketEvent,
-    SignalEvent,
     FillEvent,
     KillSwitchEvent,
+    MarketEvent,
+    SignalEvent,
 )
 
 
 class TestMarketEvent:
     def test_create(self):
         event = MarketEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             symbol="BTCUSDT",
             timeframe="4h",
             open=42000.0,
@@ -29,7 +29,7 @@ class TestMarketEvent:
 
     def test_frozen(self):
         event = MarketEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             symbol="BTCUSDT",
             timeframe="4h",
             open=42000.0,
@@ -41,7 +41,7 @@ class TestMarketEvent:
         # Events are frozen (immutable)
         try:
             event.close = 99999.0
-            assert False, "Should have raised"
+            raise AssertionError("Should have raised")
         except Exception:
             pass
 
@@ -49,7 +49,7 @@ class TestMarketEvent:
 class TestSignalEvent:
     def test_create(self):
         signal = SignalEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             strategy_name="test",
             symbol="BTCUSDT",
             side=OrderSide.BUY,
@@ -63,7 +63,7 @@ class TestSignalEvent:
 class TestFillEvent:
     def test_create(self):
         fill = FillEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             strategy_name="test",
             symbol="BTCUSDT",
             side=OrderSide.BUY,
@@ -78,7 +78,7 @@ class TestFillEvent:
 class TestKillSwitchEvent:
     def test_create(self):
         event = KillSwitchEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             reason="test",
             triggered_by="user",
         )

@@ -6,9 +6,9 @@ Default rates: Maker 0.02%, Taker 0.04%.
 
 from __future__ import annotations
 
-from bot.core.constants import OrderType
-
 import structlog
+
+from bot.core.constants import OrderType
 
 logger = structlog.get_logger(__name__)
 

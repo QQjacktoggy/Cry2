@@ -7,8 +7,9 @@ Uses Bayesian optimization (TPE sampler) for efficient search.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import structlog
 
@@ -59,7 +60,7 @@ class StrategyOptimizer:
             return {}
 
         def objective(trial: optuna.Trial) -> float:
-            params = {}
+            params: dict[str, Any] = {}
             for name, spec in param_space.items():
                 if spec["type"] == "int":
                     params[name] = trial.suggest_int(name, spec["low"], spec["high"])
@@ -73,7 +74,7 @@ class StrategyOptimizer:
 
             try:
                 metrics = self.backtest_fn(**params)
-                value = metrics.get(self.objective_metric, 0.0)
+                value = float(metrics.get(self.objective_metric, 0.0))
 
                 # Report intermediate values for pruning
                 trial.report(value, step=0)

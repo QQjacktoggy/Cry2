@@ -130,7 +130,7 @@ class BacktestFeed(DataFeed):
 
         if event_data["type"] == "market":
             data = event_data["data"]
-            event = MarketEvent(
+            return MarketEvent(
                 timestamp=ts_dt,
                 symbol=event_data["symbol"],
                 timeframe=self.timeframe,
@@ -146,16 +146,14 @@ class BacktestFeed(DataFeed):
                 bar_timestamp=ts_dt,
                 source="backtest",
             )
-            return event
 
-        elif event_data["type"] == "funding":
-            event = FundingEvent(
+        if event_data["type"] == "funding":
+            return FundingEvent(
                 timestamp=ts_dt,
                 symbol=event_data["symbol"],
                 funding_rate=event_data["data"]["funding_rate"],
                 source="backtest",
             )
-            return event
 
         return None
 

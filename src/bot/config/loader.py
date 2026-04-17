@@ -7,8 +7,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-import yaml
 import structlog
+import yaml
 
 from bot.core.exceptions import ConfigError
 

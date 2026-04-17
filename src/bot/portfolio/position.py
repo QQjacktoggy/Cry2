@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 import structlog
 
@@ -46,7 +45,7 @@ class PositionTracker:
         ))
 
         realized_pnl = 0.0
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         if side == OrderSide.BUY:
             if pos.side == PositionSide.SHORT and pos.quantity > 0:

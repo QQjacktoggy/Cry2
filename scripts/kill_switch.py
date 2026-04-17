@@ -6,9 +6,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from bot.config.env import load_env, get_secret
-from bot.exchange.binance_rest import BinanceRestClient
+from bot.config.env import get_secret, load_env
 from bot.exchange.account import AccountManager
+from bot.exchange.binance_rest import BinanceRestClient
 
 
 def main() -> None:

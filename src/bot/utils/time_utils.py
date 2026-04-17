@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def ms_to_datetime(timestamp_ms: int) -> datetime:
     """Convert Unix milliseconds to UTC datetime."""
-    return datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+    return datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC)
 
 
 def datetime_to_ms(dt: datetime) -> int:
@@ -22,12 +22,12 @@ def format_timestamp(dt: datetime, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
 
 def parse_date(date_str: str) -> datetime:
     """Parse date string (YYYY-MM-DD) to UTC datetime."""
-    return datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    return datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=UTC)
 
 
 def get_current_utc() -> datetime:
     """Get current UTC datetime."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def ms_to_timeframe_str(ms: int) -> str:

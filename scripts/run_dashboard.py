@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Start the Streamlit dashboard."""
 
-import sys
 import subprocess
+import sys
 from pathlib import Path
 
 

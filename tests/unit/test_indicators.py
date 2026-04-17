@@ -1,7 +1,7 @@
 """Tests for technical indicators."""
 
 from bot.strategy.indicators.atr import calculate_atr
-from bot.strategy.indicators.bollinger import calculate_bollinger, calculate_rsi, calculate_ema
+from bot.strategy.indicators.bollinger import calculate_bollinger, calculate_ema, calculate_rsi
 from bot.strategy.indicators.donchian import calculate_donchian
 
 

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Run live trading. Requires explicit confirmation."""
 
-import sys
 import argparse
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from bot.config.loader import load_config
 from bot.config.env import load_env
+from bot.config.loader import load_config
 
 
 def main() -> None:
@@ -23,15 +23,14 @@ def main() -> None:
     safety = config.get("safety", {})
     required_string = safety.get("confirmation_string", "CONFIRM_LIVE_TRADING")
 
-    if safety.get("require_confirmation", True):
-        if args.confirm != required_string:
-            print("=" * 60)
-            print("⚠️  LIVE TRADING MODE")
-            print("=" * 60)
-            print(f"This will trade with REAL MONEY on Binance Mainnet.")
-            print(f"To confirm, run with: --confirm {required_string}")
-            print("=" * 60)
-            sys.exit(1)
+    if safety.get("require_confirmation", True) and args.confirm != required_string:
+        print("=" * 60)
+        print("⚠️  LIVE TRADING MODE")
+        print("=" * 60)
+        print("This will trade with REAL MONEY on Binance Mainnet.")
+        print(f"To confirm, run with: --confirm {required_string}")
+        print("=" * 60)
+        sys.exit(1)
 
     print("🚨 Live trading mode confirmed. Starting...")
     print("TODO: Implement live trading loop (same as paper but with live config)")

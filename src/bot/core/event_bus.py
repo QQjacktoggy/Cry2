@@ -9,7 +9,8 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections import defaultdict
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import structlog
 
@@ -17,7 +18,7 @@ from bot.core.events import BaseEvent
 
 logger = structlog.get_logger(__name__)
 
-EventHandler = Callable[[BaseEvent], Any]
+EventHandler = Callable[[Any], Any]
 
 
 class EventBus:

@@ -105,6 +105,7 @@ class BaseStrategy(ABC):
 
     def on_funding(self, event: FundingEvent) -> None:
         """Called on funding rate settlement. Override if needed."""
+        return None
 
     def warmup_bars(self) -> int:
         """Number of bars needed before generating signals."""

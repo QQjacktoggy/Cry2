@@ -6,11 +6,12 @@ Default: 6 months train, 1 month test.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import structlog
 
-from bot.utils.time_utils import parse_date, datetime_to_ms
+from bot.utils.time_utils import datetime_to_ms, parse_date
 
 logger = structlog.get_logger(__name__)
 
@@ -45,7 +46,7 @@ class WalkForwardAnalyzer:
         start = parse_date(start_date)
         end = parse_date(end_date)
 
-        windows = []
+        windows: list[dict[str, Any]] = []
         current = start
 
         while True:
@@ -93,7 +94,7 @@ class WalkForwardAnalyzer:
             List of per-window results.
         """
         windows = self.generate_windows(start_date, end_date)
-        results = []
+        results: list[dict[str, Any]] = []
 
         for window in windows:
             logger.info(

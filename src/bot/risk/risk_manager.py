@@ -10,16 +10,14 @@ Multi-layer risk checks:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 
-from bot.core.constants import EventType, OrderSide
+from bot.core.constants import EventType
 from bot.core.event_bus import EventBus
 from bot.core.events import FillEvent, OrderEvent, RejectEvent, SignalEvent
-from bot.core.exceptions import RiskLimitExceeded
-from bot.core.types import Position
 
 logger = structlog.get_logger(__name__)
 
@@ -51,8 +49,8 @@ class RiskManager:
         self._daily_trade_count: int = 0
         self._daily_halted: bool = False
         self._weekly_halted: bool = False
-        self._last_daily_reset: datetime = datetime.now(timezone.utc)
-        self._last_weekly_reset: datetime = datetime.now(timezone.utc)
+        self._last_daily_reset: datetime = datetime.now(UTC)
+        self._last_weekly_reset: datetime = datetime.now(UTC)
         self._equity: float = 0.0
 
         # Subscribe to events
@@ -65,7 +63,7 @@ class RiskManager:
 
     def _check_daily_reset(self) -> None:
         """Reset daily counters at UTC midnight."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if now.date() > self._last_daily_reset.date():
             self._daily_pnl = 0.0
             self._daily_trade_count = 0
@@ -75,7 +73,7 @@ class RiskManager:
 
     def _check_weekly_reset(self) -> None:
         """Reset weekly counters on Monday."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         days_since_reset = (now - self._last_weekly_reset).days
         if days_since_reset >= 7:
             self._weekly_pnl = 0.0
@@ -126,7 +124,7 @@ class RiskManager:
 
         if not passed:
             reject = RejectEvent(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 strategy_name=event.strategy_name,
                 symbol=event.symbol,
                 reason=reason,

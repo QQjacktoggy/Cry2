@@ -1,19 +1,18 @@
 """Shared test fixtures."""
 
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
 import pytest
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from bot.core.clock import RealClock, SimClock
 from bot.core.event_bus import EventBus
-from bot.core.clock import SimClock, RealClock
-from bot.core.constants import OrderSide, OrderType, PositionSide, EventType
-from bot.core.events import MarketEvent, FillEvent, SignalEvent, FundingEvent
-from bot.core.types import Position, SymbolInfo
+from bot.core.events import MarketEvent
+from bot.core.types import SymbolInfo
 from bot.execution.executor_sim import SimExecutor
 from bot.execution.fee_model import FeeModel
 from bot.execution.slippage import SlippageModel
@@ -78,7 +77,7 @@ def risk_manager(event_bus):
 def sample_market_event():
     """Sample BTC market event."""
     return MarketEvent(
-        timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2024, 1, 1, tzinfo=UTC),
         symbol="BTCUSDT",
         timeframe="4h",
         open=42000.0,

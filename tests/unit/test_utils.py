@@ -1,16 +1,16 @@
 """Tests for utility modules."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from bot.utils.math_utils import (
-    round_to_tick,
-    round_to_step,
-    safe_divide,
-    pct_change,
-    clamp,
-)
-from bot.utils.time_utils import ms_to_datetime, datetime_to_ms
 from bot.utils.id_generator import generate_client_order_id, generate_run_id
+from bot.utils.math_utils import (
+    clamp,
+    pct_change,
+    round_to_step,
+    round_to_tick,
+    safe_divide,
+)
+from bot.utils.time_utils import datetime_to_ms, ms_to_datetime
 
 
 class TestMathUtils:
@@ -43,7 +43,7 @@ class TestTimeUtils:
         assert dt.day == 1
 
     def test_datetime_to_ms(self):
-        dt = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        dt = datetime(2024, 1, 1, tzinfo=UTC)
         ms = datetime_to_ms(dt)
         assert ms == 1704067200000
 

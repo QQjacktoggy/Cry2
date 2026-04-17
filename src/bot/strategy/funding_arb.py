@@ -8,14 +8,13 @@ v1: Only futures side, spot side is manual.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import structlog
 
-from bot.core.constants import OrderSide, OrderType, PositionSide
-from bot.core.events import FillEvent, FundingEvent, MarketEvent, SignalEvent
-from bot.core.types import Position
+from bot.core.constants import OrderSide, PositionSide
+from bot.core.events import FundingEvent, MarketEvent, SignalEvent
 from bot.strategy.base import BaseStrategy
 
 logger = structlog.get_logger(__name__)

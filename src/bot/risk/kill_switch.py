@@ -14,16 +14,15 @@ Actions:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
 import structlog
 
-from bot.core.constants import EventType, OrderSide, OrderType, PositionSide
+from bot.core.constants import OrderSide, OrderType, PositionSide
 from bot.core.event_bus import EventBus
 from bot.core.events import KillSwitchEvent, OrderEvent
-from bot.core.exceptions import KillSwitchActivated
 from bot.core.types import Position
 
 logger = structlog.get_logger(__name__)
@@ -77,7 +76,7 @@ class KillSwitch:
 
         self._state = KillSwitchState.TRIGGERED
         self._trigger_reason = reason
-        self._triggered_at = datetime.now(timezone.utc)
+        self._triggered_at = datetime.now(UTC)
 
         logger.critical(
             "kill_switch_triggered",
@@ -97,7 +96,7 @@ class KillSwitch:
 
     def close_all_positions(self, positions: list[Position]) -> None:
         """Send market orders to close all open positions."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for pos in positions:
             if not pos.is_open:
                 continue

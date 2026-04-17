@@ -13,7 +13,6 @@ Key rule: Signals generated at bar close, execution at NEXT bar open.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
 from typing import Any
 
 import structlog
@@ -21,7 +20,7 @@ import structlog
 from bot.core.clock import SimClock
 from bot.core.constants import EventType
 from bot.core.event_bus import EventBus
-from bot.core.events import FillEvent, FundingEvent, MarketEvent, OrderEvent, SignalEvent
+from bot.core.events import FundingEvent, MarketEvent, OrderEvent, SignalEvent
 from bot.data.feed_backtest import BacktestFeed
 from bot.data.storage import ParquetStorage
 from bot.execution.executor_sim import SimExecutor

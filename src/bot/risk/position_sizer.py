@@ -12,7 +12,7 @@ from enum import Enum
 
 import structlog
 
-from bot.utils.math_utils import safe_divide, clamp
+from bot.utils.math_utils import clamp, safe_divide
 
 logger = structlog.get_logger(__name__)
 
