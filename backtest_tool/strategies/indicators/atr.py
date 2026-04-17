@@ -1,9 +1,8 @@
-"""ATR (Average True Range) indicator using ta library."""
+"""ATR (Average True Range) indicator — pure pandas/numpy implementation."""
 
 from __future__ import annotations
 
 import pandas as pd
-from ta.volatility import AverageTrueRange
 
 
 def compute_atr(
@@ -23,8 +22,17 @@ def compute_atr(
     Returns:
         ATR Series (NaN for warmup bars).
     """
-    atr_indicator = AverageTrueRange(high=high, low=low, close=close, window=period)
-    return atr_indicator.average_true_range()
+    prev_close = close.shift(1)
+    tr = pd.concat(
+        [
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+
+    return tr.ewm(alpha=1.0 / period, adjust=False).mean()
 
 
 def compute_atr_percentile(

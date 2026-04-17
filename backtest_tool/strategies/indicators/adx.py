@@ -1,9 +1,9 @@
-"""ADX (Average Directional Index) indicator using ta library."""
+"""ADX (Average Directional Index) indicator — pure pandas/numpy implementation."""
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
-from ta.trend import ADXIndicator
 
 
 def compute_adx(
@@ -23,5 +23,37 @@ def compute_adx(
     Returns:
         ADX Series (0-100, NaN for warmup bars).
     """
-    adx_indicator = ADXIndicator(high=high, low=low, close=close, window=period)
-    return adx_indicator.adx()
+    high = high.copy()
+    low = low.copy()
+    close = close.copy()
+
+    # True Range
+    prev_close = close.shift(1)
+    tr = pd.concat(
+        [
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+
+    # Directional Movement
+    up_move = high.diff()
+    down_move = -low.diff()
+
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+    plus_dm_s = pd.Series(plus_dm, index=high.index, dtype=float)
+    minus_dm_s = pd.Series(minus_dm, index=high.index, dtype=float)
+
+    # Smoothed values (Wilder EMA = equivalent of rolling sum with alpha=1/period)
+    alpha = 1.0 / period
+    atr_s = tr.ewm(alpha=alpha, adjust=False).mean() * period
+    plus_di = 100.0 * (plus_dm_s.ewm(alpha=alpha, adjust=False).mean() * period) / atr_s.replace(0, np.nan)
+    minus_di = 100.0 * (minus_dm_s.ewm(alpha=alpha, adjust=False).mean() * period) / atr_s.replace(0, np.nan)
+
+    dx = (100.0 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan))
+    adx = dx.ewm(alpha=alpha, adjust=False).mean()
+    return adx.fillna(0.0)
