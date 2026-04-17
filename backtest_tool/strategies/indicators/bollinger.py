@@ -1,11 +1,9 @@
-"""Bollinger Bands, RSI, and EMA indicators using ta library."""
+"""Bollinger Bands, RSI, and EMA indicators — pure pandas/numpy implementation."""
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
-from ta.momentum import RSIIndicator
-from ta.trend import EMAIndicator
-from ta.volatility import BollingerBands
 
 
 def compute_bollinger(
@@ -23,10 +21,10 @@ def compute_bollinger(
     Returns:
         Tuple of (upper, middle, lower) Series.
     """
-    bb = BollingerBands(close=close, window=period, window_dev=std)
-    upper = bb.bollinger_hband()
-    middle = bb.bollinger_mavg()
-    lower = bb.bollinger_lband()
+    middle = close.rolling(window=period, min_periods=period).mean()
+    rolling_std = close.rolling(window=period, min_periods=period).std(ddof=0)
+    upper = middle + std * rolling_std
+    lower = middle - std * rolling_std
     return upper, middle, lower
 
 
@@ -43,8 +41,16 @@ def compute_rsi(
     Returns:
         RSI Series (0-100, NaN for warmup bars).
     """
-    rsi = RSIIndicator(close=close, window=period)
-    return rsi.rsi()
+    delta = close.diff()
+    gain = delta.clip(lower=0.0)
+    loss = (-delta).clip(lower=0.0)
+
+    avg_gain = gain.ewm(alpha=1.0 / period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1.0 / period, adjust=False).mean()
+
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100.0 - (100.0 / (1.0 + rs))
+    return rsi.fillna(50.0)
 
 
 def compute_ema(
@@ -60,5 +66,4 @@ def compute_ema(
     Returns:
         EMA Series.
     """
-    ema = EMAIndicator(close=close, window=period)
-    return ema.ema_indicator()
+    return close.ewm(span=period, adjust=False).mean()
