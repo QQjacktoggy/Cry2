@@ -14,7 +14,7 @@ import pandas as pd
 from backtest_tool.strategies.base_vbt import BaseVBTStrategy
 from backtest_tool.strategies.indicators.adx import compute_adx
 from backtest_tool.strategies.indicators.atr import compute_atr
-from backtest_tool.strategies.indicators.bollinger import compute_bollinger, compute_ema
+from backtest_tool.strategies.indicators.bollinger import compute_bollinger, compute_ema, compute_rsi
 
 
 def _zones(upper: pd.Series, lower: pd.Series) -> tuple[pd.Series, pd.Series]:
@@ -206,6 +206,62 @@ class GridTrendBias(BaseVBTStrategy):
     def generate_short_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
         _, mid, _ = compute_bollinger(ohlcv["close"], self.params["bb_period"], self.params["bb_std"])
         return (ohlcv["close"] <= mid).fillna(False)
+
+
+# ---------------------------------------------------------------------------
+# GridTrendBiasV2 — 補充短線策略
+# 改善原版 GridTrendBias：
+#   1. RSI 超買/超賣確認（降低假訊號）
+#   2. ATR 追蹤停損（快速出場，不死撐）
+# ---------------------------------------------------------------------------
+class GridTrendBiasV2(BaseVBTStrategy):
+    """GridTrendBias with RSI confirmation + ATR trailing stop."""
+
+    name = "grid_trend_bias_v2"
+    required_timeframe = "4h"
+    default_params: dict[str, Any] = {
+        "bb_period":      20,
+        "bb_std":         2.0,
+        "ema_period":     200,
+        "rsi_period":     14,
+        "rsi_oversold":   35,
+        "rsi_overbought": 65,
+        "atr_period":     14,
+        "atr_mult":       2.5,
+        "leverage":       1,
+    }
+
+    def _atr_stop_long(self, ohlcv: pd.DataFrame) -> pd.Series:
+        atr = compute_atr(ohlcv["high"], ohlcv["low"], ohlcv["close"], self.params["atr_period"])
+        hh = ohlcv["high"].rolling(self.params["bb_period"]).max()
+        return (hh - self.params["atr_mult"] * atr).shift(1)
+
+    def _atr_stop_short(self, ohlcv: pd.DataFrame) -> pd.Series:
+        atr = compute_atr(ohlcv["high"], ohlcv["low"], ohlcv["close"], self.params["atr_period"])
+        ll = ohlcv["low"].rolling(self.params["bb_period"]).min()
+        return (ll + self.params["atr_mult"] * atr).shift(1)
+
+    def generate_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
+        _, _, lo = compute_bollinger(ohlcv["close"], self.params["bb_period"], self.params["bb_std"])
+        ema = compute_ema(ohlcv["close"], self.params["ema_period"])
+        rsi = compute_rsi(ohlcv["close"], self.params["rsi_period"])
+        return ((ohlcv["close"] <= lo) & (ohlcv["close"] > ema) & (rsi < self.params["rsi_oversold"])).fillna(False)
+
+    def generate_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
+        _, mid, _ = compute_bollinger(ohlcv["close"], self.params["bb_period"], self.params["bb_std"])
+        atr_stop = self._atr_stop_long(ohlcv)
+        return ((ohlcv["close"] >= mid) | (ohlcv["close"] < atr_stop)).fillna(False)
+
+    def generate_short_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
+        up, _, _ = compute_bollinger(ohlcv["close"], self.params["bb_period"], self.params["bb_std"])
+        ema = compute_ema(ohlcv["close"], self.params["ema_period"])
+        rsi = compute_rsi(ohlcv["close"], self.params["rsi_period"])
+        return ((ohlcv["close"] >= up) & (ohlcv["close"] < ema) & (rsi > self.params["rsi_overbought"])).fillna(False)
+
+    def generate_short_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
+        _, mid, _ = compute_bollinger(ohlcv["close"], self.params["bb_period"], self.params["bb_std"])
+        atr_stop = self._atr_stop_short(ohlcv)
+        return ((ohlcv["close"] <= mid) | (ohlcv["close"] > atr_stop)).fillna(False)
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ from backtest_tool.strategies.grid_family import (
     GridRangingOnly,
     GridStopOut,
     GridTrendBias,
+    GridTrendBiasV2,
 )
 from backtest_tool.strategies.grid_futures_vbt import GridFuturesVBT
 from backtest_tool.strategies.mean_reversion_bb_vbt import MeanReversionBBVBT
@@ -36,6 +37,7 @@ from backtest_tool.strategies.momentum_family import (
     IchimokuCloudBreak,
     MACDTrendFollow,
     MomentumRanking,
+    MomentumRankingV2,
     MomentumROC,
     OpeningRangeBreakout,
     SupertrendFollow,
@@ -93,6 +95,7 @@ STRATEGY_MAP: dict[str, type[BaseVBTStrategy]] = {
     "grid_bollinger": GridBollingerBands,
     "grid_hedged": GridHedged,
     "grid_trend_bias": GridTrendBias,
+    "grid_trend_bias_v2": GridTrendBiasV2,
     "grid_funding_aware": GridFundingAware,
     "grid_stopout": GridStopOut,
     # C: Mean-reversion family (8)
@@ -107,6 +110,7 @@ STRATEGY_MAP: dict[str, type[BaseVBTStrategy]] = {
     # D: Momentum / breakout (9)
     "momentum_roc": MomentumROC,
     "momentum_ranking": MomentumRanking,
+    "momentum_ranking_v2": MomentumRankingV2,
     "breakout_squeeze": BreakoutSqueeze,
     "opening_range_breakout": OpeningRangeBreakout,
     "volatility_expansion": VolatilityExpansion,

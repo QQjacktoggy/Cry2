@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from backtest_tool.strategies.base_vbt import BaseVBTStrategy
+from backtest_tool.strategies.indicators.adx import compute_adx
 from backtest_tool.strategies.indicators.atr import compute_atr
 from backtest_tool.strategies.indicators.bollinger import compute_bollinger, compute_ema, compute_rsi
 from backtest_tool.strategies.indicators.heikin_ashi import compute_heikin_ashi
@@ -88,6 +89,68 @@ class MomentumRanking(BaseVBTStrategy):
         roc = compute_roc(ohlcv["close"], self.params["roc_period"])
         pct = self._percentile(roc)
         return (pct > 50).fillna(False)
+
+
+# ---------------------------------------------------------------------------
+# MomentumRankingV2 — 原版 + ADX 橫盤過濾 + ATR Chandelier 追蹤停損
+# 改善：
+#   1. ADX < adx_threshold 時不進場（避開震盪盤）
+#   2. 出場改用 ATR Chandelier 追蹤停損（讓贏單跑、快速砍虧損單）
+#   3. lookback 縮短至 90 天（加快訊號反應）
+# ---------------------------------------------------------------------------
+class MomentumRankingV2(BaseVBTStrategy):
+    """MomentumRanking with ADX trend filter + ATR chandelier trailing stop."""
+
+    name = "momentum_ranking_v2"
+    required_timeframe = "1d"
+    default_params: dict[str, Any] = {
+        "roc_period":     30,
+        "lookback":       90,
+        "upper_pct":      70,
+        "lower_pct":      30,
+        "adx_period":     14,
+        "adx_threshold":  20,
+        "atr_period":     14,
+        "atr_mult":       2.0,
+        "leverage":       1,
+    }
+
+    def _percentile(self, roc: pd.Series) -> pd.Series:
+        return roc.rolling(self.params["lookback"]).rank(pct=True) * 100
+
+    def _chandelier_long(self, ohlcv: pd.DataFrame) -> pd.Series:
+        atr = compute_atr(ohlcv["high"], ohlcv["low"], ohlcv["close"], self.params["atr_period"])
+        hh = ohlcv["high"].rolling(self.params["lookback"]).max()
+        return (hh - self.params["atr_mult"] * atr).shift(1)
+
+    def _chandelier_short(self, ohlcv: pd.DataFrame) -> pd.Series:
+        atr = compute_atr(ohlcv["high"], ohlcv["low"], ohlcv["close"], self.params["atr_period"])
+        ll = ohlcv["low"].rolling(self.params["lookback"]).min()
+        return (ll + self.params["atr_mult"] * atr).shift(1)
+
+    def generate_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
+        roc = compute_roc(ohlcv["close"], self.params["roc_period"])
+        pct = self._percentile(roc)
+        adx = compute_adx(ohlcv["high"], ohlcv["low"], ohlcv["close"], self.params["adx_period"])
+        return (
+            (pct > self.params["upper_pct"]) & (adx > self.params["adx_threshold"])
+        ).fillna(False)
+
+    def generate_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
+        stop = self._chandelier_long(ohlcv)
+        return (ohlcv["close"] < stop).fillna(False)
+
+    def generate_short_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
+        roc = compute_roc(ohlcv["close"], self.params["roc_period"])
+        pct = self._percentile(roc)
+        adx = compute_adx(ohlcv["high"], ohlcv["low"], ohlcv["close"], self.params["adx_period"])
+        return (
+            (pct < self.params["lower_pct"]) & (adx > self.params["adx_threshold"])
+        ).fillna(False)
+
+    def generate_short_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
+        stop = self._chandelier_short(ohlcv)
+        return (ohlcv["close"] > stop).fillna(False)
 
 
 # ---------------------------------------------------------------------------

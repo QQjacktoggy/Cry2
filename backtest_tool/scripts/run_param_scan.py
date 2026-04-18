@@ -60,7 +60,7 @@ def main():
     with open(param_spaces_path) as f:
         all_param_spaces = yaml.safe_load(f)
 
-    param_space = all_param_spaces.get(args.strategy, {})
+    param_space = all_param_spaces.get("param_spaces", all_param_spaces).get(args.strategy, {})
     if not param_space:
         print(f"❌ No param space defined for {args.strategy} in param_spaces.yaml")
         sys.exit(1)

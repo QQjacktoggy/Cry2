@@ -1,0 +1,164 @@
+
+█████████████████████████████████████████████████████████████████
+  V2 完整回測報告｜初始資金 $150 USDT
+  主策略：MomentumRankingV2（$100）
+  輔助策略：GridTrendBiasV2（$50）
+█████████████████████████████████████████████████████████████████
+
+=================================================================
+  MomentumRankingV2 — 三幣別回測（$100）
+=================================================================
+2026-04-18 13:40:28 [info     ] Running single backtest        capital=100.0 leverage=1 strategy=momentum_ranking_v2
+2026-04-18 13:40:32 [info     ] Backtest complete              strategy=momentum_ranking_v2 total_return=77.37% total_trades=np.int64(11)
+
+  【BTCUSDT】
+    總收益率:    +77.37%
+    年化收益率:  +33.18%
+    Sharpe:      1.2456
+    最大回撤:    -11.06%
+    勝率:        54.5%
+    交易次數:    11
+    最終資產:    $177.37
+2026-04-18 13:40:35 [info     ] Running single backtest        capital=100.0 leverage=1 strategy=momentum_ranking_v2
+2026-04-18 13:40:35 [info     ] Backtest complete              strategy=momentum_ranking_v2 total_return=28.73% total_trades=np.int64(11)
+
+  【ETHUSDT】
+    總收益率:    +28.73%
+    年化收益率:  +13.46%
+    Sharpe:      0.5334
+    最大回撤:    -29.22%
+    勝率:        45.5%
+    交易次數:    11
+    最終資產:    $128.73
+2026-04-18 13:40:35 [info     ] Running single backtest        capital=100.0 leverage=1 strategy=momentum_ranking_v2
+2026-04-18 13:40:35 [info     ] Backtest complete              strategy=momentum_ranking_v2 total_return=91.88% total_trades=np.int64(10)
+
+  【SOLUSDT】
+    總收益率:    +91.88%
+    年化收益率:  +38.52%
+    Sharpe:      1.0151
+    最大回撤:    -25.72%
+    勝率:        70.0%
+    交易次數:    10
+    最終資產:    $191.88
+
+=================================================================
+  MomentumRankingV2（BTC）月度損益
+=================================================================
+  月份               月損益(USD)      累計(USD)
+  --------------------------------------
+  2024-04      ▲    +0.00        +0.00
+  2024-05      ▲    +0.00        +0.00
+  2024-06      ▲    +0.00        +0.00
+  2024-07      ▲    +0.00        +0.00
+  2024-08      ▲    +0.00        +0.00
+  2024-09      ▲    +0.00        +0.00
+  2024-10      ▼    -4.89        -4.89
+  2024-11      ▲   +35.34       +30.44
+  2024-12      ▲    +1.10       +31.54
+  2025-01      ▲    +0.00       +31.54
+  2025-02      ▲   +10.26       +41.80
+  2025-03      ▼    -2.56       +39.24
+  2025-04      ▲    +0.00       +39.24
+  2025-05      ▲   +12.41       +51.65
+  2025-06      ▲    +0.00       +51.65
+  2025-07      ▼    -2.22       +49.43
+  2025-08      ▲    +0.00       +49.43
+  2025-09      ▲    +0.00       +49.43
+  2025-10      ▼    -6.14       +43.29
+  2025-11      ▲   +18.23       +61.52
+  2025-12      ▼    -4.36       +57.16
+  2026-01      ▲    +0.00       +57.16
+  2026-02      ▲   +20.22       +77.37
+  2026-03      ▲    +0.00       +77.37
+  2026-04      ▲    +0.00       +77.37
+
+=================================================================
+  GridTrendBiasV2 — 三幣別回測（$50）
+=================================================================
+2026-04-18 13:40:35 [info     ] Running single backtest        capital=50.0 leverage=1 strategy=grid_trend_bias_v2
+2026-04-18 13:40:35 [info     ] Backtest complete              strategy=grid_trend_bias_v2 total_return=5.86% total_trades=np.int64(4)
+
+  【BTCUSDT】
+    總收益率:    +5.86%
+    年化收益率:  +2.89%
+    Sharpe:      1.1523
+    最大回撤:    -2.11%
+    勝率:        100.0%
+    交易次數:    4
+    最終資產:    $52.93
+2026-04-18 13:40:35 [info     ] Running single backtest        capital=50.0 leverage=1 strategy=grid_trend_bias_v2
+2026-04-18 13:40:35 [info     ] Backtest complete              strategy=grid_trend_bias_v2 total_return=-4.51% total_trades=np.int64(6)
+
+  【ETHUSDT】
+    總收益率:    -4.51%
+    年化收益率:  -2.28%
+    Sharpe:      -0.5901
+    最大回撤:    -5.96%
+    勝率:        33.3%
+    交易次數:    6
+    最終資產:    $47.75
+2026-04-18 13:40:35 [info     ] Running single backtest        capital=50.0 leverage=1 strategy=grid_trend_bias_v2
+2026-04-18 13:40:35 [info     ] Backtest complete              strategy=grid_trend_bias_v2 total_return=3.49% total_trades=np.int64(7)
+
+  【SOLUSDT】
+    總收益率:    +3.49%
+    年化收益率:  +1.73%
+    Sharpe:      0.3752
+    最大回撤:    -7.45%
+    勝率:        57.1%
+    交易次數:    7
+    最終資產:    $51.74
+
+=================================================================
+  V2 組合損益彙整（$150 總資金）
+=================================================================
+  幣別               MRV2最終      GTBv2最終         組合最終       組合報酬
+  --------------------------------------------------------
+  BTCUSDT    $    177.37  $     52.93  $    230.30    +53.54%
+  ETHUSDT    $    128.73  $     47.75  $    176.48    +17.65%
+  SOLUSDT    $    191.88  $     51.74  $    243.63    +62.42%
+
+=================================================================
+  Walk-Forward 驗證：MomentumRankingV2 BTC
+=================================================================
+2026-04-18 13:40:36 [info     ] Running single backtest        capital=100.0 leverage=1 strategy=momentum_ranking_v2
+2026-04-18 13:40:36 [info     ] Backtest complete              strategy=momentum_ranking_v2 total_return=31.54% total_trades=np.int64(2)
+2026-04-18 13:40:36 [info     ] Running single backtest        capital=100.0 leverage=1 strategy=momentum_ranking_v2
+2026-04-18 13:40:36 [info     ] Backtest complete              strategy=momentum_ranking_v2 total_return=7.32% total_trades=np.int64(2)
+2026-04-18 13:40:36 [info     ] Running single backtest        capital=100.0 leverage=1 strategy=momentum_ranking_v2
+2026-04-18 13:40:36 [info     ] Backtest complete              strategy=momentum_ranking_v2 total_return=12.87% total_trades=np.int64(1)
+
+  段1 (2024-04 → 2024-12)
+    總收益率: +31.54%
+    Sharpe: 1.8210
+    最大回撤: -10.02%
+    交易次數: 2
+
+  段2 (2024-12 → 2025-08)
+    總收益率: +7.32%
+    Sharpe: 0.9452
+    最大回撤: -6.91%
+    交易次數: 2
+
+  段3 (2025-08 → 2026-04)
+    總收益率: +12.87%
+    Sharpe: 0.9221
+    最大回撤: -8.43%
+    交易次數: 1
+
+=================================================================
+  MomentumRanking 原版 vs V2 對比（BTC）
+=================================================================
+2026-04-18 13:40:36 [info     ] Running single backtest        capital=100.0 leverage=1 strategy=momentum_ranking
+2026-04-18 13:40:36 [info     ] Backtest complete              strategy=momentum_ranking total_return=143.54% total_trades=np.int64(18)
+  指標                             原版           V2
+  --------------------------------------------
+  總收益率(%)                  143.5363      77.3744
+  年化收益率(%)                  56.0565      33.1820
+  Sharpe                     1.4302       1.2456
+  最大回撤(%)                  -22.7604     -11.0601
+  勝率(%)                     38.8889      54.5455
+  交易次數                      18.0000      11.0000
+
+✅ V2 報告完成
