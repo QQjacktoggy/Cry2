@@ -455,3 +455,213 @@ class SupertrendScalperPro1H(BaseVBTStrategy):
     def generate_short_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
         dir1h = self._direction_1h(ohlcv)
         return ((dir1h == 1) & (dir1h.shift(1) == -1)).fillna(False)
+
+
+# ===========================================================================
+# 15x 逐倉合約策略 — 逐倉保證金模擬
+# ===========================================================================
+# 逐倉設計原則：
+#   size = margin_pct × leverage（例：6% × 15 = 90% 倉位暴露）
+#   清算線 ≈ 1/15 = 6.67%；SL 設在 1-1.5%，安全距離 4-6x
+#   每筆最大資金虧損 = sl_pct × position_pct（嚴格封頂）
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# MACDScalperLev15_1H — MACD 短線 + 15x 逐倉
+# ---------------------------------------------------------------------------
+class MACDScalperLev15_1H(BaseVBTStrategy):
+    """1h MACD 短線 + 15x 逐倉保證金模擬。
+
+    逐倉設計（每筆交易獨立保證金，虧損不影響其他部位）：
+      - 保證金比例：6%  → 倉位暴露 = 6% × 15 = 90%
+      - SL = 1.0%       → 資金虧損上限 = 1.0% × 90% = 0.9% / 筆
+      - TP = 2.5%       → 資金獲利 = 2.5% × 90% = 2.25% / 筆
+      - R:R = 2.5:1     → WR > 28.6% 即正期望值
+      - 清算線 = 6.67%  → SL 距清算 6.7x 安全距離
+
+    過濾條件（同 MACDScalperPro，但 ADX 門檻略寬）：
+      1. MACD 金叉（hist 負→正）且 MACD > 0（零線確認）
+      2. EMA200 方向過濾（多頭只做多，空頭只做空）
+      3. ADX > 18（有趨勢，略寬於 Pro 的 20）
+      4. ATR < 85th percentile（過濾崩潰/極端行情）
+
+    出場：MACD 死叉 OR sl_stop OR tp_stop（先到先得）
+    目標：100-180 次/年，每筆風險 < 1%
+    """
+
+    name = "macd_scalper_lev15_1h"
+    required_timeframe = "1h"
+    default_params: dict[str, Any] = {
+        "macd_fast":    12,
+        "macd_slow":    26,
+        "macd_signal":  9,
+        "ema_period":   200,
+        "adx_min":      20,
+        "atr_pct_high": 100,     # 預設不限（BTC 高ATR進場是好訊號）；ETH/SOL可設85
+        "margin_pct":   0.06,    # 6% 保證金
+        "leverage":     15,
+        "sl_pct":       0.015,   # 1.5% 止損（同 MACDScalper1H 基準）
+        "tp_pct":       None,    # None = MACD 死叉決定出場（讓贏家奔跑）
+    }
+
+    def _position_size(self) -> float:
+        return self.params["margin_pct"] * self.params["leverage"]
+
+    def _atr_ok(self, ohlcv: pd.DataFrame) -> pd.Series:
+        if self.params["atr_pct_high"] < 100:
+            return ~compute_atr_percentile(
+                ohlcv["high"], ohlcv["low"], ohlcv["close"],
+                14, 100, self.params["atr_pct_high"],
+            )
+        return pd.Series(True, index=ohlcv.index)
+
+    def _macd_data(self, ohlcv):
+        return compute_macd(
+            ohlcv["close"],
+            self.params["macd_fast"],
+            self.params["macd_slow"],
+            self.params["macd_signal"],
+        )
+
+    def extra_vbt_kwargs(self, ohlcv: pd.DataFrame) -> dict:
+        kwargs = {
+            "open": ohlcv["open"], "high": ohlcv["high"], "low": ohlcv["low"],
+            "size": self._position_size(),
+            "size_type": "Percent",
+            "sl_stop": self.params["sl_pct"],
+        }
+        if self.params.get("tp_pct") is not None:
+            kwargs["tp_stop"] = self.params["tp_pct"]
+        return kwargs
+
+    def generate_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
+        macd, _, hist = self._macd_data(ohlcv)
+        ema  = compute_ema(ohlcv["close"], self.params["ema_period"])
+        adx  = compute_adx(ohlcv["high"], ohlcv["low"], ohlcv["close"], 14)
+        ok   = self._atr_ok(ohlcv)
+        cross_up = (hist > 0) & (hist.shift(1) <= 0)
+        return (
+            cross_up & (macd > 0) &
+            (ohlcv["close"] > ema) &
+            (adx > self.params["adx_min"]) &
+            ok
+        ).fillna(False)
+
+    def generate_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
+        _, _, hist = self._macd_data(ohlcv)
+        return ((hist < 0) & (hist.shift(1) >= 0)).fillna(False)
+
+    def generate_short_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
+        macd, _, hist = self._macd_data(ohlcv)
+        ema  = compute_ema(ohlcv["close"], self.params["ema_period"])
+        adx  = compute_adx(ohlcv["high"], ohlcv["low"], ohlcv["close"], 14)
+        ok   = self._atr_ok(ohlcv)
+        cross_dn = (hist < 0) & (hist.shift(1) >= 0)
+        return (
+            cross_dn & (macd < 0) &
+            (ohlcv["close"] < ema) &
+            (adx > self.params["adx_min"]) &
+            ok
+        ).fillna(False)
+
+    def generate_short_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
+        _, _, hist = self._macd_data(ohlcv)
+        return ((hist > 0) & (hist.shift(1) <= 0)).fillna(False)
+
+
+# ---------------------------------------------------------------------------
+# SupertrendScalperLev15_1H — Supertrend 翻轉 + 15x 逐倉
+# ---------------------------------------------------------------------------
+class SupertrendScalperLev15_1H(BaseVBTStrategy):
+    """1h Supertrend 短線 + 15x 逐倉保證金模擬。
+
+    逐倉設計：
+      - 保證金比例：6%  → 倉位暴露 = 6% × 15 = 90%
+      - SL = 1.2%       → 資金虧損上限 = 1.2% × 90% = 1.08% / 筆
+      - TP = 3.0%       → 資金獲利 = 3.0% × 90% = 2.7% / 筆
+      - R:R = 2.5:1     → WR > 28.6% 即正期望值
+      - 清算線 = 6.67%  → SL 距清算 5.6x 安全距離
+
+    過濾條件：
+      1. 1h Supertrend 方向翻轉（-1→1 做多，1→-1 做空）
+      2. EMA200 方向確認
+      3. 4h ADX > 20（4h 有趨勢，不限方向）
+      4. ATR < 85th percentile（過濾崩潰期）
+
+    出場：1h ST 反向翻轉 OR sl_stop OR tp_stop（先到先得）
+    目標：50-100 次/年，適合 SOL 強趨勢幣種
+    """
+
+    name = "supertrend_scalper_lev15_1h"
+    required_timeframe = "1h"
+    default_params: dict[str, Any] = {
+        "st_period":    20,
+        "st_mult":      4.0,
+        "ema_period":   200,
+        "atr_pct_high": 85,
+        "margin_pct":   0.06,    # 6% 保證金
+        "leverage":     15,
+        "sl_pct":       0.012,   # 1.2% 止損
+        "tp_pct":       0.030,   # 3.0% 獲利
+    }
+
+    def _position_size(self) -> float:
+        return self.params["margin_pct"] * self.params["leverage"]
+
+    def _direction_1h(self, ohlcv: pd.DataFrame) -> pd.Series:
+        _, d = compute_supertrend(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"],
+            self.params["st_period"], self.params["st_mult"],
+        )
+        return d
+
+    def _htf_adx(self, ohlcv: pd.DataFrame) -> pd.Series:
+        df4h = ohlcv[["high", "low", "close"]].resample("4h").agg(
+            {"high": "max", "low": "min", "close": "last"}
+        ).dropna()
+        adx4h = compute_adx(df4h["high"], df4h["low"], df4h["close"], 14)
+        return adx4h.reindex(ohlcv.index, method="ffill").fillna(0)
+
+    def _atr_ok(self, ohlcv: pd.DataFrame) -> pd.Series:
+        if self.params["atr_pct_high"] < 100:
+            return ~compute_atr_percentile(
+                ohlcv["high"], ohlcv["low"], ohlcv["close"],
+                14, 100, self.params["atr_pct_high"],
+            )
+        return pd.Series(True, index=ohlcv.index)
+
+    def extra_vbt_kwargs(self, ohlcv: pd.DataFrame) -> dict:
+        kwargs = {
+            "open": ohlcv["open"], "high": ohlcv["high"], "low": ohlcv["low"],
+            "size": self._position_size(),
+            "size_type": "Percent",
+            "sl_stop": self.params["sl_pct"],
+        }
+        if self.params.get("tp_pct") is not None:
+            kwargs["tp_stop"] = self.params["tp_pct"]
+        return kwargs
+
+    def generate_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
+        dir1h = self._direction_1h(ohlcv)
+        adx4h = self._htf_adx(ohlcv)
+        ema   = compute_ema(ohlcv["close"], self.params["ema_period"])
+        ok    = self._atr_ok(ohlcv)
+        flip_bull = (dir1h == 1) & (dir1h.shift(1) == -1)
+        return (flip_bull & (adx4h > 20) & (ohlcv["close"] > ema) & ok).fillna(False)
+
+    def generate_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
+        dir1h = self._direction_1h(ohlcv)
+        return ((dir1h == -1) & (dir1h.shift(1) == 1)).fillna(False)
+
+    def generate_short_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
+        dir1h = self._direction_1h(ohlcv)
+        adx4h = self._htf_adx(ohlcv)
+        ema   = compute_ema(ohlcv["close"], self.params["ema_period"])
+        ok    = self._atr_ok(ohlcv)
+        flip_bear = (dir1h == -1) & (dir1h.shift(1) == 1)
+        return (flip_bear & (adx4h > 20) & (ohlcv["close"] < ema) & ok).fillna(False)
+
+    def generate_short_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
+        dir1h = self._direction_1h(ohlcv)
+        return ((dir1h == 1) & (dir1h.shift(1) == -1)).fillna(False)

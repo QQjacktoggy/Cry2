@@ -60,9 +60,11 @@ from backtest_tool.strategies.reversal_family import (
 )
 from backtest_tool.strategies.shortterm_family import (
     MACDScalper1H,
+    MACDScalperLev15_1H,
     MACDScalperPro1H,
     QuickBBReversion1H,
     SupertrendScalper1H,
+    SupertrendScalperLev15_1H,
     SupertrendScalperPro1H,
 )
 from backtest_tool.strategies.trend_donchian_vbt import TrendDonchianVBT
@@ -138,12 +140,14 @@ STRATEGY_MAP: dict[str, type[BaseVBTStrategy]] = {
     "kelly_sizer": KellyPositionSizer,
     "drawdown_throttle": DrawdownThrottle,
     "correlation_pruner": CorrelationPruner,
-    # H: Short-term 1h scalpers (5)
+    # H: Short-term 1h scalpers (5) + 15x Lev (2)
     "quick_bb_reversion_1h": QuickBBReversion1H,
     "macd_scalper_1h": MACDScalper1H,
     "supertrend_scalper_1h": SupertrendScalper1H,
     "macd_scalper_pro_1h": MACDScalperPro1H,
     "supertrend_scalper_pro_1h": SupertrendScalperPro1H,
+    "macd_scalper_lev15_1h": MACDScalperLev15_1H,
+    "supertrend_scalper_lev15_1h": SupertrendScalperLev15_1H,
     # G: Arb / cross-asset / walk-forward (5)
     "funding_arb_relaxed": FundingArbRelaxed,
     "spot_perp_basis": SpotPerpBasis,
