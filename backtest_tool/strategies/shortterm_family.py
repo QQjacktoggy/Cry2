@@ -5,6 +5,10 @@
   - QuickBBReversion1H: ADX < 20 (橫盤) + EMA200 方向 + RSI 嚴格
   - MACDScalper1H: MACD 零線 + EMA200 方向 + ADX 強度
   - SupertrendScalper1H: period=20/mult=4.0 (減少假翻轉) + EMA200
+
+升級版（Pro）：
+  - MACDScalperPro1H: + 4h MTF 確認 + ATR 百分位過濾 + 追蹤止損
+  - SupertrendScalperPro1H: + 4h MTF 確認 + ATR 百分位過濾 + 追蹤止損
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from backtest_tool.strategies.base_vbt import BaseVBTStrategy
 from backtest_tool.strategies.indicators.adx import compute_adx
 from backtest_tool.strategies.indicators.atr import compute_atr
 from backtest_tool.strategies.indicators.bollinger import compute_bollinger, compute_ema, compute_rsi
+from backtest_tool.strategies.indicators.atr import compute_atr, compute_atr_percentile
 from backtest_tool.strategies.indicators.macd import compute_macd
 from backtest_tool.strategies.indicators.supertrend import compute_supertrend
 
@@ -234,3 +239,219 @@ class SupertrendScalper1H(BaseVBTStrategy):
     def generate_short_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
         dir_ = self._direction(ohlcv)
         return ((dir_ == 1) & (dir_.shift(1) == -1)).fillna(False)
+
+
+# ===========================================================================
+# 升級版 Pro 策略：三重過濾 + 追蹤止損
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# MACDScalperPro1H — 四重確認：1h MACD + 4h MTF + ATR百分位 + EMA200
+# ---------------------------------------------------------------------------
+class MACDScalperPro1H(BaseVBTStrategy):
+    """1h MACD 精品版。
+
+    三重過濾（解決假信號問題）：
+      1. 1h MACD 金叉（hist: 負→正）且 MACD 線 > 0（動能確認）
+      2. EMA200 方向過濾（多頭市場只做多）
+      3. ATR 百分位 25-80%（健康波動，過濾極端行情）+ 1h ADX > 20
+
+    出場：
+      - 1h MACD 死叉（先到先出）
+      - VBT 固定止損 sl_stop + 固定獲利 tp_stop（R:R 2.67:1）
+
+    設計重點：
+      - 不使用 4h MTF 方向過濾（防止 BTC 牛市回調期被封鎖）
+      - ATR 百分位過濾足以處理 SOL 極端波動
+      - 固定 R:R 確保期望值為正（WR > 27% 即獲利）
+
+    目標：交易次數 60-120次/年，月勝率 50%+
+    """
+
+    name = "macd_scalper_pro_1h"
+    required_timeframe = "1h"
+    default_params: dict[str, Any] = {
+        "macd_fast":    12,
+        "macd_slow":    26,
+        "macd_signal":  9,
+        "ema_period":   200,
+        "adx_min":      20,
+        "atr_pct_low":  0,     # 0 = 不限下界（BTC/ETH 用，SOL 可設 25）
+        "atr_pct_high": 90,    # 過濾極端波動（SOL 建議設 80-85）
+        "sl_pct":       0.02,  # 止損 2%
+        "tp_pct":       None,  # None = 由 MACD 死叉決定出場（None 表示不設固定 TP）
+        "leverage":     1,
+    }
+
+    def _atr_ok(self, ohlcv: pd.DataFrame) -> pd.Series:
+        """ATR 在健康範圍內。atr_pct_low=0 表示不限下界；atr_pct_high=100 表示不限上界。"""
+        result = pd.Series(True, index=ohlcv.index)
+        if self.params["atr_pct_low"] > 0:
+            result = result & compute_atr_percentile(
+                ohlcv["high"], ohlcv["low"], ohlcv["close"],
+                14, 100, self.params["atr_pct_low"],
+            )
+        if self.params["atr_pct_high"] < 100:
+            result = result & ~compute_atr_percentile(
+                ohlcv["high"], ohlcv["low"], ohlcv["close"],
+                14, 100, self.params["atr_pct_high"],
+            )
+        return result
+
+    def _macd_data(self, ohlcv):
+        return compute_macd(
+            ohlcv["close"], self.params["macd_fast"],
+            self.params["macd_slow"], self.params["macd_signal"],
+        )
+
+    def extra_vbt_kwargs(self, ohlcv: pd.DataFrame) -> dict:
+        kwargs = {"open": ohlcv["open"], "high": ohlcv["high"], "low": ohlcv["low"],
+                  "sl_stop": self.params["sl_pct"]}
+        if self.params.get("tp_pct") is not None:
+            kwargs["tp_stop"] = self.params["tp_pct"]
+        return kwargs
+
+    def generate_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
+        macd, _, hist = self._macd_data(ohlcv)
+        ema   = compute_ema(ohlcv["close"], self.params["ema_period"])
+        adx1h = compute_adx(ohlcv["high"], ohlcv["low"], ohlcv["close"], 14)
+        ok    = self._atr_ok(ohlcv)
+        cross_up = (hist > 0) & (hist.shift(1) <= 0)
+        return (
+            cross_up &
+            (macd > 0) &
+            (ohlcv["close"] > ema) &
+            (adx1h > self.params["adx_min"]) &
+            ok
+        ).fillna(False)
+
+    def generate_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
+        _, _, hist = self._macd_data(ohlcv)
+        return ((hist < 0) & (hist.shift(1) >= 0)).fillna(False)
+
+    def generate_short_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
+        macd, _, hist = self._macd_data(ohlcv)
+        ema   = compute_ema(ohlcv["close"], self.params["ema_period"])
+        adx1h = compute_adx(ohlcv["high"], ohlcv["low"], ohlcv["close"], 14)
+        ok    = self._atr_ok(ohlcv)
+        cross_dn = (hist < 0) & (hist.shift(1) >= 0)
+        return (
+            cross_dn &
+            (macd < 0) &
+            (ohlcv["close"] < ema) &
+            (adx1h > self.params["adx_min"]) &
+            ok
+        ).fillna(False)
+
+    def generate_short_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
+        _, _, hist = self._macd_data(ohlcv)
+        return ((hist > 0) & (hist.shift(1) <= 0)).fillna(False)
+
+
+# ---------------------------------------------------------------------------
+# SupertrendScalperPro1H — 4h MTF 同向確認 + ATR 過濾 + 追蹤止損
+# ---------------------------------------------------------------------------
+class SupertrendScalperPro1H(BaseVBTStrategy):
+    """1h Supertrend 精品版。
+
+    解決假翻轉問題：
+      1. 1h Supertrend 方向翻轉（-1→1 多頭翻轉）
+      2. 4h ADX > 20（確認 4h 在趨勢中，不限方向）
+      3. ATR 百分位 25-80%（過濾極端行情）
+      4. EMA200 方向確認
+
+    設計重點：
+      - 放棄「4h ST 同向」（等待 4h 翻轉 = 進場過晚，最好行情已過）
+      - 改用「4h ADX > 20」= 市場在趨勢中，不限制方向
+      - 固定 R:R：sl_stop=2.5%, tp_stop=5%（R:R = 2:1）
+      - WR > 33% 即正期望值
+
+    出場：
+      - 1h Supertrend 反向翻轉（先到先出）
+      - VBT 固定止損 + 固定獲利
+
+    目標：交易次數 30-70次/年，月勝率 50%+
+    """
+
+    name = "supertrend_scalper_pro_1h"
+    required_timeframe = "1h"
+    default_params: dict[str, Any] = {
+        "st_period":    20,
+        "st_mult":      4.0,
+        "ema_period":   200,
+        "atr_pct_low":  0,     # 0 = 不限下界（ETH/SOL 用）
+        "atr_pct_high": 85,    # 過濾極端波動（SOL 可設 80-85）
+        "sl_pct":       0.025,
+        "tp_pct":       0.05,  # R:R = 2:1（WR > 33% 即正期望值）
+        "leverage":     1,
+    }
+
+    def _direction_1h(self, ohlcv: pd.DataFrame) -> pd.Series:
+        _, d = compute_supertrend(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"],
+            self.params["st_period"], self.params["st_mult"],
+        )
+        return d
+
+    def _htf_adx(self, ohlcv: pd.DataFrame) -> pd.Series:
+        """4h ADX — 要求趨勢性（不要求方向）。"""
+        df4h = ohlcv[["high", "low", "close"]].resample("4h").agg(
+            {"high": "max", "low": "min", "close": "last"}
+        ).dropna()
+        adx4h = compute_adx(df4h["high"], df4h["low"], df4h["close"], 14)
+        return adx4h.reindex(ohlcv.index, method="ffill").fillna(0)
+
+    def _atr_ok(self, ohlcv: pd.DataFrame) -> pd.Series:
+        result = pd.Series(True, index=ohlcv.index)
+        if self.params["atr_pct_low"] > 0:
+            result = result & compute_atr_percentile(
+                ohlcv["high"], ohlcv["low"], ohlcv["close"],
+                14, 100, self.params["atr_pct_low"],
+            )
+        if self.params["atr_pct_high"] < 100:
+            result = result & ~compute_atr_percentile(
+                ohlcv["high"], ohlcv["low"], ohlcv["close"],
+                14, 100, self.params["atr_pct_high"],
+            )
+        return result
+
+    def extra_vbt_kwargs(self, ohlcv: pd.DataFrame) -> dict:
+        return {
+            "open": ohlcv["open"], "high": ohlcv["high"], "low": ohlcv["low"],
+            "sl_stop": self.params["sl_pct"],
+            "tp_stop": self.params["tp_pct"],
+        }
+
+    def generate_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
+        dir1h = self._direction_1h(ohlcv)
+        adx4h = self._htf_adx(ohlcv)
+        ema   = compute_ema(ohlcv["close"], self.params["ema_period"])
+        ok    = self._atr_ok(ohlcv)
+        flip_bull = (dir1h == 1) & (dir1h.shift(1) == -1)
+        return (
+            flip_bull &
+            (adx4h > 20) &              # 4h 需有趨勢（不限方向）
+            (ohlcv["close"] > ema) &
+            ok
+        ).fillna(False)
+
+    def generate_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
+        dir1h = self._direction_1h(ohlcv)
+        return ((dir1h == -1) & (dir1h.shift(1) == 1)).fillna(False)
+
+    def generate_short_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
+        dir1h = self._direction_1h(ohlcv)
+        adx4h = self._htf_adx(ohlcv)
+        ema   = compute_ema(ohlcv["close"], self.params["ema_period"])
+        ok    = self._atr_ok(ohlcv)
+        flip_bear = (dir1h == -1) & (dir1h.shift(1) == 1)
+        return (
+            flip_bear &
+            (adx4h > 20) &
+            (ohlcv["close"] < ema) &
+            ok
+        ).fillna(False)
+
+    def generate_short_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
+        dir1h = self._direction_1h(ohlcv)
+        return ((dir1h == 1) & (dir1h.shift(1) == -1)).fillna(False)
