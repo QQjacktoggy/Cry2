@@ -147,6 +147,11 @@ class BaseVBTStrategy(ABC):
             short_exits = short_exits.fillna(False).astype(bool)
             kwargs["short_exits"] = short_exits
 
+        # Allow subclasses to inject extra VBT kwargs (e.g. sl_stop, tp_stop)
+        extra = getattr(self, "extra_vbt_kwargs", None)
+        if callable(extra):
+            kwargs.update(extra(ohlcv))
+
         portfolio = vbt.Portfolio.from_signals(**kwargs)
 
         logger.info(

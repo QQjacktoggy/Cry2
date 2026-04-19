@@ -41,6 +41,30 @@ param_spaces:
     rsi_overbought: [60, 65, 70]
     atr_mult:       [2.0, 2.5, 3.0]
 
+  # H: 短線 1h 策略參數空間
+  quick_bb_reversion_1h:
+    bb_period:      [15, 20, 25]
+    bb_std:         [1.5, 2.0, 2.5]
+    rsi_oversold:   [38, 42, 46]
+    rsi_overbought: [54, 58, 62]
+    atr_mult:       [1.0, 1.5, 2.0]
+  # 共 3×3×3×3×3 = 243 種組合
+
+  macd_scalper_1h:
+    macd_fast:    [8, 12, 16]
+    macd_slow:    [21, 26, 34]
+    macd_signal:  [7, 9, 12]
+    ema_period:   [100, 150, 200]
+    atr_mult:     [1.0, 1.5, 2.0]
+  # 共 3×3×3×3×3 = 243 種組合
+
+  supertrend_scalper_1h:
+    st_period:    [7, 10, 14]
+    st_mult:      [2.0, 2.5, 3.0, 3.5]
+    ema_period:   [30, 50, 100]
+    atr_mult:     [1.5, 2.0, 2.5]
+  # 共 3×4×3×3 = 108 種組合
+
 # 組合最佳化
 portfolio_optimization:
   allocation_step: 0.05           # 5% 步進
