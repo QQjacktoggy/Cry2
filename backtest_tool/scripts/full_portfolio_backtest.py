@@ -1,7 +1,8 @@
 """Full portfolio backtest + Walk-Forward validation with real Binance data.
 
-Runs all 17 strategies from the V7.3 optimized allocation, combines equity curves,
-and performs robustness checks (walk-forward, Monte Carlo, stress test).
+Runs all 17 strategies from the V7.4 optimized allocation (2x leverage,
+boost-defensive config), combines equity curves, and performs robustness
+checks (walk-forward, Monte Carlo, stress test).
 
 Supports optional risk controls (Phase D):
     --risk   Enable Phase D risk controls (3D consecutive loss + 3E max hold)
@@ -68,20 +69,20 @@ RISK_MANAGER = RiskManager(
 
 PORTFOLIO = {
     # ═══════════════════════════════════════════════════════════
-    # V7.3 ALLOCATION — Phase G Integrated (G4 + G5 new strategies)
-    # Philosophy: Parameter stability > Raw Sharpe + Market-neutral diversification
-    # Changes from V7.2:
-    #   - 🆕 pair_btc_eth 5% (G5 market-neutral, Sharpe 1.334, corr≈0.025)
-    #   - 🆕 funding_reversal_eth 3% (G4 gap filler, Sharpe 0.934)
-    #   - ❌ REMOVED breakout_squeeze BTC (fragile, low conviction)
-    #   - ↓ grid_trend_bias ETH 9→7%, momentum_ranking ETH 12→10%
-    #   - ↓ grid_trend_bias BTC 4→3%
+    # V7.4 ALLOCATION — 2x Leverage + Boost Defensive
+    # Philosophy: 2x uniform leverage with MaxDD ≤ -15% safety gate
+    # Changes from V7.3:
+    #   - 🔧 Fixed leverage to actually apply via VBT size/size_type
+    #   - 🔧 Uniform 2x leverage across all strategies
+    #   - ↓ momentum_ranking ETH 10→9%, BNB 8→7% (high-DD reduction)
+    #   - ↑ tail_risk_hedge BNB 5→6%, SOL 4→5%, BTC 3→4% (defensive boost)
     # Tier structure:
     #   - ⭐ Robust tier (40%)  — trend_donchian family
-    #   - 🔵 Moderate tier (45%) — momentum / tail_risk / mid-grid
-    #   - ⚠️ Fragile tier (7%) — grid_trend_bias ETH (high Sharpe but sensitive)
+    #   - 🔵 Moderate tier (44%) — momentum / tail_risk / mid-grid
+    #   - ⚠️ Fragile tier (7%) — grid_trend_bias ETH
     #   - 🟣 Market Neutral + Gap (8%) — pair trading + funding reversal
-    # Result: 17 strategy positions, 5 coins, 4 strategy families + 2 new
+    #   - 🛡️ Net: 1% moved from momentum → tail_risk per coin
+    # Result: 17 positions, 5 coins, 2x leverage, MaxDD ≤ -15%
     # ═══════════════════════════════════════════════════════════
 
     # ── ⭐ ROBUST TIER — 40% (trend_donchian family; mixed viable%) ──────
@@ -121,27 +122,27 @@ PORTFOLIO = {
         "params": {"entry_period": 10, "exit_period": 7, "adx_threshold": 15, "htf_period": 150, "leverage": 2},
     },
 
-    # ── 🔵 MODERATE TIER — 45% (momentum/tail_risk/mid-grid; viable% 5.6-25%, capped ≤10%) ───────
+    # ── 🔵 MODERATE TIER — 44% (V7.4: mom↓ tail↑; momentum/tail_risk/mid-grid) ─
     "momentum_ranking_eth": {
         "strategy_name": "momentum_ranking",
-        "allocation": 0.10,
+        "allocation": 0.09,  # V7.4: 10→9% (reduce high-DD)
         "symbol": "ETHUSDT",
         "timeframe": "1d",
-        "params": {"roc_period": 60, "lookback": 240, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1.5},
+        "params": {"roc_period": 60, "lookback": 240, "upper_threshold": 70, "lower_threshold": 30, "leverage": 2},
     },
     "momentum_ranking_bnb": {
         "strategy_name": "momentum_ranking",
-        "allocation": 0.08,
+        "allocation": 0.07,  # V7.4: 8→7% (reduce high-DD)
         "symbol": "BNBUSDT",
         "timeframe": "1d",
-        "params": {"roc_period": 90, "lookback": 120, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1.5},
+        "params": {"roc_period": 90, "lookback": 120, "upper_threshold": 70, "lower_threshold": 30, "leverage": 2},
     },
     "momentum_ranking_sol": {
         "strategy_name": "momentum_ranking",
         "allocation": 0.03,
         "symbol": "SOLUSDT",
         "timeframe": "1d",
-        "params": {"roc_period": 20, "lookback": 240, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1.5},
+        "params": {"roc_period": 20, "lookback": 240, "upper_threshold": 70, "lower_threshold": 30, "leverage": 2},
     },
     "grid_trend_bias_xrp": {
         "strategy_name": "grid_trend_bias",
@@ -152,38 +153,38 @@ PORTFOLIO = {
     },
     "tail_risk_hedge_bnb": {
         "strategy_name": "tail_risk_hedge",
-        "allocation": 0.05,
+        "allocation": 0.06,  # V7.4: 5→6% (boost defensive)
         "symbol": "BNBUSDT",
         "timeframe": "1d",
-        "params": {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 15, "leverage": 1},
+        "params": {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 15, "leverage": 2},
     },
     "tail_risk_hedge_sol": {
         "strategy_name": "tail_risk_hedge",
-        "allocation": 0.04,
+        "allocation": 0.05,  # V7.4: 4→5% (boost defensive)
         "symbol": "SOLUSDT",
         "timeframe": "1d",
-        "params": {"consec_up_threshold": 10, "consec_down_threshold": 3, "exit_bars": 10, "leverage": 1},
+        "params": {"consec_up_threshold": 10, "consec_down_threshold": 3, "exit_bars": 10, "leverage": 2},
     },
     "grid_trend_bias_btc": {
         "strategy_name": "grid_trend_bias",
         "allocation": 0.03,
         "symbol": "BTCUSDT",
         "timeframe": "4h",
-        "params": {"bb_period": 30, "bb_std": 3.0, "ema_period": 200, "leverage": 1},
+        "params": {"bb_period": 30, "bb_std": 3.0, "ema_period": 200, "leverage": 2},
     },
     "grid_trend_bias_sol": {
         "strategy_name": "grid_trend_bias",
         "allocation": 0.03,
         "symbol": "SOLUSDT",
         "timeframe": "4h",
-        "params": {"bb_period": 15, "bb_std": 2.0, "ema_period": 100, "leverage": 1},
+        "params": {"bb_period": 15, "bb_std": 2.0, "ema_period": 100, "leverage": 2},
     },
     "tail_risk_hedge_btc": {
         "strategy_name": "tail_risk_hedge",
-        "allocation": 0.03,
+        "allocation": 0.04,  # V7.4: 3→4% (boost defensive)
         "symbol": "BTCUSDT",
         "timeframe": "1d",
-        "params": {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 1},
+        "params": {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 2},
     },
 
     # ── ⚠️ FRAGILE TIER — 7% (very low viable% OR weak stat confidence; capped ≤7%) ─
@@ -195,20 +196,20 @@ PORTFOLIO = {
         "params": {"bb_period": 20, "bb_std": 2.0, "ema_period": 100, "leverage": 2},
     },
 
-    # ── 🟣 MARKET NEUTRAL + GAP FILLER — 8% (new G4+G5; near-zero corr) ─
+    # ── 🟣 MARKET NEUTRAL + GAP FILLER — 8% (G4+G5; near-zero corr) ─
     "pair_btc_eth": {
         "strategy_name": "pair_btc_eth",
         "allocation": 0.05,
-        "symbol": "BTCUSDT",  # Primary symbol (loads ETH internally)
+        "symbol": "BTCUSDT",
         "timeframe": "4h",
-        "params": {"ols_window": 480, "zscore_period": 90, "entry_z": 2.5, "exit_z": 0.0, "stop_z": 4.0, "leverage": 1},
+        "params": {"ols_window": 480, "zscore_period": 90, "entry_z": 2.5, "exit_z": 0.0, "stop_z": 4.0, "leverage": 2},
     },
     "funding_reversal_eth": {
         "strategy_name": "funding_reversal",
         "allocation": 0.03,
         "symbol": "ETHUSDT",
         "timeframe": "4h",
-        "params": {"entry_rate_long": -4, "hold_bars": 12, "entry_rate_short": 999, "leverage": 1},
+        "params": {"entry_rate_long": -4, "hold_bars": 12, "entry_rate_short": 999, "leverage": 2},
     },
 }
 
@@ -310,6 +311,7 @@ def run_single_strategy(
             freq = FREQ_MAP.get(strategy.required_timeframe, strategy.required_timeframe)
             total_fees = runner.cost_model.default_fee_rate + runner.cost_model.slippage_rate
 
+            leverage = cfg["params"].get("leverage", 1.0)
             kwargs: dict = {
                 "close": close,
                 "entries": entries,
@@ -317,6 +319,9 @@ def run_single_strategy(
                 "init_cash": capital,
                 "fees": total_fees,
                 "freq": freq,
+                "size": leverage,
+                "size_type": "percent",
+                "upon_opposite_entry": "close",
             }
             if short_entries is not None:
                 kwargs["short_entries"] = short_entries.fillna(False).astype(bool)

@@ -138,6 +138,9 @@ class BaseVBTStrategy(ABC):
             "fees": total_fees,
             "freq": freq,
             "direction": "both" if short_entries is not None else "longonly",
+            "size": leverage,
+            "size_type": "percent",
+            "upon_opposite_entry": "close",
         }
 
         if short_entries is not None:

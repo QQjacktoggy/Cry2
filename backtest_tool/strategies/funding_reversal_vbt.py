@@ -267,6 +267,9 @@ class FundingReversalVBT(BaseVBTStrategy):
             "fees": total_fees,
             "freq": freq,
             "direction": "both" if has_shorts else "longonly",
+            "size": leverage,
+            "size_type": "percent",
+            "upon_opposite_entry": "close",
         }
         if has_shorts:
             kwargs["short_entries"] = short_entries

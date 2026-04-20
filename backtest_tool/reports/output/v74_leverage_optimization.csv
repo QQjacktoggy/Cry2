@@ -1,0 +1,10 @@
+name,base_maxdd,sharpe_1x,return_1x,sharpe_2x,maxdd_2x,final_2x,passes
+baseline,-9.19,2.172,236.7,2.172,-18.1,1587.7,False
+reduce_high_dd,-9.34,2.342,187.2,2.342,-18.1,1183.7,False
+cap_fragile_5pct,-8.88,2.167,236.5,2.167,-17.6,1585.3,False
+boost_defensive,-7.25,2.222,229.3,2.222,-14.5,1527.0,True
+boost_neutral,-8.68,2.158,235.6,2.158,-17.2,1576.3,False
+max_diversify,-8.91,2.172,246.9,2.172,-17.7,1679.3,False
+reduce_grid_boost_trend,-9.68,2.119,236.1,2.119,-19.0,1576.6,False
+pair_10pct,-8.42,2.168,235.4,2.168,-16.7,1576.1,False
+combo_grid_to_pair_tail,-8.07,2.163,240.6,2.163,-16.1,1621.2,False
