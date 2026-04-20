@@ -42,9 +42,12 @@ OUTPUT_DIR = ROOT / "backtest_tool" / "reports" / "output"
 
 PORTFOLIO = {
     # ═══════════════════════════════════════════════════════════
-    # V3 ALLOCATION — Phase 7 replacements for weak strategies
-    # Replaced: trend_donchian (Sharpe 0.26) → tail_risk_hedge (0.95)
-    #           regime_switcher (Sharpe 0.15) → pv_divergence (0.49)
+    # V4 ALLOCATION — Optimized Phase 7 params + dual_channel_breakout
+    # Changes from V3:
+    #   1. tail_risk_hedge: optimized params (Sharpe 0.95→1.24)
+    #   2. long_horizon_eth (5%) → dual_channel_breakout ETH (Sharpe 1.20)
+    #   3. pv_divergence removed (only 3 trades after optimization)
+    #   4. Redistributed 7% to stronger strategies
     # ═══════════════════════════════════════════════════════════
     # Long-term core (48%)
     "momentum_ranking": {
@@ -65,12 +68,6 @@ PORTFOLIO = {
         "timeframe": "4h",
         "params": {"entry_period": 20, "exit_period": 10, "adx_slope_bars": 5, "adx_slope_min": 0.3, "leverage": 2},
     },
-    "long_horizon_eth": {
-        "allocation": 0.05,
-        "symbol": "ETHUSDT",
-        "timeframe": "1d",
-        "params": {"leverage": 1},
-    },
     # Short-term fill (37%)
     "grid_trend_bias": {
         "allocation": 0.25,
@@ -84,18 +81,18 @@ PORTFOLIO = {
         "timeframe": "4h",
         "params": {"bb_period": 30, "bb_std": 2.5, "kc_ema_period": 15, "kc_atr_period": 7, "kc_mult": 2.0, "leverage": 2},
     },
-    # NEW Phase 7 replacements (15%)
+    # Phase 7 optimized (20%)
     "tail_risk_hedge": {
-        "allocation": 0.08,
+        "allocation": 0.10,
         "symbol": "BTCUSDT",
         "timeframe": "1d",
-        "params": {"leverage": 1},
+        "params": {"consec_up_threshold": 14, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 1},
     },
-    "pv_divergence": {
-        "allocation": 0.07,
-        "symbol": "BTCUSDT",
+    "dual_channel_breakout": {
+        "allocation": 0.10,
+        "symbol": "ETHUSDT",
         "timeframe": "4h",
-        "params": {"leverage": 2},
+        "params": {"dc_period": 30, "kc_ema": 15, "kc_atr": 14, "kc_mult": 2.0, "adx_period": 14, "adx_threshold": 20, "leverage": 2},
     },
 }
 

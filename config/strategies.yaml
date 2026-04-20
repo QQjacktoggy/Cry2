@@ -1,10 +1,10 @@
 strategies:
   # =============================================
-  # V3 配置 — Phase 7 策略替換弱策略，5/5 目標全過
-  # Sharpe 1.47 | Ann Return 31.9% | MaxDD -17.8% | Calmar 1.80
+  # V4 配置 — 優化Phase 7參數 + dual_channel_breakout替換弱策略
+  # Sharpe 1.685 | Ann Return 35.1% | MaxDD -16.7% | Calmar 2.10
   # =============================================
 
-  # 🟢 長線核心 (48% 資金) — 穩定趨勢追蹤
+  # 🟢 長線核心 (43% 資金) — 穩定趨勢追蹤
   momentum_ranking:
     enabled: true
     allocation: 0.20
@@ -41,13 +41,6 @@ strategies:
     leverage: 2
     regime_filter: [trending_up]
 
-  long_horizon_eth:
-    enabled: true
-    allocation: 0.05
-    symbols: [ETHUSDT]
-    timeframe: 1d
-    leverage: 1
-
   # 🟡 短線補位 (37% 資金) — 盤整期獲利
   grid_trend_bias:
     enabled: true
@@ -73,27 +66,38 @@ strategies:
     leverage: 2
     regime_filter: [ranging]
 
-  # 🔵 Phase 7 新策略 (15% 資金) — 替換弱策略
+  # 🔵 Phase 7 優化策略 (20% 資金) — 參數優化後表現
   tail_risk_hedge:
     enabled: true
-    allocation: 0.08
+    allocation: 0.10
     symbols: [BTCUSDT]
     timeframe: 1d
+    consec_up_threshold: 14
+    consec_down_threshold: 5
+    exit_bars: 10
     leverage: 1
+    regime_filter: [volatile]
 
-  pv_divergence:
+  dual_channel_breakout:
     enabled: true
-    allocation: 0.07
-    symbols: [BTCUSDT, ETHUSDT]
+    allocation: 0.10
+    symbols: [ETHUSDT]
     timeframe: 4h
+    dc_period: 30
+    kc_ema: 15
+    kc_atr: 14
+    kc_mult: 2.0
+    adx_period: 14
+    adx_threshold: 20
     leverage: 2
+    regime_filter: [trending_up, trending_down]
 
   # ❌ 移除策略
   trend_donchian:
-    enabled: false    # Sharpe 0.26, DD -48.5% → replaced by tail_risk_hedge
+    enabled: false    # Sharpe 0.26, DD -48.5%
     allocation: 0.00
   regime_switcher:
-    enabled: false    # Sharpe 0.15, DD -35.7% → replaced by pv_divergence
+    enabled: false    # Sharpe 0.15, DD -35.7%
     allocation: 0.00
   mean_reversion_bb:
     enabled: false    # Sharpe -1.40, DD -53.5%
@@ -101,22 +105,27 @@ strategies:
   grid_funding_aware:
     enabled: false    # Return -17.9%
     allocation: 0.00
+  long_horizon_eth:
+    enabled: false    # Sharpe 0.06, low return → replaced by dual_channel_breakout
+    allocation: 0.00
+  pv_divergence:
+    enabled: false    # Only 3 trades after optimization → unreliable
+    allocation: 0.00
 
 # =============================================
-# V3 資金配置摘要 (100%)
+# V4 資金配置摘要 (100%)
 # =============================================
 capital_allocation:
-  # 長線核心 48%
+  # 長線核心 43%
   momentum_ranking: 0.20
   trend_donchian_mtf: 0.15
   trend_donchian_adx_slope: 0.08
-  long_horizon_eth: 0.05
   # 短線補位 37%
   grid_trend_bias: 0.25
   breakout_squeeze: 0.12
-  # Phase 7 新策略 15%
-  tail_risk_hedge: 0.08
-  pv_divergence: 0.07
+  # Phase 7 優化 20%
+  tail_risk_hedge: 0.10
+  dual_channel_breakout: 0.10
 
 # =============================================
 # 市場環境感知配置 (Phase 4)
