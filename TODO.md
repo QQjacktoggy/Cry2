@@ -27,6 +27,26 @@
 
 ## 待完成事項 📋
 
+### 🔥 V7.4 後續優化 (高優先)
+
+- [ ] **混合槓桿策略**: 穩定策略 (trend_donchian, tail_risk_hedge) 維持 2x，高DD策略 (momentum_ranking MaxDD -67%, grid_sol -62%) 降至 1-1.5x
+- [ ] **更新 BACKTEST_REPORT_V7.md**: 加入 V7.4 槓桿分析章節，更新所有績效數字
+- [ ] **V7.4 已知問題**: 理論模型 ($1,527) vs 實際VBT ($616) 差距大，源於策略層級vs組合層級槓桿差異
+
+### 📊 Phase D: 風控進階優化
+
+- [ ] **D2 Regime Detection 校準**: 基於實際數據校準 ADX 閾值 (trending/ranging 切換)
+- [ ] **D3 波動率自適應槓桿**: ATR percentile > 80 → 降至 1x, < 20 → 允許 2-3x
+- [ ] **D1 組合風控**: Portfolio Stop (MaxDD>20%暫停8天), 連虧5次暫停24 bars
+
+### 🚀 Phase F: Live Trading 部署
+
+- [ ] **F1** 更新 bridge.py → V7.4 策略配置 (目前仍為 V6)
+- [ ] **F2** 更新 run_live.py → V7.4 參數 + 2x 槓桿
+- [ ] **F3** User Data Stream (限價單追蹤)
+- [ ] **F4** Paper Trading 模式測試
+- [ ] **F5** 部署建議書 + 監控指標
+
 ### 1. GPT-5.4 最終 Code Review
 - [ ] 推送所有變更後請 GPT-5.4 做一次完整 review
 - [ ] 檢查是否有新的高優先問題
@@ -63,13 +83,17 @@
 PYTHONPATH=src python -m pytest tests/ -q              # 74/77 pass (3 pre-existing CB failures)
 
 # Backtest 測試
-python -m pytest backtest_tool/tests/ -q               # 全部通過
+python -m pytest backtest_tool/tests/ -q               # 105 pass
 
 # Regression 測試
 python -m pytest backtest_tool/tests/test_regression.py -v  # 20 pass
 
 # Trade Journal 測試
 PYTHONPATH=src python -m pytest tests/unit/test_trade_journal.py -v  # 12 pass
+
+# V7.4 組合回測
+$env:PYTHONPATH="src;."; python backtest_tool/scripts/full_portfolio_backtest.py
+# Expected: Sharpe 2.161, MaxDD -14.0%, $150→$616, 17 strats, 2x leverage
 ```
 
 ## 架構筆記
