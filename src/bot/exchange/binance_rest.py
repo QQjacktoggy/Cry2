@@ -204,6 +204,50 @@ class BinanceRestClient:
         except Exception:
             return int(time.time() * 1000)
 
+    def get_funding_rate(self, symbol: str) -> dict[str, Any]:
+        """Get current funding rate for a symbol.
+
+        Returns:
+            Dict with 'symbol', 'markPrice', 'lastFundingRate', 'nextFundingTime'.
+        """
+        self.rate_limiter.acquire(weight=1)
+
+        if self._client is None:
+            return {"symbol": symbol, "lastFundingRate": "0", "nextFundingTime": 0}
+
+        try:
+            result = self._client.futures_mark_price(symbol=symbol)
+            return result
+        except Exception as e:
+            raise ExchangeError(f"Get funding rate failed: {e}") from e
+
+    def get_funding_rate_history(
+        self,
+        symbol: str,
+        limit: int = 100,
+        start_time: int | None = None,
+        end_time: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get historical funding rates for a symbol.
+
+        Returns:
+            List of funding rate entries.
+        """
+        self.rate_limiter.acquire(weight=1)
+
+        if self._client is None:
+            return []
+
+        try:
+            params: dict[str, Any] = {"symbol": symbol, "limit": limit}
+            if start_time:
+                params["startTime"] = start_time
+            if end_time:
+                params["endTime"] = end_time
+            return self._client.futures_funding_rate(**params)
+        except Exception as e:
+            raise ExchangeError(f"Get funding history failed: {e}") from e
+
     def ping(self) -> float:
         """Ping the API and return latency in ms."""
         start = time.time()

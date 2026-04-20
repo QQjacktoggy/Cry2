@@ -153,6 +153,8 @@ async def main() -> None:
         ws_url=exchange_cfg.get("ws_url", "wss://fstream.binance.com"),
         symbols=all_symbols,
         timeframe=primary_tf,
+        rest_client=client,
+        funding_poll_interval=300,
     )
 
     # Wire strategies to market events

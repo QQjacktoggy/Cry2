@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -31,6 +32,8 @@ class LiveFeed(DataFeed):
         ws_url: str = "wss://fstream.binance.com",
         symbols: list[str] | None = None,
         timeframe: str = "1m",
+        rest_client: Any = None,
+        funding_poll_interval: int = 300,
     ) -> None:
         super().__init__(event_bus, clock)
         self.ws_url = ws_url
@@ -40,6 +43,8 @@ class LiveFeed(DataFeed):
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = 10
         self._reconnect_delay = 1.0
+        self._rest_client = rest_client
+        self._funding_poll_interval = funding_poll_interval
 
     def _build_stream_url(self) -> str:
         """Build combined WebSocket stream URL."""
@@ -134,10 +139,42 @@ class LiveFeed(DataFeed):
         self._running = True
         logger.info("live_feed_starting", symbols=self.symbols, timeframe=self.timeframe)
 
+    async def _poll_funding_rates(self) -> None:
+        """Periodically poll funding rates via REST and publish FundingEvent."""
+        if self._rest_client is None:
+            logger.info("funding_poll_skipped", reason="no rest_client")
+            return
+
+        while self._running:
+            for symbol_lower in self.symbols:
+                symbol = symbol_lower.upper()
+                try:
+                    data = self._rest_client.get_funding_rate(symbol)
+                    rate = float(data.get("lastFundingRate", 0))
+                    next_time_ms = int(data.get("nextFundingTime", 0))
+                    next_time = (
+                        ms_to_datetime(next_time_ms) if next_time_ms else None
+                    )
+                    event = FundingEvent(
+                        timestamp=datetime.now(UTC),
+                        symbol=symbol,
+                        funding_rate=rate,
+                        next_funding_time=next_time,
+                        source="rest_poll",
+                    )
+                    self.event_bus.publish(event)
+                    logger.debug("funding_rate_polled", symbol=symbol, rate=rate)
+                except Exception as e:
+                    logger.warning("funding_poll_error", symbol=symbol, error=str(e))
+            await asyncio.sleep(self._funding_poll_interval)
+
     async def start_async(self) -> None:
-        """Start the WebSocket connection asynchronously."""
+        """Start the WebSocket connection and funding rate poller."""
         self._running = True
-        await self._connect_and_listen()
+        tasks = [asyncio.create_task(self._connect_and_listen())]
+        if self._rest_client is not None:
+            tasks.append(asyncio.create_task(self._poll_funding_rates()))
+        await asyncio.gather(*tasks)
 
     def stop(self) -> None:
         """Stop the live feed."""
