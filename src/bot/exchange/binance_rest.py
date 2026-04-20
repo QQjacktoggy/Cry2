@@ -248,6 +248,37 @@ class BinanceRestClient:
         except Exception as e:
             raise ExchangeError(f"Get funding history failed: {e}") from e
 
+    def get_account_trades(
+        self,
+        symbol: str,
+        limit: int = 100,
+        start_time: int | None = None,
+        end_time: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get recent account trades (fills) for a symbol.
+
+        Calls ``/fapi/v1/userTrades``.  Used by TradeJournal.reconcile()
+        to backfill fills missed during a disconnect.
+
+        Returns:
+            List of trade dicts with keys: symbol, id, orderId, side,
+            price, qty, realizedPnl, commission, commissionAsset, time.
+        """
+        self.rate_limiter.acquire(weight=5)
+
+        if self._client is None:
+            return []
+
+        try:
+            params: dict[str, Any] = {"symbol": symbol, "limit": limit}
+            if start_time:
+                params["startTime"] = start_time
+            if end_time:
+                params["endTime"] = end_time
+            return self._client.futures_account_trades(**params)
+        except Exception as e:
+            raise ExchangeError(f"Get account trades failed: {e}") from e
+
     def ping(self) -> float:
         """Ping the API and return latency in ms."""
         start = time.time()
