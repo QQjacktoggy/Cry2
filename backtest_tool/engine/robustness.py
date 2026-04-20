@@ -297,6 +297,7 @@ def monte_carlo_simulation(
     equity: pd.Series,
     n_simulations: int = 1000,
     seed: int = 42,
+    annualization_factor: float = 365.0,
 ) -> dict[str, Any]:
     """Monte Carlo simulation by shuffling PnL returns.
 
@@ -307,6 +308,7 @@ def monte_carlo_simulation(
         equity: Equity curve (cumulative).
         n_simulations: Number of random shuffle simulations.
         seed: Random seed for reproducibility.
+        annualization_factor: Bars per year for Sharpe computation (default 365 for crypto daily).
 
     Returns:
         Dict with percentile statistics and distribution info.
@@ -335,7 +337,7 @@ def monte_carlo_simulation(
         # Sharpe
         mean_r = shuffled.mean()
         std_r = shuffled.std()
-        sharpe = mean_r / std_r * np.sqrt(252) if std_r > 0 else 0
+        sharpe = mean_r / std_r * np.sqrt(annualization_factor) if std_r > 0 else 0
         sharpe_ratios.append(sharpe)
 
     final_arr = np.array(final_values)
@@ -346,7 +348,7 @@ def monte_carlo_simulation(
     orig_equity = np.cumprod(1 + returns)
     orig_cummax = np.maximum.accumulate(orig_equity)
     orig_dd = ((orig_equity - orig_cummax) / orig_cummax).min()
-    orig_sharpe = returns.mean() / returns.std() * np.sqrt(252) if returns.std() > 0 else 0
+    orig_sharpe = returns.mean() / returns.std() * np.sqrt(annualization_factor) if returns.std() > 0 else 0
 
     # Percentile rank of original vs simulation
     orig_final_pct = float(np.mean(final_arr <= orig_equity[-1]) * 100)

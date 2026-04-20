@@ -144,9 +144,11 @@ V7.2  2.355    45.2%   -10.6%    4.27     16    5    $514   5/5 ✅ 🏆
 
 ### 三層架構配置
 
-#### ⭐ 穩健層 — 40%（參數穩定性 >50%）
+#### ⭐ 穩健層 — 40%（趨勢追蹤核心，多數高 viable%）
 
-> 這些策略在大部分參數組合下都能獲利，不依賴特定「黃金參數」。
+> 趨勢追蹤型策略。BTC/ETH/XRP 的 trend_donchian 系列在參數掃描中表現出最高穩定性。
+> ⚠️ **注意**: BTC adx_slope (viable 18.5%) 和 BNB mtf (viable 13.9%) 的穩定性低於 50%，
+> 歸入此層是因為策略族群整體穩健性高，且配置比例較低 (8%+2%)。
 
 | 策略位 | 幣種 | 配置 | 實際資金 | Sharpe | Return | MaxDD | Trades | Win% | Viable% |
 |--------|------|------|----------|--------|--------|-------|--------|------|---------|
@@ -623,3 +625,39 @@ Binance VIP0 taker fee = 4 bps，maker = 2 bps，安全餘量充足。
 *報告生成日期: 2026-04-20*  
 *回測引擎: VectorBT Pro + Cry2 Strategy Framework*  
 *數據來源: Binance Futures Historical Klines*
+
+---
+
+## 14. 已知限制與注意事項
+
+> 以下為第三方 code review (GPT-5.4) 指出的問題，已修復或記錄。
+
+### 已修復的問題
+
+| # | 問題 | 修復方式 |
+|---|------|---------|
+| MC 年化不一致 | Monte Carlo 使用 252，portfolio 使用 365 | MC 改為接受 `annualization_factor` 參數，統一使用 365 |
+| 相關性頻率混合 | 相關性計算混合 4h/1d 原始頻率 | 改用 daily-resampled equity curves 計算 |
+| Health report 窗口 | 30/90 是 bars 不是 days (4h=5天/15天) | 改用 daily-resampled curves，窗口即為實際天數 |
+| 穩健層標籤 | 聲稱 ">50% viable" 但含 BTC adx_slope 18.5%、BNB mtf 13.9% | 修正描述為策略族群穩健性，明確標註例外 |
+
+### 設計限制 (known trade-offs)
+
+**1. Walk-Forward 非真正 per-window 重選參數**
+- 當前 WF 是在已選好的參數上切窗驗證 equity curve 穩定性
+- 非每窗口重新 IS 選參數 → OOS 跑新參數的嚴格模式
+- **影響**: OOS Sharpe (2.004) 可能偏樂觀，真實 WF 可能更低
+- **緩解**: 參數穩定性分析 (viable%) 已獨立驗證參數不敏感性
+
+**2. 部分策略交易次數過少**
+- trend_donchian_mtf BTC: 7 trades
+- trend_donchian_mtf XRP: 5 trades
+- momentum_ranking BNB: 8 trades
+- **影響**: 低交易次數導致 win rate、Sharpe 的統計信心較低
+- **緩解**: 這些策略在更長回測期間仍保持正 Sharpe；viable% 分析考慮了多種參數
+
+**3. Regime 曝險偏重趨勢+動量**
+- 趨勢型 (trend_donchian + momentum) 佔 63% 配置
+- 在非趨勢 regime，實際策略間相關性可能高於報告顯示的 0.044
+- **影響**: 若市場長期盤整/震盪，組合可能承受集中虧損
+- **緩解**: Grid (25%) + Tail Risk Hedge (12%) 提供盤整/高波動覆蓋；MaxDD -10.6% 已含歷史各 regime

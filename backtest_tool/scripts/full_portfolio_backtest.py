@@ -373,7 +373,8 @@ def main() -> None:
 
     # ─── Correlation Analysis ───────────────────────────────────────────
     print("\n📊 Strategy Correlation Analysis...")
-    corr = compute_correlation_matrix(equity_curves)
+    # Use daily-resampled curves to ensure consistent frequency across 4h/1d strategies
+    corr = compute_correlation_matrix(daily_curves if daily_curves else equity_curves)
     summary = compute_correlation_summary(corr)
     print(f"  Mean correlation: {summary.get('mean_correlation', 'N/A')}")
     low_pairs = find_low_correlation_pairs(corr, threshold=0.3)
@@ -384,7 +385,13 @@ def main() -> None:
 
     # ─── Strategy Health ────────────────────────────────────────────────
     print("\n📊 Strategy Health Report...")
-    health = compute_strategy_health_report(equity_curves, window_short=30, window_long=90)
+    # Use daily-resampled curves so window_short/long are actual days, not bars
+    health = compute_strategy_health_report(
+        daily_curves if daily_curves else equity_curves,
+        window_short=30,
+        window_long=90,
+        annualization_factor=365.0,
+    )
     for name, h in health.items():
         decay_flag = " ⚠️DECAY" if h.get("is_decaying") else ""
         print(f"  {name}: Sharpe30d={h.get('sharpe_30d', '?'):.2f} Sharpe90d={h.get('sharpe_90d', '?'):.2f} DD={h.get('current_drawdown', 0):.1%}{decay_flag}")
@@ -428,7 +435,7 @@ def main() -> None:
     print("\n" + "=" * 70)
     print("🎲 Monte Carlo Simulation (1000 runs)")
     print("=" * 70)
-    mc = monte_carlo_simulation(combined_equity, n_simulations=1000)
+    mc = monte_carlo_simulation(combined_equity, n_simulations=1000, annualization_factor=ann_factor)
     if "original" in mc:
         o = mc["original"]
         s = mc["simulation"]
