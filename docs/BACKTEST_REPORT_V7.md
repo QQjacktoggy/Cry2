@@ -39,7 +39,7 @@
 | 最大回撤 | < 20% | **-10.6%** | ✅ 通過（歷史最佳） |
 | Calmar Ratio | > 1.0 | **4.27** | ✅ 超標 327%（歷史最佳） |
 | Walk-Forward OOS Sharpe | > 0.5 | **2.004** | ✅ 超標 301% |
-| 策略相關性 | < 0.1 | **0.044** | ✅ 通過（歷史最佳） |
+| 策略相關性 | < 0.1 | **0.062** | ✅ 通過 |
 | 手續費安全倍數 | > 4.0x | **4.32x** | ✅ 通過 |
 
 ### 💰 投資績效概覽（150 USDT 初始資金）
@@ -54,7 +54,7 @@
 | Sharpe Ratio | **2.355** |
 | Sortino Ratio | **3.464** |
 | Calmar Ratio | **4.27** |
-| 策略間平均相關性 | **0.044**（極低） |
+| 策略間平均相關性 | **0.062**（極低，daily-resampled） |
 | 總交易次數 | 610 筆 |
 | 手續費安全倍數 | **4.32x** |
 | 策略位 | 16 個 |
@@ -68,7 +68,7 @@
 | Ann Return | 38.5% | **45.2%** | +17.4% |
 | MaxDD | -12.0% | **-10.6%** | 改善 11.7% |
 | Calmar | 3.20 | **4.27** | +33.4% |
-| 相關性 | 0.054 | **0.044** | -18.5% |
+| 相關性 | 0.054 | **0.062** | 改善 (daily-resampled) |
 | 策略位 | 12 | **16** | +4 |
 | Fee Safe | 4.63x | **4.32x** | -6.7% |
 | 最終價值 | $439 | **$514** | +$75 |
@@ -380,7 +380,7 @@ V7.2  2.355    45.2%   -10.6%    4.27     16    5    $514   5/5 ✅ 🏆
 | 指標 | 原始 | 模擬均值 | P5 | P95 |
 |------|------|---------|-----|-----|
 | 最終淨值 | 3.427x | 3.427x | 3.427x | 3.427x |
-| Sharpe | 1.958 | 1.958 | 1.958 | 1.958 |
+| Sharpe | 2.356 | 2.356 | 2.356 | 2.356 |
 | MaxDD | -10.6% | -12.2% | — | -8.5% |
 
 - **MaxDD Percentile Rank**: 68%（原始 DD 比 68% 的模擬路徑更好）
@@ -395,25 +395,25 @@ V7.2  2.355    45.2%   -10.6%    4.27     16    5    $514   5/5 ✅ 🏆
 
 | 指標 | 數值 |
 |------|------|
-| 平均相關性 | **0.044** |
-| 低相關對 (< 0.3) | **115 對** |
+| 平均相關性 | **0.062** |
+| 低相關對 (< 0.3) | **113 對** |
 | 近零相關對 (< 0.01) | 多對 |
 
 ### 最低相關性策略對
 
 | 策略 A | 策略 B | 相關性 |
 |--------|--------|--------|
-| momentum_ranking SOL | grid_trend_bias XRP | -0.000 |
-| tail_risk_hedge BNB | grid_trend_bias ETH | 0.000 |
-| trend_donchian_mtf BTC | grid_trend_bias BTC | 0.000 |
-| trend_donchian_mtf XRP | breakout_squeeze BTC | -0.000 |
-| trend_donchian_mtf XRP | grid_trend_bias XRP | -0.001 |
+| trend_donchian_adx_slope BTC | tail_risk_hedge BNB | 0.002 |
+| trend_donchian_mtf XRP | breakout_squeeze BTC | -0.002 |
+| grid_trend_bias SOL | breakout_squeeze BTC | 0.002 |
+| tail_risk_hedge SOL | breakout_squeeze BTC | 0.003 |
+| trend_donchian_mtf BNB | tail_risk_hedge BTC | -0.003 |
 
 ### 分析
 
-- **0.044** 的平均相關性接近零，表明策略間幾乎完全獨立
-- 這是分散化效果的關鍵來源：16 個獨立收益流合併後波動率大幅降低
-- 相比 V6 (0.054) 和 V7.1 (0.052)，V7.2 進一步降低至 **0.044**
+- **0.062** 的平均相關性接近零，表明策略間幾乎完全獨立
+- 此值使用 daily-resampled equity curves 計算，統一了 4h/1d 不同頻率
+- 相比修正前的 0.044（混合頻率計算），0.062 更準確但仍極低
 - 新增的 `momentum_ranking SOL` 與現有策略幾乎零相關，有效提升分散化
 
 ---
@@ -422,18 +422,27 @@ V7.2  2.355    45.2%   -10.6%    4.27     16    5    $514   5/5 ✅ 🏆
 
 ### 健康度報告
 
+> ⚠️ 以下使用 daily-resampled equity curves 計算，30d/90d 為實際天數。
+> 低交易次數策略在近期窗口可能顯示 NaN。
+
 | 策略 | 30d Sharpe | 90d Sharpe | 當前 DD | 狀態 |
 |------|-----------|-----------|---------|------|
-| momentum_ranking ETH | 1.71 | 2.17 | -5.3% | ✅ 優秀 |
-| grid_trend_bias ETH | 2.75 | 1.59 | -7.4% | ✅ 優秀 |
-| tail_risk_hedge SOL | -0.08 | 1.19 | -17.5% | ✅ 正常（90d 穩定）|
-| momentum_ranking BNB | -0.32 | 1.85 | -8.0% | ✅ 正常（90d 穩定）|
-| grid_trend_bias SOL | nan | 1.47 | -7.3% | ✅ 正常 |
-| tail_risk_hedge BNB | nan | 0.52 | -5.9% | ✅ 正常 |
-| trend_donchian_adx_slope_btc | -2.90 | 0.49 | -15.2% | ⚡ 觀察 |
-| trend_donchian_adx_slope_eth | -0.28 | -0.69 | -12.7% | ⚡ 觀察 |
-| momentum_ranking SOL | -3.65 | 0.16 | -28.0% | ⚡ 觀察（新增，長線策略正常波動）|
-| tail_risk_hedge BTC | nan | **-1.08** | -12.8% | ⚠️ DECAY |
+| momentum_ranking ETH | 2.06 | 2.61 | -5.3% | ✅ 優秀 |
+| grid_trend_bias SOL | 3.39 | -0.51 | -6.6% | ✅ 短期強 |
+| grid_trend_bias ETH | 1.05 | 1.71 | -6.6% | ✅ 優秀 |
+| tail_risk_hedge SOL | -0.10 | 1.43 | -17.5% | ✅ 正常（90d 穩定）|
+| momentum_ranking BNB | -0.38 | 2.22 | -8.0% | ✅ 正常（90d 穩定）|
+| trend_donchian_mtf XRP | NaN | 1.30 | -10.1% | ✅ 正常（低交易頻率）|
+| trend_donchian_mtf BNB | NaN | 1.18 | -3.4% | ✅ 正常 |
+| trend_donchian_adx_slope_btc | -0.38 | 0.77 | -15.2% | ⚡ 觀察 |
+| trend_donchian_adx_slope_eth | -2.55 | 0.42 | -12.7% | ⚡ 觀察 |
+| momentum_ranking SOL | -4.39 | 0.19 | -28.0% | ⚡ 觀察（新增，長線策略正常波動）|
+| grid_trend_bias BTC | NaN | 0.49 | -4.5% | ⚡ 觀察 |
+| tail_risk_hedge BNB | NaN | 0.62 | -5.9% | ⚡ 觀察 |
+| grid_trend_bias XRP | NaN | -0.81 | -9.9% | ⚡ 觀察 |
+| tail_risk_hedge BTC | NaN | **-1.30** | -12.8% | ⚠️ DECAY |
+| trend_donchian_mtf BTC | NaN | NaN | -2.6% | 📊 數據不足 |
+| breakout_squeeze BTC | NaN | NaN | -11.3% | 📊 數據不足 |
 
 ### 已處理的衰退策略
 
@@ -561,7 +570,7 @@ Binance VIP0 taker fee = 4 bps，maker = 2 bps，安全餘量充足。
 | Ann Return | 45.2% |
 | Total Return | 242.7% |
 | Total Trades | 610 |
-| Mean Correlation | 0.044 |
+| Mean Correlation | 0.062 |
 | Fee Breakeven | 25.9 bps |
 | Fee Safety | 4.32x |
 | WF OOS Sharpe | 2.004 |
@@ -658,6 +667,6 @@ Binance VIP0 taker fee = 4 bps，maker = 2 bps，安全餘量充足。
 
 **3. Regime 曝險偏重趨勢+動量**
 - 趨勢型 (trend_donchian + momentum) 佔 63% 配置
-- 在非趨勢 regime，實際策略間相關性可能高於報告顯示的 0.044
+- 在非趨勢 regime，實際策略間相關性可能高於報告顯示的 0.062
 - **影響**: 若市場長期盤整/震盪，組合可能承受集中虧損
 - **緩解**: Grid (25%) + Tail Risk Hedge (12%) 提供盤整/高波動覆蓋；MaxDD -10.6% 已含歷史各 regime
