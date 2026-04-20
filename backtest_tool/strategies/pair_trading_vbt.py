@@ -76,7 +76,7 @@ class PairTradingBTCETH(BaseVBTStrategy):
         Returns:
             Tuple of (df_a, df_b) DataFrames with DatetimeIndex.
         """
-        kdir = data_dir or _KLINES_DIR
+        kdir = Path(data_dir) if data_dir else _KLINES_DIR
 
         dfs = {}
         for sym in (symbol_a, symbol_b):
@@ -196,10 +196,31 @@ class PairTradingBTCETH(BaseVBTStrategy):
         return (residuals - mean) / std.replace(0, pd.NA)
 
     @staticmethod
-    def _bars_since_true(signal: pd.Series) -> pd.Series:
-        """Count bars since last True signal."""
-        groups = signal.cumsum()
-        return groups.groupby(groups).cumcount()
+    def _apply_max_hold(
+        entries: pd.Series, exits: pd.Series, max_hold_bars: int,
+    ) -> pd.Series:
+        """Inject forced exit after *max_hold_bars* bars in position.
+
+        Simulates VBT's sequential entry/exit processing:
+        once an entry fires, count bars; if *max_hold_bars* reached
+        before a normal exit, force the exit.
+        """
+        exits = exits.copy()
+        in_pos = False
+        held = 0
+        for i in range(len(entries)):
+            if not in_pos:
+                if entries.iloc[i]:
+                    in_pos = True
+                    held = 0
+            else:
+                held += 1
+                if exits.iloc[i]:
+                    in_pos = False
+                elif held >= max_hold_bars:
+                    exits.iloc[i] = True
+                    in_pos = False
+        return exits
 
     def generate_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
         """Long ratio entry: residual z-score below -entry_z.
@@ -213,18 +234,13 @@ class PairTradingBTCETH(BaseVBTStrategy):
         return (z < -self.params["entry_z"]).fillna(False)
 
     def generate_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
-        """Long exit: z reverts toward zero OR stop loss OR max hold reached."""
+        """Long exit: z reverts toward zero OR stop loss."""
         z = ohlcv.get("_zscore")
         if z is None:
             z = self._zscore(ohlcv["close"])
         revert = z > -self.params["exit_z"]
         stop = z < -self.params["stop_z"]
-
-        entries = self.generate_entries(ohlcv)
-        bars_since = self._bars_since_true(entries)
-        hold_exit = bars_since >= self.params["max_hold_bars"]
-
-        return (revert | stop | hold_exit).fillna(False)
+        return (revert | stop).fillna(False)
 
     def generate_short_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
         """Short ratio entry: residual z-score above +entry_z.
@@ -238,18 +254,13 @@ class PairTradingBTCETH(BaseVBTStrategy):
         return (z > self.params["entry_z"]).fillna(False)
 
     def generate_short_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
-        """Short exit: z reverts toward zero OR stop loss OR max hold reached."""
+        """Short exit: z reverts toward zero OR stop loss."""
         z = ohlcv.get("_zscore")
         if z is None:
             z = self._zscore(ohlcv["close"])
         revert = z < self.params["exit_z"]
         stop = z > self.params["stop_z"]
-
-        short_entries = self.generate_short_entries(ohlcv)
-        bars_since = self._bars_since_true(short_entries)
-        hold_exit = bars_since >= self.params["max_hold_bars"]
-
-        return (revert | stop | hold_exit).fillna(False)
+        return (revert | stop).fillna(False)
 
     def run_backtest(
         self,
@@ -311,6 +322,12 @@ class PairTradingBTCETH(BaseVBTStrategy):
         exits = self.generate_exits(ratio_ohlcv).fillna(False).astype(bool)
         short_entries = self.generate_short_entries(ratio_ohlcv).fillna(False).astype(bool)
         short_exits = self.generate_short_exits(ratio_ohlcv).fillna(False).astype(bool)
+
+        # Apply max-hold forced exit (simulates position tracking)
+        max_hold = self.params.get("max_hold_bars")
+        if max_hold:
+            exits = self._apply_max_hold(entries, exits, max_hold)
+            short_exits = self._apply_max_hold(short_entries, short_exits, max_hold)
 
         freq = FREQ_MAP.get(self.required_timeframe, self.required_timeframe)
         total_fees = (fees + slippage) * 2  # 2 legs
