@@ -38,6 +38,8 @@ from backtest_tool.strategies import STRATEGY_MAP
 DATA_DIR = ROOT / "backtest_tool" / "data" / "klines"
 OUTPUT_DIR = ROOT / "backtest_tool" / "reports" / "output"
 
+INITIAL_CAPITAL = 150  # USDT
+
 # ─── Strategy + Allocation Config ───────────────────────────────────────────
 
 PORTFOLIO = {
@@ -175,7 +177,7 @@ def run_single_strategy(name: str, cfg: dict, runner: BacktestRunner) -> dict | 
         return None
 
     strategy = strategy_cls(cfg["params"])
-    capital = 10000 * cfg["allocation"]
+    capital = INITIAL_CAPITAL * cfg["allocation"]
 
     try:
         result = runner.run_single(
