@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Run live trading on Binance Futures.
 
-Uses V6 portfolio strategies bridged from backtest system.
+Uses V7.2 portfolio strategies bridged from backtest system.
 Requires explicit confirmation to prevent accidental execution.
 
 Usage:
     python scripts/run_live.py --confirm CONFIRM_LIVE_TRADING
     python scripts/run_live.py --confirm CONFIRM_LIVE_TRADING --capital 150
+    python scripts/run_live.py --confirm CONFIRM_LIVE_TRADING --version v6
 """
 
 import argparse
@@ -35,7 +36,7 @@ from bot.portfolio.portfolio import Portfolio
 from bot.risk.circuit_breaker import CircuitBreaker
 from bot.risk.kill_switch import KillSwitch
 from bot.risk.risk_manager import RiskManager
-from bot.strategy.bridge import create_v6_strategies
+from bot.strategy.bridge import create_v6_strategies, create_v72_strategies, create_v72_strategies
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +46,7 @@ async def main() -> None:
     parser.add_argument("--config", default="config/config.yaml", help="Config file")
     parser.add_argument("--confirm", help="Confirmation string")
     parser.add_argument("--capital", type=float, default=150.0, help="Initial capital (USDT)")
+    parser.add_argument("--version", default="v72", choices=["v6", "v72"], help="Portfolio version")
     args = parser.parse_args()
 
     load_env()
@@ -124,13 +126,17 @@ async def main() -> None:
         enabled=tg_cfg.get("enabled", False),
     )
 
-    # Create V6 bridged strategies
-    strategies = create_v6_strategies(initial_capital=args.capital)
+    # Create bridged strategies
+    if args.version == "v6":
+        strategies = create_v6_strategies(initial_capital=args.capital)
+    else:
+        strategies = create_v72_strategies(initial_capital=args.capital)
     all_symbols = list(set(s.symbol for s in strategies))
     all_timeframes = list(set(s.timeframe for s in strategies))
 
     logger.info(
-        "v6_strategies_loaded",
+        "strategies_loaded",
+        version=args.version,
         count=len(strategies),
         symbols=all_symbols,
         timeframes=all_timeframes,

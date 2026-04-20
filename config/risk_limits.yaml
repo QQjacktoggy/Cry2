@@ -12,6 +12,14 @@ risk_limits:
   # Weekly
   weekly_loss_limit_pct: 8.0
 
+  # Portfolio drawdown protection (V7.2)
+  max_drawdown_pct: 20.0
+  drawdown_cooldown_bars: 48       # 8 days at 4h
+
+  # Consecutive loss protection (V7.2)
+  max_consecutive_losses: 5
+  loss_cooldown_bars: 24           # 4 days at 4h
+
   # Margin
   maintenance_margin_ratio_min: 50
 

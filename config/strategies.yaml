@@ -1,111 +1,95 @@
 strategies:
   # =============================================
-  # V6 配置 — 5幣種組合：BTC+ETH+BNB+XRP+SOL
-  # Sharpe 2.063 | Ann Return 38.5% | MaxDD -12.0% | Calmar 3.20
+  # V7.2 配置 — 5幣種組合：BTC+ETH+BNB+XRP+SOL
+  # Sharpe 2.355 | Ann Return 45.2% | MaxDD -10.6% | Calmar 4.27
+  # Three-tier: Robust 40% / Moderate 48% / Fragile 12%
   # =============================================
 
-  # 🟢 長線核心 (42% 資金) — 多幣種趨勢追蹤
-  momentum_ranking:
-    enabled: true
-    allocation_eth: 0.14
-    allocation_bnb: 0.08
-    symbols: [ETHUSDT, BNBUSDT]
-    timeframe: 1d
-    roc_period: 60
-    lookback: 180
-    upper_threshold: 80
-    lower_threshold: 40
-    leverage: 1.5
-    regime_filter: [trending_up, trending_down]
-
+  # ⭐ Robust Tier (40%) — 長線核心, 參數穩定性 >50%
   trend_donchian_mtf:
     enabled: true
-    allocation: 0.15
-    symbols: [BTCUSDT]
+    allocation_btc: 0.16
+    allocation_xrp: 0.04
+    allocation_bnb: 0.02
+    symbols: [BTCUSDT, XRPUSDT, BNBUSDT]
     timeframe: 4h
-    entry_period: 15
-    exit_period: 10
-    adx_threshold: 20
-    htf_period: 200
+    btc_params: {entry_period: 10, exit_period: 10, adx_threshold: 15, htf_period: 150}
+    xrp_params: {entry_period: 10, exit_period: 5, adx_threshold: 15, htf_period: 100}
+    bnb_params: {entry_period: 10, exit_period: 7, adx_threshold: 15, htf_period: 150}
     leverage: 2
     regime_filter: [trending_up, trending_down]
 
   trend_donchian_adx_slope:
     enabled: true
-    allocation: 0.05
-    symbols: [BTCUSDT]
+    allocation_eth: 0.10
+    allocation_btc: 0.08
+    symbols: [ETHUSDT, BTCUSDT]
     timeframe: 4h
-    entry_period: 20
-    exit_period: 10
-    adx_slope_bars: 5
-    adx_slope_min: 0.3
+    eth_params: {entry_period: 20, exit_period: 5, adx_slope_bars: 5, adx_slope_min: 0.2}
+    btc_params: {entry_period: 30, exit_period: 7, adx_slope_bars: 3, adx_slope_min: 0.2}
     leverage: 2
     regime_filter: [trending_up]
 
-  # 🟡 短線補位 (30% 資金) — 盤整期獲利
+  # 🔵 Moderate Tier (48%) — 多元化補位
+  momentum_ranking:
+    enabled: true
+    allocation_eth: 0.12
+    allocation_bnb: 0.08
+    allocation_sol: 0.03
+    symbols: [ETHUSDT, BNBUSDT, SOLUSDT]
+    timeframe: 1d
+    eth_params: {roc_period: 60, lookback: 240, upper_threshold: 70, lower_threshold: 30}
+    bnb_params: {roc_period: 90, lookback: 120, upper_threshold: 70, lower_threshold: 30}
+    sol_params: {roc_period: 20, lookback: 240, upper_threshold: 70, lower_threshold: 30}
+    leverage: 1.5
+    regime_filter: [trending_up, trending_down]
+
   grid_trend_bias:
     enabled: true
-    allocation_eth: 0.18
-    allocation_xrp: 0.05
+    allocation_eth: 0.09
+    allocation_xrp: 0.06
+    allocation_btc: 0.04
     allocation_sol: 0.03
-    symbols: [ETHUSDT, XRPUSDT, SOLUSDT]
+    symbols: [ETHUSDT, XRPUSDT, BTCUSDT, SOLUSDT]
     timeframe: 4h
-    bb_period: 20
-    bb_std: 2.0
-    ema_period: 50
-    leverage: 2
+    eth_params: {bb_period: 20, bb_std: 2.0, ema_period: 100}
+    xrp_params: {bb_period: 15, bb_std: 2.0, ema_period: 50}
+    btc_params: {bb_period: 30, bb_std: 3.0, ema_period: 200}
+    sol_params: {bb_period: 15, bb_std: 2.0, ema_period: 100}
+    eth_leverage: 2
+    xrp_leverage: 2
+    btc_leverage: 1
     sol_leverage: 1
-    sol_bb_period: 15
-    sol_ema_period: 100
     regime_filter: [ranging]
 
-  breakout_squeeze:
-    enabled: true
-    allocation_btc: 0.06
-    allocation_sol: 0.04
-    symbols: [BTCUSDT, SOLUSDT]
-    timeframe: 4h
-    bb_period: 30
-    bb_std: 2.5
-    kc_ema_period: 15
-    kc_atr_period: 7
-    kc_mult: 2.0
-    leverage: 2
-    sol_leverage: 1
-    sol_bb_std: 2.0
-    sol_kc_ema_period: 20
-    sol_kc_atr_period: 10
-    sol_kc_mult: 1.5
-    regime_filter: [ranging]
-
-  # 🔵 Phase 7 優化 + 多幣種擴展 (22% 資金)
   tail_risk_hedge:
     enabled: true
-    allocation_btc: 0.07
     allocation_bnb: 0.05
-    symbols: [BTCUSDT, BNBUSDT]
+    allocation_sol: 0.04
+    allocation_btc: 0.03
+    symbols: [BNBUSDT, SOLUSDT, BTCUSDT]
     timeframe: 1d
-    consec_up_threshold: 14
-    consec_down_threshold: 5
-    exit_bars: 10
+    bnb_params: {consec_up_threshold: 10, consec_down_threshold: 5, exit_bars: 15}
+    sol_params: {consec_up_threshold: 10, consec_down_threshold: 3, exit_bars: 10}
+    btc_params: {consec_up_threshold: 10, consec_down_threshold: 5, exit_bars: 10}
     leverage: 1
     regime_filter: [volatile]
 
-  dual_channel_breakout:
+  # ⚠️ Fragile Tier (12%)
+  breakout_squeeze:
     enabled: true
-    allocation: 0.10
-    symbols: [ETHUSDT]
+    allocation_btc: 0.03
+    symbols: [BTCUSDT]
     timeframe: 4h
-    dc_period: 30
-    kc_ema: 15
-    kc_atr: 14
-    kc_mult: 2.0
-    adx_period: 14
-    adx_threshold: 20
+    btc_params: {bb_period: 30, bb_std: 3.0, kc_ema_period: 10, kc_atr_period: 7, kc_mult: 2.0}
     leverage: 2
-    regime_filter: [trending_up, trending_down]
+    regime_filter: [ranging]
 
-  # ❌ 移除策略
+  # ❌ V7.2 移除策略
+  dual_channel_breakout:
+    enabled: false
+    allocation: 0.00
+    removal_reason: "30d Sharpe -3.22, 90d Sharpe -3.52, parameter decay"
   trend_donchian:
     enabled: false
     allocation: 0.00
@@ -126,27 +110,31 @@ strategies:
     allocation: 0.00
 
 # =============================================
-# V6 資金配置摘要 (100%) — 5幣種 12策略位
+# V7.2 資金配置摘要 (100%) — 5幣種 16策略位
 # =============================================
 capital_allocation:
-  # 長線核心 42%
-  momentum_ranking_eth: 0.14
+  # ⭐ Robust Tier 40%
+  trend_donchian_mtf_btc: 0.16
+  trend_donchian_adx_slope_eth: 0.10
+  trend_donchian_adx_slope_btc: 0.08
+  trend_donchian_mtf_xrp: 0.04
+  trend_donchian_mtf_bnb: 0.02
+  # 🔵 Moderate Tier 48%
+  momentum_ranking_eth: 0.12
   momentum_ranking_bnb: 0.08
-  trend_donchian_mtf: 0.15
-  trend_donchian_adx_slope: 0.05
-  # 短線補位 30%
-  grid_trend_bias_eth: 0.18
-  grid_trend_bias_xrp: 0.05
-  grid_trend_bias_sol: 0.03
-  breakout_squeeze_btc: 0.06
-  breakout_squeeze_sol: 0.04
-  # Phase 7 + 多幣種 22%
-  tail_risk_hedge_btc: 0.07
+  grid_trend_bias_eth: 0.09
+  grid_trend_bias_xrp: 0.06
   tail_risk_hedge_bnb: 0.05
-  dual_channel_breakout: 0.10
+  tail_risk_hedge_sol: 0.04
+  grid_trend_bias_btc: 0.04
+  momentum_ranking_sol: 0.03
+  grid_trend_bias_sol: 0.03
+  tail_risk_hedge_btc: 0.03
+  # ⚠️ Fragile Tier 12%
+  breakout_squeeze_btc: 0.03
 
 # =============================================
-# 市場環境感知配置 (Phase 4)
+# 市場環境感知配置 (V7.2 calibrated)
 # =============================================
 regime_detection:
   adx_period: 14
@@ -161,16 +149,16 @@ regime_detection:
 regime_strategy_routing:
   trending_up:
     - momentum_ranking
-    - trend_donchian
     - trend_donchian_mtf
     - trend_donchian_adx_slope
   trending_down:
     - momentum_ranking
-    - trend_donchian
+    - trend_donchian_mtf
   ranging:
     - grid_trend_bias
     - breakout_squeeze
-  volatile: []
+  volatile:
+    - tail_risk_hedge
 
 regime_sizing:
   trending_up: 1.0

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from enum import Enum
 
+import numpy as np
 import structlog
 
 from bot.utils.math_utils import clamp, safe_divide
@@ -167,3 +168,38 @@ class PositionSizer:
         quantity = position_value / entry_price
 
         return max(quantity, 0.0)
+
+    def adaptive_leverage(
+        self,
+        atr_current: float,
+        atr_history: list[float] | np.ndarray,
+        base_leverage: int = 2,
+    ) -> int:
+        """Calculate adaptive leverage based on ATR percentile.
+
+        High volatility (ATR pctl > 80) → leverage = 1 (protect capital).
+        Normal volatility (20-80) → leverage = base (standard).
+        Low volatility (ATR pctl < 20) → leverage = base + 1 (opportunity).
+
+        Args:
+            atr_current: Current ATR value.
+            atr_history: Historical ATR values (at least 20 bars).
+            base_leverage: Default leverage setting.
+
+        Returns:
+            Adjusted leverage (clamped to max_leverage).
+        """
+        arr = np.asarray(atr_history)
+        if len(arr) < 20:
+            return min(base_leverage, self.max_leverage)
+
+        percentile = float(np.sum(arr <= atr_current) / len(arr) * 100)
+
+        if percentile > 80:
+            adjusted = 1
+        elif percentile < 20:
+            adjusted = min(base_leverage + 1, self.max_leverage)
+        else:
+            adjusted = base_leverage
+
+        return min(adjusted, self.max_leverage, self.hard_max_leverage)

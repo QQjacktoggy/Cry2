@@ -35,6 +35,10 @@ class RiskManager:
         daily_loss_limit_pct: float = 3.0,
         weekly_loss_limit_pct: float = 8.0,
         daily_trade_count_limit: int = 50,
+        max_drawdown_pct: float = 20.0,
+        drawdown_cooldown_bars: int = 48,
+        max_consecutive_losses: int = 5,
+        loss_cooldown_bars: int = 24,
         clock: BaseClock | None = None,
     ) -> None:
         self.event_bus = event_bus
@@ -44,6 +48,10 @@ class RiskManager:
         self.daily_loss_limit_pct = daily_loss_limit_pct
         self.weekly_loss_limit_pct = weekly_loss_limit_pct
         self.daily_trade_count_limit = daily_trade_count_limit
+        self.max_drawdown_pct = max_drawdown_pct
+        self.drawdown_cooldown_bars = drawdown_cooldown_bars
+        self.max_consecutive_losses = max_consecutive_losses
+        self.loss_cooldown_bars = loss_cooldown_bars
         self._clock = clock or RealClock()
 
         # State tracking
@@ -56,6 +64,15 @@ class RiskManager:
         self._last_weekly_reset: datetime = self._clock.now()
         self._equity: float = 0.0
 
+        # Portfolio drawdown tracking
+        self._peak_equity: float = 0.0
+        self._drawdown_halted: bool = False
+        self._drawdown_halt_bars_remaining: int = 0
+
+        # Consecutive loss tracking (per strategy)
+        self._consecutive_losses: dict[str, int] = {}
+        self._strategy_cooldown: dict[str, int] = {}
+
         # Subscribe to events
         self.event_bus.subscribe(EventType.SIGNAL.value, self._on_signal)
         self.event_bus.subscribe(EventType.FILL.value, self._on_fill)
@@ -63,6 +80,8 @@ class RiskManager:
     def set_equity(self, equity: float) -> None:
         """Update current equity for risk calculations."""
         self._equity = equity
+        if equity > self._peak_equity:
+            self._peak_equity = equity
 
     def _check_daily_reset(self) -> None:
         """Reset daily counters at UTC midnight."""
@@ -98,12 +117,29 @@ class RiskManager:
         self._check_weekly_reset()
         self._equity = equity
 
+        # Check portfolio drawdown halt
+        if self._drawdown_halted:
+            return False, (
+                f"Portfolio drawdown exceeds {self.max_drawdown_pct}% "
+                f"- halted for {self._drawdown_halt_bars_remaining} more bars"
+            )
+
         # Check halted state
         if self._daily_halted:
             return False, "Daily loss limit reached - trading halted for today"
 
         if self._weekly_halted:
             return False, "Weekly loss limit reached - trading halted for this week"
+
+        # Check per-strategy consecutive loss cooldown
+        strat_name = getattr(signal, "strategy_name", "")
+        if strat_name and strat_name in self._strategy_cooldown:
+            remaining = self._strategy_cooldown[strat_name]
+            return False, (
+                f"Strategy {strat_name} paused after "
+                f"{self.max_consecutive_losses} consecutive losses "
+                f"({remaining} bars remaining)"
+            )
 
         # Check daily trade count
         if self._daily_trade_count >= self.daily_trade_count_limit:
@@ -160,10 +196,28 @@ class RiskManager:
         self.event_bus.publish(order)
 
     def _on_fill(self, event: FillEvent) -> None:
-        """Track PnL from fills for daily/weekly limits."""
+        """Track PnL from fills for daily/weekly/drawdown limits."""
         self._daily_pnl += event.realized_pnl
         self._weekly_pnl += event.realized_pnl
         self._daily_trade_count += 1
+
+        # Track consecutive losses per strategy
+        strat_name = getattr(event, "strategy_name", "")
+        if strat_name:
+            if event.realized_pnl < 0:
+                self._consecutive_losses[strat_name] = (
+                    self._consecutive_losses.get(strat_name, 0) + 1
+                )
+                if self._consecutive_losses[strat_name] >= self.max_consecutive_losses:
+                    self._strategy_cooldown[strat_name] = self.loss_cooldown_bars
+                    logger.warning(
+                        "strategy_consecutive_loss_halt",
+                        strategy=strat_name,
+                        consecutive=self._consecutive_losses[strat_name],
+                        cooldown_bars=self.loss_cooldown_bars,
+                    )
+            else:
+                self._consecutive_losses[strat_name] = 0
 
         # Check daily loss limit
         if self._equity > 0:
@@ -185,10 +239,39 @@ class RiskManager:
                     limit_pct=self.weekly_loss_limit_pct,
                 )
 
+            # Check portfolio drawdown
+            if self._peak_equity > 0:
+                current_dd = (self._peak_equity - self._equity) / self._peak_equity * 100
+                if current_dd >= self.max_drawdown_pct and not self._drawdown_halted:
+                    self._drawdown_halted = True
+                    self._drawdown_halt_bars_remaining = self.drawdown_cooldown_bars
+                    logger.error(
+                        "portfolio_drawdown_halt",
+                        drawdown_pct=round(current_dd, 2),
+                        peak_equity=self._peak_equity,
+                        current_equity=self._equity,
+                        cooldown_bars=self.drawdown_cooldown_bars,
+                    )
+
+    def tick_bar(self) -> None:
+        """Called each bar to decrement cooldown counters."""
+        if self._drawdown_halt_bars_remaining > 0:
+            self._drawdown_halt_bars_remaining -= 1
+            if self._drawdown_halt_bars_remaining == 0:
+                self._drawdown_halted = False
+                logger.info("drawdown_cooldown_expired")
+
+        for strat in list(self._strategy_cooldown.keys()):
+            self._strategy_cooldown[strat] -= 1
+            if self._strategy_cooldown[strat] <= 0:
+                del self._strategy_cooldown[strat]
+                self._consecutive_losses.pop(strat, None)
+                logger.info("strategy_cooldown_expired", strategy=strat)
+
     @property
     def is_halted(self) -> bool:
         """Check if trading is halted."""
-        return self._daily_halted or self._weekly_halted
+        return self._daily_halted or self._weekly_halted or self._drawdown_halted
 
     @property
     def daily_pnl(self) -> float:
@@ -202,11 +285,21 @@ class RiskManager:
 
     def get_status(self) -> dict[str, Any]:
         """Get risk manager status summary."""
+        current_dd = 0.0
+        if self._peak_equity > 0:
+            current_dd = (self._peak_equity - self._equity) / self._peak_equity * 100
+
         return {
             "daily_pnl": self._daily_pnl,
             "weekly_pnl": self._weekly_pnl,
             "daily_trade_count": self._daily_trade_count,
             "daily_halted": self._daily_halted,
             "weekly_halted": self._weekly_halted,
+            "drawdown_halted": self._drawdown_halted,
+            "drawdown_pct": round(current_dd, 2),
+            "drawdown_cooldown_remaining": self._drawdown_halt_bars_remaining,
+            "peak_equity": self._peak_equity,
             "equity": self._equity,
+            "consecutive_losses": dict(self._consecutive_losses),
+            "strategy_cooldowns": dict(self._strategy_cooldown),
         }
