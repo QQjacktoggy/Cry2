@@ -1,4 +1,4 @@
-"""Backtest engine: runner, parameter scanning, portfolio optimization, risk management, regime detection, analytics."""
+"""Backtest engine: runner, parameter scanning, portfolio optimization, risk management, regime detection, analytics, robustness."""
 
 from backtest_tool.engine.analytics import (
     compute_correlation_matrix,
@@ -25,6 +25,15 @@ from backtest_tool.engine.risk_manager import (
     apply_max_hold_limit,
     apply_portfolio_stop,
     compute_adaptive_leverage,
+)
+from backtest_tool.engine.robustness import (
+    fee_sensitivity_analysis,
+    generate_robustness_report,
+    monte_carlo_simulation,
+    optimize_multi_objective,
+    parameter_stability_analysis,
+    stress_test,
+    walk_forward_analysis,
 )
 from backtest_tool.engine.runner import BacktestResult, BacktestRunner, MultiBacktestResult
 
@@ -56,4 +65,12 @@ __all__ = [
     "compute_strategy_health_report",
     "detect_strategy_decay",
     "find_low_correlation_pairs",
+    # Robustness (Phase 5)
+    "fee_sensitivity_analysis",
+    "generate_robustness_report",
+    "monte_carlo_simulation",
+    "optimize_multi_objective",
+    "parameter_stability_analysis",
+    "stress_test",
+    "walk_forward_analysis",
 ]
