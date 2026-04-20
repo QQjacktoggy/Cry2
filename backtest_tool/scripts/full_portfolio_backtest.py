@@ -44,14 +44,14 @@ INITIAL_CAPITAL = 150  # USDT
 
 PORTFOLIO = {
     # ═══════════════════════════════════════════════════════════
-    # V5 ALLOCATION — Add BNB (momentum_ranking + tail_risk_hedge)
-    # Changes from V4:
-    #   1. Add momentum_ranking BNB (Sharpe 1.52, best cross-asset!)
-    #   2. Add tail_risk_hedge BNB (Sharpe 1.41, 83% win rate)
-    #   3. Trim weaker strategies to fund BNB entries
-    #   4. 3-coin portfolio: BTC + ETH + BNB
+    # V6 ALLOCATION — Add SOL (breakout_squeeze + grid_trend_bias)
+    # Changes from V5:
+    #   1. Add breakout_squeeze SOL (Sharpe 1.04, MaxDD -14%, 1x)
+    #   2. Add grid_trend_bias SOL (Sharpe 1.22, 72.9% win, 1x)
+    #   3. Trim ETH grid_trend_bias 22%→18% and BTC breakout 8%→6%
+    #   4. 5-coin portfolio: BTC + ETH + BNB + XRP + SOL
     # ═══════════════════════════════════════════════════════════
-    # Long-term core (48%)
+    # Long-term core (42%)
     "momentum_ranking_eth": {
         "strategy_name": "momentum_ranking",
         "allocation": 0.14,
@@ -80,18 +80,18 @@ PORTFOLIO = {
     },
     # Short-term fill (30%)
     "grid_trend_bias": {
-        "allocation": 0.22,
+        "allocation": 0.18,
         "symbol": "ETHUSDT",
         "timeframe": "4h",
         "params": {"bb_period": 20, "bb_std": 2.0, "ema_period": 50, "leverage": 2},
     },
     "breakout_squeeze": {
-        "allocation": 0.08,
+        "allocation": 0.06,
         "symbol": "BTCUSDT",
         "timeframe": "4h",
         "params": {"bb_period": 30, "bb_std": 2.5, "kc_ema_period": 15, "kc_atr_period": 7, "kc_mult": 2.0, "leverage": 2},
     },
-    # Phase 7 optimized + BNB expansion (28%)
+    # Phase 7 optimized + BNB expansion (22%)
     "tail_risk_hedge_btc": {
         "strategy_name": "tail_risk_hedge",
         "allocation": 0.07,
@@ -112,13 +112,28 @@ PORTFOLIO = {
         "timeframe": "4h",
         "params": {"dc_period": 30, "kc_ema": 15, "kc_atr": 14, "kc_mult": 2.0, "adx_period": 14, "adx_threshold": 20, "leverage": 2},
     },
-    # Bonus: grid_trend_bias XRP (cross-asset: Sharpe 0.93)
+    # XRP grid (cross-asset: Sharpe 0.93)
     "grid_trend_bias_xrp": {
         "strategy_name": "grid_trend_bias",
-        "allocation": 0.06,
+        "allocation": 0.05,
         "symbol": "XRPUSDT",
         "timeframe": "4h",
         "params": {"bb_period": 20, "bb_std": 2.0, "ema_period": 50, "leverage": 2},
+    },
+    # SOL entries (V6 new — 1x leverage for volatility control)
+    "breakout_squeeze_sol": {
+        "strategy_name": "breakout_squeeze",
+        "allocation": 0.04,
+        "symbol": "SOLUSDT",
+        "timeframe": "4h",
+        "params": {"bb_period": 30, "bb_std": 2.0, "kc_ema_period": 20, "kc_atr_period": 10, "kc_mult": 1.5, "leverage": 1},
+    },
+    "grid_trend_bias_sol": {
+        "strategy_name": "grid_trend_bias",
+        "allocation": 0.03,
+        "symbol": "SOLUSDT",
+        "timeframe": "4h",
+        "params": {"bb_period": 15, "bb_std": 2.0, "ema_period": 100, "leverage": 1},
     },
 }
 

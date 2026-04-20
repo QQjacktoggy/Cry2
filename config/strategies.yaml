@@ -1,7 +1,7 @@
 strategies:
   # =============================================
-  # V5 配置 — 加入 BNB（3幣種組合：BTC+ETH+BNB+XRP）
-  # Sharpe 1.969 | Ann Return 37.4% | MaxDD -13.8% | Calmar 2.70
+  # V6 配置 — 5幣種組合：BTC+ETH+BNB+XRP+SOL
+  # Sharpe 2.063 | Ann Return 38.5% | MaxDD -12.0% | Calmar 3.20
   # =============================================
 
   # 🟢 長線核心 (42% 資金) — 多幣種趨勢追蹤
@@ -45,20 +45,25 @@ strategies:
   # 🟡 短線補位 (30% 資金) — 盤整期獲利
   grid_trend_bias:
     enabled: true
-    allocation_eth: 0.22
-    allocation_xrp: 0.06
-    symbols: [ETHUSDT, XRPUSDT]
+    allocation_eth: 0.18
+    allocation_xrp: 0.05
+    allocation_sol: 0.03
+    symbols: [ETHUSDT, XRPUSDT, SOLUSDT]
     timeframe: 4h
     bb_period: 20
     bb_std: 2.0
     ema_period: 50
     leverage: 2
+    sol_leverage: 1
+    sol_bb_period: 15
+    sol_ema_period: 100
     regime_filter: [ranging]
 
   breakout_squeeze:
     enabled: true
-    allocation: 0.08
-    symbols: [BTCUSDT]
+    allocation_btc: 0.06
+    allocation_sol: 0.04
+    symbols: [BTCUSDT, SOLUSDT]
     timeframe: 4h
     bb_period: 30
     bb_std: 2.5
@@ -66,9 +71,14 @@ strategies:
     kc_atr_period: 7
     kc_mult: 2.0
     leverage: 2
+    sol_leverage: 1
+    sol_bb_std: 2.0
+    sol_kc_ema_period: 20
+    sol_kc_atr_period: 10
+    sol_kc_mult: 1.5
     regime_filter: [ranging]
 
-  # 🔵 Phase 7 優化 + BNB 擴展 (22% 資金)
+  # 🔵 Phase 7 優化 + 多幣種擴展 (22% 資金)
   tail_risk_hedge:
     enabled: true
     allocation_btc: 0.07
@@ -116,7 +126,7 @@ strategies:
     allocation: 0.00
 
 # =============================================
-# V5 資金配置摘要 (100%) — 4幣種 10策略位
+# V6 資金配置摘要 (100%) — 5幣種 12策略位
 # =============================================
 capital_allocation:
   # 長線核心 42%
@@ -125,10 +135,12 @@ capital_allocation:
   trend_donchian_mtf: 0.15
   trend_donchian_adx_slope: 0.05
   # 短線補位 30%
-  grid_trend_bias_eth: 0.22
-  grid_trend_bias_xrp: 0.06
-  breakout_squeeze: 0.08
-  # Phase 7 + BNB 22%
+  grid_trend_bias_eth: 0.18
+  grid_trend_bias_xrp: 0.05
+  grid_trend_bias_sol: 0.03
+  breakout_squeeze_btc: 0.06
+  breakout_squeeze_sol: 0.04
+  # Phase 7 + 多幣種 22%
   tail_risk_hedge_btc: 0.07
   tail_risk_hedge_bnb: 0.05
   dual_channel_breakout: 0.10

@@ -1,5 +1,5 @@
-# 最佳化參數 — Phase 1+2 掃描結果
-# 來源: backtest_tool/reports/output/phase12_optimization_results.csv
+# 最佳化參數 — Phase 1+2+7 掃描結果 + V6 SOL 優化
+# 來源: backtest_tool/reports/output/ (phase12, phase7, sol optimization CSVs)
 # 日期: 2026-04-20
 
 optimized_params:
@@ -24,6 +24,22 @@ optimized_params:
       sharpe: 1.93
       return_pct: 203.5
       max_dd_pct: -18.5
+    BNB:
+      roc_period: 60
+      lookback: 180
+      upper_threshold: 80
+      lower_threshold: 40
+      sharpe: 1.52
+      return_pct: 589.9
+      max_dd_pct: -29.1
+    SOL:
+      roc_period: 30
+      lookback: 180
+      upper_threshold: 70
+      lower_threshold: 40
+      sharpe: 1.11
+      return_pct: 406.5
+      max_dd_pct: -45.4
 
   trend_donchian:
     BTC:
@@ -52,6 +68,14 @@ optimized_params:
       sharpe: 1.02
       return_pct: 32.5
       max_dd_pct: -17.3
+    SOL:
+      entry_period: 15
+      exit_period: 5
+      adx_threshold: 20
+      htf_period: 200
+      sharpe: 0.27
+      return_pct: 12.5
+      max_dd_pct: -28.6
 
   trend_donchian_adx_slope:
     BTC:
@@ -62,6 +86,14 @@ optimized_params:
       sharpe: 0.65
       return_pct: 21.0
       max_dd_pct: -19.5
+    SOL:
+      entry_period: 30
+      exit_period: 10
+      adx_slope_bars: 3
+      adx_slope_min: 0.5
+      sharpe: 0.58
+      return_pct: 76.3
+      max_dd_pct: -66.6
 
   # =============================================
   # Phase 2: 短線補位策略
@@ -82,6 +114,20 @@ optimized_params:
       sharpe: 1.76
       return_pct: 68.3
       max_dd_pct: -12.1
+    XRP:
+      bb_period: 20
+      bb_std: 2.0
+      ema_period: 50
+      sharpe: 0.93
+      return_pct: 34.2
+      max_dd_pct: -8.4
+    SOL:
+      bb_period: 15
+      bb_std: 2.0
+      ema_period: 100
+      sharpe: 1.22
+      return_pct: 224.6
+      max_dd_pct: -31.4
 
   breakout_squeeze:
     BTC:
@@ -102,6 +148,15 @@ optimized_params:
       sharpe: 0.92
       return_pct: 25.4
       max_dd_pct: -16.2
+    SOL:
+      bb_period: 30
+      bb_std: 2.0
+      kc_ema_period: 20
+      kc_atr_period: 10
+      kc_mult: 1.5
+      sharpe: 1.04
+      return_pct: 109.4
+      max_dd_pct: -14.0
 
   mean_reversion_bb:
     BTC:
@@ -132,6 +187,60 @@ optimized_params:
       sharpe: 0.28
       return_pct: 5.2
       max_dd_pct: -18.3
+
+  # =============================================
+  # Phase 7: 新策略優化結果
+  # =============================================
+
+  tail_risk_hedge:
+    BTC:
+      consec_up_threshold: 14
+      consec_down_threshold: 5
+      exit_bars: 10
+      leverage: 1
+      sharpe: 1.24
+      return_pct: 95.0
+      max_dd_pct: -12.7
+    BNB:
+      consec_up_threshold: 14
+      consec_down_threshold: 5
+      exit_bars: 10
+      leverage: 1
+      sharpe: 1.41
+      return_pct: 114.1
+      max_dd_pct: -14.3
+    SOL:
+      consec_up_threshold: 14
+      consec_down_threshold: 3
+      exit_bars: 10
+      leverage: 1
+      sharpe: 1.24
+      return_pct: 472.3
+      max_dd_pct: -39.3
+
+  dual_channel_breakout:
+    ETH:
+      dc_period: 30
+      kc_ema: 15
+      kc_atr: 14
+      kc_mult: 2.0
+      adx_period: 14
+      adx_threshold: 20
+      leverage: 2
+      sharpe: 1.20
+      return_pct: 223.1
+      max_dd_pct: -28.4
+    SOL:
+      dc_period: 20
+      kc_ema: 15
+      kc_atr: 10
+      kc_mult: 2.0
+      adx_period: 14
+      adx_threshold: 20
+      leverage: 1
+      sharpe: 0.70
+      return_pct: 110.3
+      max_dd_pct: -50.0
 
 # =============================================
 # Risk Management Params (Phase 3)

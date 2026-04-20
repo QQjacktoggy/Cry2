@@ -35,6 +35,7 @@ class LiveExecutor(BaseExecutor):
         self.client = client
         self.order_manager = OrderManager(client)
         self.account_manager = AccountManager(client)
+        self._order_symbols: dict[str, str] = {}  # order_id → symbol
 
     def submit_order(self, order: OrderEvent) -> str:
         """Submit order to Binance."""
@@ -53,6 +54,12 @@ class LiveExecutor(BaseExecutor):
                 client_order_id=client_order_id,
             )
 
+            # Track order → symbol mapping for cancel
+            exchange_order_id = str(result.get("orderId", ""))
+            if exchange_order_id:
+                self._order_symbols[exchange_order_id] = order.symbol
+            self._order_symbols[client_order_id] = order.symbol
+
             # If market order, it should be filled immediately
             if order.order_type == OrderType.MARKET:
                 fill = FillEvent(
@@ -62,8 +69,8 @@ class LiveExecutor(BaseExecutor):
                     side=order.side,
                     quantity=float(result.get("executedQty", order.quantity)),
                     price=float(result.get("avgPrice", 0)),
-                    commission=0.0,  # Will be updated from user data stream
-                    order_id=str(result.get("orderId", "")),
+                    commission=0.0,
+                    order_id=exchange_order_id,
                     client_order_id=client_order_id,
                     source="live",
                 )
@@ -94,8 +101,11 @@ class LiveExecutor(BaseExecutor):
     def cancel_order(self, order_id: str) -> bool:
         """Cancel an order on Binance."""
         try:
-            # We'd need the symbol to cancel; simplify by searching open orders
-            return self.order_manager.cancel_order("", order_id)
+            symbol = self._order_symbols.get(order_id, "")
+            if not symbol:
+                logger.warning("cancel_no_symbol", order_id=order_id)
+                return False
+            return self.order_manager.cancel_order(symbol, order_id)
         except Exception as e:
             logger.error("cancel_failed", order_id=order_id, error=str(e))
             return False
