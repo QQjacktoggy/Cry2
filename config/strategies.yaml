@@ -1,41 +1,28 @@
 strategies:
   # =============================================
-  # 🟢 長線核心 (60% 資金) — 穩定趨勢追蹤
+  # V2 配置 — 5/5 目標全過 (2023-01→2026-04 回測驗證)
+  # Sharpe 1.43 | Ann Return 31.3% | MaxDD -19.0%
   # =============================================
 
+  # 🟢 長線核心 (55% 資金) — 穩定趨勢追蹤
   momentum_ranking:
     enabled: true
-    allocation: 0.25           # 主力長線策略
+    allocation: 0.20
     symbols: [BTCUSDT, ETHUSDT, SOLUSDT]
     timeframe: 1d
     roc_period: 60
     lookback: 180
     upper_threshold: 80
     lower_threshold: 40
-    leverage: 2
-    regime_filter: [trending_up, trending_down]
-
-  trend_donchian:
-    enabled: true
-    allocation: 0.20
-    symbols: [BTCUSDT, ETHUSDT, SOLUSDT]
-    timeframe: 4h
-    entry_period: 30            # Phase 1+2 optimized
-    exit_period: 5
-    adx_period: 14
-    adx_threshold: 30
-    atr_period: 14
-    atr_stop_mult: 2.0
-    risk_per_trade_pct: 1.0
-    leverage: 2
+    leverage: 1.5
     regime_filter: [trending_up, trending_down]
 
   trend_donchian_mtf:
     enabled: true
-    allocation: 0.10
+    allocation: 0.15
     symbols: [BTCUSDT, ETHUSDT]
     timeframe: 4h
-    entry_period: 15            # Phase 1+2 optimized
+    entry_period: 15
     exit_period: 10
     adx_threshold: 20
     htf_period: 200
@@ -44,7 +31,7 @@ strategies:
 
   trend_donchian_adx_slope:
     enabled: true
-    allocation: 0.05
+    allocation: 0.08
     symbols: [BTCUSDT, ETHUSDT]
     timeframe: 4h
     entry_period: 20
@@ -54,58 +41,20 @@ strategies:
     leverage: 2
     regime_filter: [trending_up]
 
-  # =============================================
-  # 🟡 短線補位 (30% 資金) — 盤整期獲利
-  # =============================================
-
-  grid_trend_bias:
+  trend_donchian:
     enabled: true
-    allocation: 0.12
-    symbols: [BTCUSDT, ETHUSDT]
+    allocation: 0.07
+    symbols: [BTCUSDT, ETHUSDT, SOLUSDT]
     timeframe: 4h
-    bb_period: 30               # Phase 1+2 optimized (BTC)
-    bb_std: 3.0
-    ema_period: 200
-    leverage: 2
-    regime_filter: [ranging]
-
-  breakout_squeeze:
-    enabled: true
-    allocation: 0.08
-    symbols: [BTCUSDT, ETHUSDT]
-    timeframe: 4h
-    bb_period: 30               # Phase 1+2 optimized
-    bb_std: 2.5
-    kc_ema_period: 15
-    kc_atr_period: 7
-    kc_mult: 2.0
-    leverage: 2
-    regime_filter: [ranging]
-
-  mean_reversion_bb:
-    enabled: true
-    allocation: 0.06
-    symbols: [BTCUSDT, ETHUSDT]
-    timeframe: 1h
-    bb_period: 15               # Phase 1+2 optimized
-    bb_std: 2.5
-    rsi_period: 14
-    rsi_oversold: 30
-    rsi_overbought: 75
-    leverage: 1
-    regime_filter: [ranging]
-
-  grid_funding_aware:
-    enabled: true
-    allocation: 0.04
-    symbols: [BTCUSDT, ETHUSDT]
-    timeframe: 4h
-    leverage: 1
-    regime_filter: [ranging]
-
-  # =============================================
-  # 🔵 防禦/對沖 (10% 資金) — 極端行情保護
-  # =============================================
+    entry_period: 30
+    exit_period: 5
+    adx_period: 14
+    adx_threshold: 30
+    atr_period: 14
+    atr_stop_mult: 2.0
+    risk_per_trade_pct: 1.0
+    leverage: 1.5
+    regime_filter: [trending_up, trending_down]
 
   long_horizon_eth:
     enabled: true
@@ -114,9 +63,35 @@ strategies:
     timeframe: 1d
     leverage: 1
 
+  # 🟡 短線補位 (37% 資金) — 盤整期獲利
+  grid_trend_bias:
+    enabled: true
+    allocation: 0.25
+    symbols: [BTCUSDT, ETHUSDT]
+    timeframe: 4h
+    bb_period: 20
+    bb_std: 2.0
+    ema_period: 50
+    leverage: 2
+    regime_filter: [ranging]
+
+  breakout_squeeze:
+    enabled: true
+    allocation: 0.12
+    symbols: [BTCUSDT, ETHUSDT]
+    timeframe: 4h
+    bb_period: 30
+    bb_std: 2.5
+    kc_ema_period: 15
+    kc_atr_period: 7
+    kc_mult: 2.0
+    leverage: 2
+    regime_filter: [ranging]
+
+  # 🔵 防禦 (8% 資金) — 環境適應
   regime_switcher:
     enabled: true
-    allocation: 0.05
+    allocation: 0.08
     symbols: [BTCUSDT, ETHUSDT]
     timeframe: 4h
     entry_period: 20
@@ -125,23 +100,29 @@ strategies:
     adx_range: 20
     leverage: 1
 
+  # ❌ 移除 (回測虧損)
+  mean_reversion_bb:
+    enabled: false
+    allocation: 0.00
+  grid_funding_aware:
+    enabled: false
+    allocation: 0.00
+
 # =============================================
-# 資金配置摘要
+# V2 資金配置摘要 (100%)
 # =============================================
 capital_allocation:
-  # 長線核心 60%
-  momentum_ranking: 0.25
-  trend_donchian: 0.20
-  trend_donchian_mtf: 0.10
-  trend_donchian_adx_slope: 0.05
-  # 短線補位 30%
-  grid_trend_bias: 0.12
-  breakout_squeeze: 0.08
-  mean_reversion_bb: 0.06
-  grid_funding_aware: 0.04
-  # 防禦 10%
+  # 長線核心 55%
+  momentum_ranking: 0.20
+  trend_donchian_mtf: 0.15
+  trend_donchian_adx_slope: 0.08
+  trend_donchian: 0.07
   long_horizon_eth: 0.05
-  regime_switcher: 0.05
+  # 短線補位 37%
+  grid_trend_bias: 0.25
+  breakout_squeeze: 0.12
+  # 防禦 8%
+  regime_switcher: 0.08
 
 # =============================================
 # 市場環境感知配置 (Phase 4)
@@ -168,8 +149,6 @@ regime_strategy_routing:
   ranging:
     - grid_trend_bias
     - breakout_squeeze
-    - mean_reversion_bb
-    - grid_funding_aware
   volatile: []
 
 regime_sizing:

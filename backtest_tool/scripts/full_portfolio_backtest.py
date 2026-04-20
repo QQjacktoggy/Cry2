@@ -41,65 +41,59 @@ OUTPUT_DIR = ROOT / "backtest_tool" / "reports" / "output"
 # ─── Strategy + Allocation Config ───────────────────────────────────────────
 
 PORTFOLIO = {
-    # Long-term core (60%)
+    # ═══════════════════════════════════════════════════════════
+    # V2 ALLOCATION — optimized for MaxDD <20%
+    # Removed: mean_reversion_bb (Sharpe -1.40), grid_funding_aware (-17.9%)
+    # Boosted: grid_trend_bias (Sharpe 1.61), trend_donchian_mtf (1.03)
+    # Reduced: trend_donchian (Sharpe 0.26, DD -48.5%)
+    # ═══════════════════════════════════════════════════════════
+    # Long-term core (55%)
     "momentum_ranking": {
-        "allocation": 0.25,
+        "allocation": 0.20,
         "symbol": "ETHUSDT",
         "timeframe": "1d",
-        "params": {"roc_period": 60, "lookback": 180, "upper_threshold": 80, "lower_threshold": 40, "leverage": 2},
-    },
-    "trend_donchian": {
-        "allocation": 0.20,
-        "symbol": "BTCUSDT",
-        "timeframe": "4h",
-        "params": {"entry_period": 30, "exit_period": 5, "adx_threshold": 30, "atr_stop_mult": 2.0, "leverage": 2},
+        "params": {"roc_period": 60, "lookback": 180, "upper_threshold": 80, "lower_threshold": 40, "leverage": 1.5},
     },
     "trend_donchian_mtf": {
-        "allocation": 0.10,
+        "allocation": 0.15,
         "symbol": "BTCUSDT",
         "timeframe": "4h",
         "params": {"entry_period": 15, "exit_period": 10, "adx_threshold": 20, "htf_period": 200, "leverage": 2},
     },
     "trend_donchian_adx_slope": {
-        "allocation": 0.05,
+        "allocation": 0.08,
         "symbol": "BTCUSDT",
         "timeframe": "4h",
         "params": {"entry_period": 20, "exit_period": 10, "adx_slope_bars": 5, "adx_slope_min": 0.3, "leverage": 2},
     },
-    # Short-term fill (30%)
-    "grid_trend_bias": {
-        "allocation": 0.12,
-        "symbol": "ETHUSDT",
-        "timeframe": "4h",
-        "params": {"bb_period": 20, "bb_std": 2.0, "ema_period": 50, "leverage": 2},
-    },
-    "breakout_squeeze": {
-        "allocation": 0.08,
+    "trend_donchian": {
+        "allocation": 0.07,
         "symbol": "BTCUSDT",
         "timeframe": "4h",
-        "params": {"bb_period": 30, "bb_std": 2.5, "kc_ema_period": 15, "kc_atr_period": 7, "kc_mult": 2.0, "leverage": 2},
+        "params": {"entry_period": 30, "exit_period": 5, "adx_threshold": 30, "atr_stop_mult": 2.0, "leverage": 1.5},
     },
-    "mean_reversion_bb": {
-        "allocation": 0.06,
-        "symbol": "BTCUSDT",
-        "timeframe": "1h",
-        "params": {"bb_period": 15, "bb_std": 2.5, "rsi_period": 14, "rsi_oversold": 30, "rsi_overbought": 75, "leverage": 1},
-    },
-    "grid_funding_aware": {
-        "allocation": 0.04,
-        "symbol": "BTCUSDT",
-        "timeframe": "4h",
-        "params": {"leverage": 1},
-    },
-    # Defensive (10%)
     "long_horizon_eth": {
         "allocation": 0.05,
         "symbol": "ETHUSDT",
         "timeframe": "1d",
         "params": {"leverage": 1},
     },
+    # Short-term fill (40%)
+    "grid_trend_bias": {
+        "allocation": 0.25,
+        "symbol": "ETHUSDT",
+        "timeframe": "4h",
+        "params": {"bb_period": 20, "bb_std": 2.0, "ema_period": 50, "leverage": 2},
+    },
+    "breakout_squeeze": {
+        "allocation": 0.12,
+        "symbol": "BTCUSDT",
+        "timeframe": "4h",
+        "params": {"bb_period": 30, "bb_std": 2.5, "kc_ema_period": 15, "kc_atr_period": 7, "kc_mult": 2.0, "leverage": 2},
+    },
+    # Defensive (5%)
     "regime_switcher": {
-        "allocation": 0.05,
+        "allocation": 0.08,
         "symbol": "BTCUSDT",
         "timeframe": "4h",
         "params": {"entry_period": 20, "exit_period": 10, "adx_trend": 25, "adx_range": 20, "leverage": 1},
