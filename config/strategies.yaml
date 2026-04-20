@@ -1,14 +1,15 @@
 strategies:
   # =============================================
-  # V4 配置 — 優化Phase 7參數 + dual_channel_breakout替換弱策略
-  # Sharpe 1.685 | Ann Return 35.1% | MaxDD -16.7% | Calmar 2.10
+  # V5 配置 — 加入 BNB（3幣種組合：BTC+ETH+BNB+XRP）
+  # Sharpe 1.969 | Ann Return 37.4% | MaxDD -13.8% | Calmar 2.70
   # =============================================
 
-  # 🟢 長線核心 (43% 資金) — 穩定趨勢追蹤
+  # 🟢 長線核心 (42% 資金) — 多幣種趨勢追蹤
   momentum_ranking:
     enabled: true
-    allocation: 0.20
-    symbols: [BTCUSDT, ETHUSDT, SOLUSDT]
+    allocation_eth: 0.14
+    allocation_bnb: 0.08
+    symbols: [ETHUSDT, BNBUSDT]
     timeframe: 1d
     roc_period: 60
     lookback: 180
@@ -20,7 +21,7 @@ strategies:
   trend_donchian_mtf:
     enabled: true
     allocation: 0.15
-    symbols: [BTCUSDT, ETHUSDT]
+    symbols: [BTCUSDT]
     timeframe: 4h
     entry_period: 15
     exit_period: 10
@@ -31,8 +32,8 @@ strategies:
 
   trend_donchian_adx_slope:
     enabled: true
-    allocation: 0.08
-    symbols: [BTCUSDT, ETHUSDT]
+    allocation: 0.05
+    symbols: [BTCUSDT]
     timeframe: 4h
     entry_period: 20
     exit_period: 10
@@ -41,11 +42,12 @@ strategies:
     leverage: 2
     regime_filter: [trending_up]
 
-  # 🟡 短線補位 (37% 資金) — 盤整期獲利
+  # 🟡 短線補位 (30% 資金) — 盤整期獲利
   grid_trend_bias:
     enabled: true
-    allocation: 0.25
-    symbols: [BTCUSDT, ETHUSDT]
+    allocation_eth: 0.22
+    allocation_xrp: 0.06
+    symbols: [ETHUSDT, XRPUSDT]
     timeframe: 4h
     bb_period: 20
     bb_std: 2.0
@@ -55,8 +57,8 @@ strategies:
 
   breakout_squeeze:
     enabled: true
-    allocation: 0.12
-    symbols: [BTCUSDT, ETHUSDT]
+    allocation: 0.08
+    symbols: [BTCUSDT]
     timeframe: 4h
     bb_period: 30
     bb_std: 2.5
@@ -66,11 +68,12 @@ strategies:
     leverage: 2
     regime_filter: [ranging]
 
-  # 🔵 Phase 7 優化策略 (20% 資金) — 參數優化後表現
+  # 🔵 Phase 7 優化 + BNB 擴展 (22% 資金)
   tail_risk_hedge:
     enabled: true
-    allocation: 0.10
-    symbols: [BTCUSDT]
+    allocation_btc: 0.07
+    allocation_bnb: 0.05
+    symbols: [BTCUSDT, BNBUSDT]
     timeframe: 1d
     consec_up_threshold: 14
     consec_down_threshold: 5
@@ -94,37 +97,40 @@ strategies:
 
   # ❌ 移除策略
   trend_donchian:
-    enabled: false    # Sharpe 0.26, DD -48.5%
+    enabled: false
     allocation: 0.00
   regime_switcher:
-    enabled: false    # Sharpe 0.15, DD -35.7%
+    enabled: false
     allocation: 0.00
   mean_reversion_bb:
-    enabled: false    # Sharpe -1.40, DD -53.5%
+    enabled: false
     allocation: 0.00
   grid_funding_aware:
-    enabled: false    # Return -17.9%
+    enabled: false
     allocation: 0.00
   long_horizon_eth:
-    enabled: false    # Sharpe 0.06, low return → replaced by dual_channel_breakout
+    enabled: false
     allocation: 0.00
   pv_divergence:
-    enabled: false    # Only 3 trades after optimization → unreliable
+    enabled: false
     allocation: 0.00
 
 # =============================================
-# V4 資金配置摘要 (100%)
+# V5 資金配置摘要 (100%) — 4幣種 10策略位
 # =============================================
 capital_allocation:
-  # 長線核心 43%
-  momentum_ranking: 0.20
+  # 長線核心 42%
+  momentum_ranking_eth: 0.14
+  momentum_ranking_bnb: 0.08
   trend_donchian_mtf: 0.15
-  trend_donchian_adx_slope: 0.08
-  # 短線補位 37%
-  grid_trend_bias: 0.25
-  breakout_squeeze: 0.12
-  # Phase 7 優化 20%
-  tail_risk_hedge: 0.10
+  trend_donchian_adx_slope: 0.05
+  # 短線補位 30%
+  grid_trend_bias_eth: 0.22
+  grid_trend_bias_xrp: 0.06
+  breakout_squeeze: 0.08
+  # Phase 7 + BNB 22%
+  tail_risk_hedge_btc: 0.07
+  tail_risk_hedge_bnb: 0.05
   dual_channel_breakout: 0.10
 
 # =============================================

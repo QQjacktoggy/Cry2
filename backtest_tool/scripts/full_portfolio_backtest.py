@@ -42,17 +42,25 @@ OUTPUT_DIR = ROOT / "backtest_tool" / "reports" / "output"
 
 PORTFOLIO = {
     # ═══════════════════════════════════════════════════════════
-    # V4 ALLOCATION — Optimized Phase 7 params + dual_channel_breakout
-    # Changes from V3:
-    #   1. tail_risk_hedge: optimized params (Sharpe 0.95→1.24)
-    #   2. long_horizon_eth (5%) → dual_channel_breakout ETH (Sharpe 1.20)
-    #   3. pv_divergence removed (only 3 trades after optimization)
-    #   4. Redistributed 7% to stronger strategies
+    # V5 ALLOCATION — Add BNB (momentum_ranking + tail_risk_hedge)
+    # Changes from V4:
+    #   1. Add momentum_ranking BNB (Sharpe 1.52, best cross-asset!)
+    #   2. Add tail_risk_hedge BNB (Sharpe 1.41, 83% win rate)
+    #   3. Trim weaker strategies to fund BNB entries
+    #   4. 3-coin portfolio: BTC + ETH + BNB
     # ═══════════════════════════════════════════════════════════
     # Long-term core (48%)
-    "momentum_ranking": {
-        "allocation": 0.20,
+    "momentum_ranking_eth": {
+        "strategy_name": "momentum_ranking",
+        "allocation": 0.14,
         "symbol": "ETHUSDT",
+        "timeframe": "1d",
+        "params": {"roc_period": 60, "lookback": 180, "upper_threshold": 80, "lower_threshold": 40, "leverage": 1.5},
+    },
+    "momentum_ranking_bnb": {
+        "strategy_name": "momentum_ranking",
+        "allocation": 0.08,
+        "symbol": "BNBUSDT",
         "timeframe": "1d",
         "params": {"roc_period": 60, "lookback": 180, "upper_threshold": 80, "lower_threshold": 40, "leverage": 1.5},
     },
@@ -63,28 +71,36 @@ PORTFOLIO = {
         "params": {"entry_period": 15, "exit_period": 10, "adx_threshold": 20, "htf_period": 200, "leverage": 2},
     },
     "trend_donchian_adx_slope": {
-        "allocation": 0.08,
+        "allocation": 0.05,
         "symbol": "BTCUSDT",
         "timeframe": "4h",
         "params": {"entry_period": 20, "exit_period": 10, "adx_slope_bars": 5, "adx_slope_min": 0.3, "leverage": 2},
     },
-    # Short-term fill (37%)
+    # Short-term fill (30%)
     "grid_trend_bias": {
-        "allocation": 0.25,
+        "allocation": 0.22,
         "symbol": "ETHUSDT",
         "timeframe": "4h",
         "params": {"bb_period": 20, "bb_std": 2.0, "ema_period": 50, "leverage": 2},
     },
     "breakout_squeeze": {
-        "allocation": 0.12,
+        "allocation": 0.08,
         "symbol": "BTCUSDT",
         "timeframe": "4h",
         "params": {"bb_period": 30, "bb_std": 2.5, "kc_ema_period": 15, "kc_atr_period": 7, "kc_mult": 2.0, "leverage": 2},
     },
-    # Phase 7 optimized (20%)
-    "tail_risk_hedge": {
-        "allocation": 0.10,
+    # Phase 7 optimized + BNB expansion (28%)
+    "tail_risk_hedge_btc": {
+        "strategy_name": "tail_risk_hedge",
+        "allocation": 0.07,
         "symbol": "BTCUSDT",
+        "timeframe": "1d",
+        "params": {"consec_up_threshold": 14, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 1},
+    },
+    "tail_risk_hedge_bnb": {
+        "strategy_name": "tail_risk_hedge",
+        "allocation": 0.05,
+        "symbol": "BNBUSDT",
         "timeframe": "1d",
         "params": {"consec_up_threshold": 14, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 1},
     },
@@ -93,6 +109,14 @@ PORTFOLIO = {
         "symbol": "ETHUSDT",
         "timeframe": "4h",
         "params": {"dc_period": 30, "kc_ema": 15, "kc_atr": 14, "kc_mult": 2.0, "adx_period": 14, "adx_threshold": 20, "leverage": 2},
+    },
+    # Bonus: grid_trend_bias XRP (cross-asset: Sharpe 0.93)
+    "grid_trend_bias_xrp": {
+        "strategy_name": "grid_trend_bias",
+        "allocation": 0.06,
+        "symbol": "XRPUSDT",
+        "timeframe": "4h",
+        "params": {"bb_period": 20, "bb_std": 2.0, "ema_period": 50, "leverage": 2},
     },
 }
 
@@ -137,9 +161,11 @@ def load_data(symbol: str, timeframe: str) -> pd.DataFrame:
 
 def run_single_strategy(name: str, cfg: dict, runner: BacktestRunner) -> dict | None:
     """Run a single strategy and return result dict."""
-    strategy_cls = STRATEGY_MAP.get(name)
+    # Support strategy_name override for multi-symbol entries
+    strat_key = cfg.get("strategy_name", name)
+    strategy_cls = STRATEGY_MAP.get(strat_key)
     if strategy_cls is None:
-        print(f"  ⚠️  Strategy '{name}' not in STRATEGY_MAP, skipping")
+        print(f"  ⚠️  Strategy '{strat_key}' not in STRATEGY_MAP, skipping")
         return None
 
     try:
