@@ -11,4 +11,4 @@ execution:
   slippage_model: fixed_bps
   slippage_bps: 2
 
-initial_capital: 10000
+initial_capital: 150

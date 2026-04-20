@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Run paper trading on Binance Testnet."""
+"""Run paper trading on Binance Testnet with V7.2 strategies.
+
+Uses VBT bridged strategies (same as live trading) against testnet.
+Supports --dry-run mode for local validation without exchange connection.
+
+Usage:
+    python scripts/run_paper.py                        # testnet mode
+    python scripts/run_paper.py --dry-run              # local validation only
+    python scripts/run_paper.py --capital 150 --version v72
+"""
 
 import argparse
 import asyncio
@@ -9,6 +18,7 @@ from contextlib import suppress
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import structlog
 
@@ -26,27 +36,100 @@ from bot.portfolio.portfolio import Portfolio
 from bot.risk.circuit_breaker import CircuitBreaker
 from bot.risk.kill_switch import KillSwitch
 from bot.risk.risk_manager import RiskManager
-from bot.strategy.registry import StrategyRegistry, register_default_strategies
+from bot.strategy.bridge import create_v6_strategies, create_v72_strategies
 
 logger = structlog.get_logger(__name__)
 
 
+def dry_run_validation(strategies, capital: float, version: str) -> None:
+    """Validate strategy creation and allocation without exchange connection."""
+    print("=" * 60)
+    print("🧪 DRY RUN — V7.2 Paper Trading Validation")
+    print("=" * 60)
+
+    all_symbols = sorted(set(s.symbol for s in strategies))
+    all_timeframes = sorted(set(s.timeframe for s in strategies))
+    total_alloc = sum(s._allocation_usd for s in strategies)
+
+    print(f"\n📊 Portfolio Version: {version.upper()}")
+    print(f"💰 Capital: ${capital:.0f} USDT")
+    print(f"📈 Strategies: {len(strategies)}")
+    print(f"🪙 Coins: {', '.join(sym.replace('USDT', '') for sym in all_symbols)}")
+    print(f"⏰ Timeframes: {', '.join(all_timeframes)}")
+    print(f"💵 Total Allocated: ${total_alloc:.1f} ({total_alloc/capital*100:.0f}%)")
+
+    print(f"\n{'─' * 60}")
+    print(f"{'Strategy':<35} {'Symbol':<10} {'TF':<5} {'Alloc':>8} {'Lev':>4}")
+    print(f"{'─' * 60}")
+
+    for s in strategies:
+        print(f"{s.name:<35} {s.symbol:<10} {s.timeframe:<5} "
+              f"${s._allocation_usd:>6.1f} {s.leverage:>3}x")
+
+    print(f"{'─' * 60}")
+    print(f"{'TOTAL':<35} {'':10} {'':5} ${total_alloc:>6.1f}")
+
+    # Validation checks
+    print(f"\n{'=' * 60}")
+    print("✅ Checks:")
+
+    alloc_pct = total_alloc / capital * 100
+    check_alloc = 99 <= alloc_pct <= 101
+    print(f"  {'✅' if check_alloc else '❌'} Allocation sum: {alloc_pct:.1f}% "
+          f"({'OK' if check_alloc else 'MISMATCH'})")
+
+    check_count = len(strategies) == 16 if version == "v72" else len(strategies) > 0
+    print(f"  {'✅' if check_count else '❌'} Strategy count: {len(strategies)} "
+          f"(expected {'16' if version == 'v72' else '>0'})")
+
+    check_coins = len(all_symbols) == 5 if version == "v72" else len(all_symbols) > 0
+    print(f"  {'✅' if check_coins else '❌'} Coin count: {len(all_symbols)} "
+          f"(expected {'5' if version == 'v72' else '>0'})")
+
+    # Check each strategy has on_bar method
+    all_have_on_bar = all(hasattr(s, "on_bar") for s in strategies)
+    print(f"  {'✅' if all_have_on_bar else '❌'} All strategies have on_bar()")
+
+    all_ok = check_alloc and check_count and check_coins and all_have_on_bar
+    print(f"\n{'🟢 ALL CHECKS PASSED' if all_ok else '🔴 SOME CHECKS FAILED'}")
+    print(f"{'=' * 60}")
+
+    if all_ok:
+        print("\n💡 Ready for testnet. Run without --dry-run to connect to Binance Testnet.")
+    else:
+        print("\n⚠️  Fix issues above before connecting to testnet.")
+
+
 async def main() -> None:
-    parser = argparse.ArgumentParser(description="Run paper trading")
+    parser = argparse.ArgumentParser(description="Run paper trading (testnet)")
     parser.add_argument("--config", default="config/config.yaml", help="Config file")
+    parser.add_argument("--capital", type=float, default=150.0, help="Initial capital (USDT)")
+    parser.add_argument("--version", default="v72", choices=["v6", "v72"], help="Portfolio version")
+    parser.add_argument("--dry-run", action="store_true", help="Validate locally without exchange")
     args = parser.parse_args()
 
     load_env()
+
+    # Create bridged strategies
+    if args.version == "v6":
+        strategies = create_v6_strategies(initial_capital=args.capital)
+    else:
+        strategies = create_v72_strategies(initial_capital=args.capital)
+
+    if args.dry_run:
+        dry_run_validation(strategies, args.capital, args.version)
+        return
+
     config = load_config(args.config, environment="paper")
     setup_logging(config.get("logging", {}).get("level", "INFO"), json_format=False)
 
-    logger.info("starting_paper_trading")
+    logger.info("starting_paper_trading", version=args.version, capital=args.capital)
 
     # Initialize components
     event_bus = EventBus()
     clock = RealClock()
 
-    # Exchange
+    # Exchange (testnet)
     exchange_cfg = config.get("exchange", {})
     api_key = get_secret(
         exchange_cfg.get("api_key_env", "BINANCE_TESTNET_API_KEY"), required=False
@@ -55,18 +138,32 @@ async def main() -> None:
         exchange_cfg.get("api_secret_env", "BINANCE_TESTNET_API_SECRET"), required=False
     )
 
+    if not api_key or not api_secret:
+        logger.error("testnet_keys_missing",
+                      hint="Set BINANCE_TESTNET_API_KEY and BINANCE_TESTNET_API_SECRET in .env")
+        print("\n⚠️  Testnet API keys not found. Use --dry-run for local validation.")
+        sys.exit(1)
+
     client = BinanceRestClient(
         api_key=api_key,
         api_secret=api_secret,
         mode=exchange_cfg.get("mode", "testnet"),
     )
 
+    # Verify connectivity
+    try:
+        balance = client.get_balance()
+        logger.info("testnet_connected", balance=f"${balance:.2f}")
+    except Exception as e:
+        logger.error("testnet_connection_failed", error=str(e))
+        sys.exit(1)
+
     # Executor
     executor = LiveExecutor(event_bus=event_bus, client=client)
     event_bus.subscribe(EventType.ORDER.value, lambda e: executor.submit_order(e))
 
     # Portfolio
-    portfolio = Portfolio(event_bus=event_bus, initial_capital=config.get("initial_capital", 10000))
+    portfolio = Portfolio(event_bus=event_bus, initial_capital=args.capital)
 
     # Risk
     risk_cfg = config.get("risk_limits", {})
@@ -77,15 +174,6 @@ async def main() -> None:
     })
     kill_switch = KillSwitch(event_bus=event_bus)
     circuit_breaker = CircuitBreaker()
-    logger.debug(
-        "paper_runtime_components_ready",
-        components=[
-            portfolio.__class__.__name__,
-            risk_manager.__class__.__name__,
-            kill_switch.__class__.__name__,
-            circuit_breaker.__class__.__name__,
-        ],
-    )
 
     # Telegram
     tg_cfg = config.get("telegram", {})
@@ -95,31 +183,59 @@ async def main() -> None:
         enabled=tg_cfg.get("enabled", False),
     )
 
-    # Strategies
-    register_default_strategies()
-    strategies = StrategyRegistry.create_all(config.get("strategies", {}))
-    all_symbols = list(set(sym for s in strategies for sym in s.symbols))
+    all_symbols = list(set(s.symbol for s in strategies))
+    all_timeframes = list(set(s.timeframe for s in strategies))
+
+    logger.info(
+        "strategies_loaded",
+        version=args.version,
+        count=len(strategies),
+        symbols=all_symbols,
+        timeframes=all_timeframes,
+        capital=f"${args.capital}",
+    )
+
+    # Set leverage for each symbol
+    for strat in strategies:
+        try:
+            client.set_leverage(strat.symbol, strat.leverage)
+        except Exception as e:
+            logger.warning("leverage_set_failed", symbol=strat.symbol, error=str(e))
 
     # Data feed
+    primary_tf = min(all_timeframes, key=lambda t: {"1h": 1, "4h": 4, "8h": 8, "1d": 24}.get(t, 4))
     feed = LiveFeed(
         event_bus=event_bus,
         clock=clock,
         ws_url=exchange_cfg.get("ws_url", "wss://stream.binancefuture.com"),
         symbols=all_symbols,
-        timeframe=strategies[0].timeframe if strategies else "1m",
+        timeframe=primary_tf,
+        rest_client=client,
+        funding_poll_interval=300,
     )
 
-    # Wire strategy on_bar to market events
+    # Wire strategies to market events
     def on_market(event):
+        risk_manager.tick_bar()
         for strategy in strategies:
             if event.symbol in strategy.symbols:
-                signals = strategy.on_bar(event)
-                for signal in signals:
-                    event_bus.publish(signal)
+                try:
+                    signals = strategy.on_bar(event)
+                    for sig in signals:
+                        logger.info("signal_generated",
+                                    strategy=strategy.name,
+                                    side=sig.side.value,
+                                    symbol=sig.symbol,
+                                    reason=sig.reason)
+                        event_bus.publish(sig)
+                except Exception as e:
+                    logger.error("strategy_error",
+                                 strategy=strategy.name,
+                                 error=str(e))
 
     event_bus.subscribe(EventType.MARKET.value, on_market)
 
-    # Handle shutdown
+    # Shutdown handler
     stop_event = asyncio.Event()
 
     def handle_signal(*_):
@@ -130,12 +246,19 @@ async def main() -> None:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
+    # Start
     logger.info(
         "paper_trading_started",
-        symbols=all_symbols,
         strategies=[s.name for s in strategies],
+        symbols=all_symbols,
     )
-    notifier.send_sync("🟢 Paper trading started")
+    notifier.send_sync(
+        f"🟡 PAPER trading started (testnet)\n"
+        f"Version: {args.version.upper()}\n"
+        f"Capital: ${args.capital} USDT\n"
+        f"Strategies: {len(strategies)}\n"
+        f"Coins: {', '.join(s.replace('USDT','') for s in sorted(all_symbols))}"
+    )
 
     # Run feed
     with suppress(asyncio.CancelledError):

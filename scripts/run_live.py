@@ -36,7 +36,7 @@ from bot.portfolio.portfolio import Portfolio
 from bot.risk.circuit_breaker import CircuitBreaker
 from bot.risk.kill_switch import KillSwitch
 from bot.risk.risk_manager import RiskManager
-from bot.strategy.bridge import create_v6_strategies, create_v72_strategies, create_v72_strategies
+from bot.strategy.bridge import create_v6_strategies, create_v72_strategies
 
 logger = structlog.get_logger(__name__)
 
@@ -165,6 +165,7 @@ async def main() -> None:
 
     # Wire strategies to market events
     def on_market(event):
+        risk_manager.tick_bar()
         for strategy in strategies:
             if event.symbol in strategy.symbols:
                 try:
