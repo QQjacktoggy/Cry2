@@ -54,6 +54,7 @@ class PairTradingBTCETH(BaseVBTStrategy):
         "exit_z": 0.0,              # Exit when z crosses zero (full mean reversion)
         # Risk management
         "stop_z": 4.0,              # Stop loss at extreme divergence
+        "max_hold_bars": 120,       # Force exit after 120 bars (120 × 4h = 20 days)
         "leverage": 1,
     }
 
@@ -194,6 +195,12 @@ class PairTradingBTCETH(BaseVBTStrategy):
         std = residuals.rolling(period).std(ddof=0)
         return (residuals - mean) / std.replace(0, pd.NA)
 
+    @staticmethod
+    def _bars_since_true(signal: pd.Series) -> pd.Series:
+        """Count bars since last True signal."""
+        groups = signal.cumsum()
+        return groups.groupby(groups).cumcount()
+
     def generate_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
         """Long ratio entry: residual z-score below -entry_z.
 
@@ -206,13 +213,18 @@ class PairTradingBTCETH(BaseVBTStrategy):
         return (z < -self.params["entry_z"]).fillna(False)
 
     def generate_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
-        """Long exit: z reverts toward zero OR stop loss hit."""
+        """Long exit: z reverts toward zero OR stop loss OR max hold reached."""
         z = ohlcv.get("_zscore")
         if z is None:
             z = self._zscore(ohlcv["close"])
         revert = z > -self.params["exit_z"]
         stop = z < -self.params["stop_z"]
-        return (revert | stop).fillna(False)
+
+        entries = self.generate_entries(ohlcv)
+        bars_since = self._bars_since_true(entries)
+        hold_exit = bars_since >= self.params["max_hold_bars"]
+
+        return (revert | stop | hold_exit).fillna(False)
 
     def generate_short_entries(self, ohlcv: pd.DataFrame) -> pd.Series:
         """Short ratio entry: residual z-score above +entry_z.
@@ -226,13 +238,18 @@ class PairTradingBTCETH(BaseVBTStrategy):
         return (z > self.params["entry_z"]).fillna(False)
 
     def generate_short_exits(self, ohlcv: pd.DataFrame) -> pd.Series:
-        """Short exit: z reverts toward zero OR stop loss hit."""
+        """Short exit: z reverts toward zero OR stop loss OR max hold reached."""
         z = ohlcv.get("_zscore")
         if z is None:
             z = self._zscore(ohlcv["close"])
         revert = z < self.params["exit_z"]
         stop = z > self.params["stop_z"]
-        return (revert | stop).fillna(False)
+
+        short_entries = self.generate_short_entries(ohlcv)
+        bars_since = self._bars_since_true(short_entries)
+        hold_exit = bars_since >= self.params["max_hold_bars"]
+
+        return (revert | stop | hold_exit).fillna(False)
 
     def run_backtest(
         self,

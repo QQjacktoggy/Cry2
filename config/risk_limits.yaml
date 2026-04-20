@@ -12,13 +12,23 @@ risk_limits:
   # Weekly
   weekly_loss_limit_pct: 8.0
 
-  # Portfolio drawdown protection (V7.2)
+  # Portfolio drawdown protection (V7.3 — disabled in backtest, used in live)
+  # Analysis: 3A DD stop hurts backtest returns (close price ≠ portfolio equity).
+  # Kept for live trading safety net where real equity can diverge.
   max_drawdown_pct: 20.0
   drawdown_cooldown_bars: 48       # 8 days at 4h
 
-  # Consecutive loss protection (V7.2)
-  max_consecutive_losses: 5
+  # Consecutive loss protection (V7.3 Phase D optimized)
+  # Calibrated: 4 consecutive losses triggers pause, 24-bar cooldown (~4 days at 4h)
+  # Impact: Sharpe +0.039, MaxDD -0.2%, Calmar +0.20 vs no risk controls
+  max_consecutive_losses: 4
   loss_cooldown_bars: 24           # 4 days at 4h
+
+  # Maximum holding time (V7.3 Phase D optimized)
+  # Forced exit after 180 bars long (30 days at 4h) / 150 bars short (25 days)
+  # Prevents trend strategies from holding through extended adverse moves
+  max_hold_bars_long: 180
+  max_hold_bars_short: 150
 
   # Margin
   maintenance_margin_ratio_min: 50

@@ -1,10 +1,14 @@
 """Full portfolio backtest + Walk-Forward validation with real Binance data.
 
-Runs all 10 strategies from the optimized allocation, combines equity curves,
+Runs all 17 strategies from the V7.3 optimized allocation, combines equity curves,
 and performs robustness checks (walk-forward, Monte Carlo, stress test).
+
+Supports optional risk controls (Phase D):
+    --risk   Enable Phase D risk controls (3D consecutive loss + 3E max hold)
 
 Usage:
     python -m backtest_tool.scripts.full_portfolio_backtest
+    python -m backtest_tool.scripts.full_portfolio_backtest --risk
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from backtest_tool.engine.analytics import (
     find_low_correlation_pairs,
 )
 from backtest_tool.engine.regime import MarketRegimeDetector, RegimeConfig
+from backtest_tool.engine.risk_manager import RiskManager
 from backtest_tool.engine.robustness import (
     block_bootstrap_simulation,
     fee_sensitivity_analysis,
@@ -36,11 +41,28 @@ from backtest_tool.engine.robustness import (
 )
 from backtest_tool.engine.runner import BacktestRunner
 from backtest_tool.strategies import STRATEGY_MAP
+from backtest_tool.strategies.base_vbt import FREQ_MAP
 
 DATA_DIR = ROOT / "backtest_tool" / "data" / "klines"
 OUTPUT_DIR = ROOT / "backtest_tool" / "reports" / "output"
 
 INITIAL_CAPITAL = 150  # USDT
+
+# ─── Phase D: Optimal Risk Configuration ────────────────────────────────────
+# Calibrated via risk_control_analysis.py sweep of 15 configurations.
+# Winner: 3D (consecutive loss=4, cooldown=24) + 3E (max hold=180 bars)
+# Impact: Sharpe 2.437→2.476, MaxDD -9.1%→-8.9%, Calmar 4.87→5.07
+RISK_MANAGER = RiskManager(
+    enable_portfolio_stop=False,       # DD stop hurts returns (close ≠ equity)
+    enable_position_sizing=False,      # Uniform allocation preferred
+    enable_adaptive_leverage=False,    # Strategy-level leverage is already tuned
+    enable_consec_loss_filter=True,    # 3D: pause after 4 consecutive losses
+    max_consec_losses=4,
+    loss_cooldown_bars=24,             # ~4 days at 4h
+    enable_max_hold=True,              # 3E: forced exit after 180 bars
+    long_max_hold_bars=180,            # ~30 days at 4h
+    short_max_hold_bars=150,           # ~25 days at 4h
+)
 
 # ─── Strategy + Allocation Config ───────────────────────────────────────────
 
@@ -229,8 +251,23 @@ def load_data(symbol: str, timeframe: str) -> pd.DataFrame:
     return combined
 
 
-def run_single_strategy(name: str, cfg: dict, runner: BacktestRunner) -> dict | None:
-    """Run a single strategy and return result dict."""
+def run_single_strategy(
+    name: str,
+    cfg: dict,
+    runner: BacktestRunner,
+    risk_manager: RiskManager | None = None,
+) -> dict | None:
+    """Run a single strategy and return result dict.
+
+    Args:
+        name: Strategy position name.
+        cfg: Strategy config dict (from PORTFOLIO).
+        runner: BacktestRunner instance.
+        risk_manager: Optional Phase D risk manager. When provided,
+            signal-level controls (3D, 3E) are applied before VBT
+            portfolio creation.  Pair trading and funding strategies
+            are skipped (they have built-in stop mechanisms).
+    """
     # Support strategy_name override for multi-symbol entries
     strat_key = cfg.get("strategy_name", name)
     strategy_cls = STRATEGY_MAP.get(strat_key)
@@ -255,18 +292,78 @@ def run_single_strategy(name: str, cfg: dict, runner: BacktestRunner) -> dict | 
 
     # Pair trading strategies load data internally via run_backtest
     is_pair = hasattr(strategy, "required_symbols") and len(getattr(strategy, "required_symbols", [])) > 1
+    has_custom_bt = type(strategy).run_backtest is not type(strategy).__mro__[1].run_backtest if len(type(strategy).__mro__) > 1 else False
 
-    try:
-        if is_pair:
-            result = runner.run_single(
-                strategy=strategy,
-                ohlcv=ohlcv,
-                symbol=cfg["symbol"],
-                timeframe=cfg["timeframe"],
-                initial_capital=capital,
+    # ── Risk-controlled path (standard strategies only) ──────────────
+    if risk_manager is not None and not is_pair and not has_custom_bt:
+        try:
+            entries = strategy.generate_entries(ohlcv).fillna(False).astype(bool)
+            exits = strategy.generate_exits(ohlcv).fillna(False).astype(bool)
+            short_entries = strategy.generate_short_entries(ohlcv)
+            short_exits = strategy.generate_short_exits(ohlcv)
+
+            entries, exits, short_entries, short_exits = risk_manager.apply(
+                ohlcv, entries, exits, short_entries, short_exits, capital,
             )
-        else:
-            result = runner.run_single(
+
+            close = ohlcv["close"]
+            freq = FREQ_MAP.get(strategy.required_timeframe, strategy.required_timeframe)
+            total_fees = runner.cost_model.default_fee_rate + runner.cost_model.slippage_rate
+
+            kwargs: dict = {
+                "close": close,
+                "entries": entries,
+                "exits": exits,
+                "init_cash": capital,
+                "fees": total_fees,
+                "freq": freq,
+            }
+            if short_entries is not None:
+                kwargs["short_entries"] = short_entries.fillna(False).astype(bool)
+                if short_exits is not None:
+                    kwargs["short_exits"] = short_exits.fillna(False).astype(bool)
+                kwargs["direction"] = "both"
+            else:
+                kwargs["direction"] = "longonly"
+
+            import vectorbt as vbt
+            portfolio = vbt.Portfolio.from_signals(**kwargs)
+            equity = portfolio.value()
+            total_return = portfolio.total_return() * 100
+            total_trades = portfolio.trades.count()
+            win_rate = portfolio.trades.win_rate() * 100 if total_trades > 0 else 0
+            max_dd = portfolio.max_drawdown() * 100
+            final_val = float(equity.iloc[-1]) if len(equity) > 0 else capital
+
+            returns = equity.pct_change().dropna()
+            ann = 365 * 6 if strategy.required_timeframe == "4h" else (365 if strategy.required_timeframe == "1d" else 365 * 24)
+            sharpe = returns.mean() / returns.std() * np.sqrt(ann) if returns.std() > 0 else 0
+            sortino_dn = returns[returns < 0].std()
+            sortino = returns.mean() / sortino_dn * np.sqrt(ann) if sortino_dn > 0 else 0
+            calmar = (total_return / abs(max_dd)) if max_dd != 0 else 0
+
+            return {
+                "name": name,
+                "symbol": cfg["symbol"],
+                "tf": cfg["timeframe"],
+                "alloc": cfg["allocation"],
+                "capital": capital,
+                "final": final_val,
+                "return%": total_return,
+                "sharpe": sharpe,
+                "sortino": sortino,
+                "maxdd%": max_dd,
+                "calmar": calmar,
+                "trades": total_trades,
+                "win%": win_rate,
+                "equity": equity,
+            }
+        except Exception as e:
+            print(f"  ⚠️  Risk-controlled run failed for {name}: {e}, falling back")
+
+    # ── Standard path (no risk controls, or pair/funding strategies) ──
+    try:
+        result = runner.run_single(
             strategy=strategy,
             ohlcv=ohlcv,
             symbol=cfg["symbol"],
@@ -298,11 +395,16 @@ def run_single_strategy(name: str, cfg: dict, runner: BacktestRunner) -> dict | 
 
 def main() -> None:
     """Run the full portfolio backtest."""
+    use_risk = "--risk" in sys.argv
+
     print("=" * 70)
     print("🚀 Cry2 Full Portfolio Backtest + Walk-Forward Validation")
+    if use_risk:
+        print("🛡️  Phase D Risk Controls ENABLED (3D consec_loss=4 + 3E max_hold=180)")
     print("=" * 70)
 
     runner = BacktestRunner(str(ROOT / "backtest_tool" / "config" / "backtest_config.yaml"))
+    rm = RISK_MANAGER if use_risk else None
 
     # ─── Run each strategy ──────────────────────────────────────────────
     print("\n📊 Running individual strategies...")
@@ -311,7 +413,7 @@ def main() -> None:
 
     for name, cfg in PORTFOLIO.items():
         print(f"  ▶ {name} ({cfg['symbol']} {cfg['timeframe']} alloc={cfg['allocation']:.0%})")
-        r = run_single_strategy(name, cfg, runner)
+        r = run_single_strategy(name, cfg, runner, risk_manager=rm)
         if r is not None:
             results[name] = r
             equity_curves[name] = r["equity"]

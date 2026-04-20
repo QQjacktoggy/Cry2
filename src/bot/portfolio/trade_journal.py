@@ -369,6 +369,67 @@ class TradeJournal:
             "worst_trade": float(pnl.min()),
         }
 
+    # ── Server Disconnect Resilience ─────────────────────────────────
+
+    def reconcile(
+        self,
+        recent_fills: list[dict[str, Any]],
+        *,
+        dedup_key: str = "order_id",
+    ) -> int:
+        """Back-fill missed fills after a server disconnect.
+
+        Call this on startup with fills fetched from Binance REST
+        (``/fapi/v1/userTrades``).  Any fill whose *dedup_key* is already
+        in the journal is skipped; new ones are inserted and paired.
+
+        Args:
+            recent_fills: List of dicts with the same keys as ``record_fill``
+                          (timestamp, strategy, symbol, side, qty, price, ...).
+            dedup_key: Column used to detect duplicates (default ``order_id``).
+
+        Returns:
+            Number of newly inserted fills.
+        """
+        existing = set()
+        with self._lock:
+            cur = self._conn.execute(f"SELECT {dedup_key} FROM fills")
+            existing = {row[0] for row in cur.fetchall()}
+
+        inserted = 0
+        for f in recent_fills:
+            key_val = f.get(dedup_key)
+            if key_val and key_val in existing:
+                continue
+            self.record_fill(
+                timestamp=f["timestamp"],
+                strategy=f.get("strategy", "unknown"),
+                symbol=f["symbol"],
+                side=f["side"],
+                qty=f["qty"],
+                price=f["price"],
+                commission=f.get("commission", 0.0),
+                comm_asset=f.get("comm_asset", "USDT"),
+                order_id=f.get("order_id", ""),
+                client_oid=f.get("client_oid", ""),
+                realized_pnl=f.get("realized_pnl", 0.0),
+                source=f.get("source", "reconcile"),
+            )
+            inserted += 1
+
+        if inserted > 0:
+            logger.info("reconciled_fills", count=inserted)
+        return inserted
+
+    def open_trades(self) -> pd.DataFrame:
+        """Return trades that have an entry but no exit yet.
+
+        Useful on restart to know which positions are still open.
+        """
+        query = "SELECT * FROM trades WHERE exit_time IS NULL"
+        with self._lock:
+            return pd.read_sql_query(query, self._conn)
+
     # ── Housekeeping ──────────────────────────────────────────────────
 
     def close(self) -> None:

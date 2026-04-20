@@ -33,6 +33,7 @@ from bot.exchange.binance_rest import BinanceRestClient
 from bot.execution.executor_live import LiveExecutor
 from bot.monitoring.telegram_notifier import TelegramNotifier
 from bot.portfolio.portfolio import Portfolio
+from bot.portfolio.trade_journal import TradeJournal
 from bot.risk.circuit_breaker import CircuitBreaker
 from bot.risk.kill_switch import KillSwitch
 from bot.risk.risk_manager import RiskManager
@@ -107,6 +108,18 @@ async def main() -> None:
         event_bus=event_bus,
         initial_capital=args.capital,
     )
+
+    # Trade Journal — persists every fill to SQLite (survives restarts)
+    journal = TradeJournal("./data/live_trades.db")
+    journal.attach(event_bus)
+    resume_info = journal.summary()
+    if resume_info["total_fills"] > 0:
+        logger.info(
+            "trade_journal_resumed",
+            previous_fills=resume_info["total_fills"],
+            previous_trades=resume_info["total_trades"],
+            net_pnl=resume_info["net_pnl"],
+        )
 
     # Risk management
     risk_cfg = config.get("risk_limits", {})
@@ -214,6 +227,10 @@ async def main() -> None:
 
     logger.info("live_trading_stopped")
     notifier.send_sync("🔴 LIVE trading stopped")
+
+    # Graceful journal close
+    journal.close()
+    logger.info("trade_journal_closed")
 
 
 if __name__ == "__main__":
