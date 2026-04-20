@@ -308,13 +308,13 @@ def create_v72_strategies(initial_capital: float = 150.0) -> list[VBTBridgeStrat
     Sharpe 2.355, MaxDD -10.6%, Calmar 4.27.
     """
     V72_CONFIG = [
-        # ⭐ ROBUST TIER — 40% (parameter stability >50%)
+        # ⭐ ROBUST TIER — 40% (trend_donchian family; viable% mixed 13.9%~75%, low-viable capped)
         ("trend_donchian_mtf", "BTCUSDT", "4h", 0.16, {"entry_period": 10, "exit_period": 10, "adx_threshold": 15, "htf_period": 150, "leverage": 2}),
         ("trend_donchian_adx_slope", "ETHUSDT", "4h", 0.10, {"entry_period": 20, "exit_period": 5, "adx_slope_bars": 5, "adx_slope_min": 0.2, "leverage": 2}),
         ("trend_donchian_adx_slope", "BTCUSDT", "4h", 0.08, {"entry_period": 30, "exit_period": 7, "adx_slope_bars": 3, "adx_slope_min": 0.2, "leverage": 2}),
         ("trend_donchian_mtf", "XRPUSDT", "4h", 0.04, {"entry_period": 10, "exit_period": 5, "adx_threshold": 15, "htf_period": 100, "leverage": 2}),
         ("trend_donchian_mtf", "BNBUSDT", "4h", 0.02, {"entry_period": 10, "exit_period": 7, "adx_threshold": 15, "htf_period": 150, "leverage": 2}),
-        # 🔵 MODERATE TIER — 48% (25-50% viable combos)
+        # 🔵 MODERATE TIER — 48% (momentum/tail_risk/mid-grid; viable% 5.6-25%, capped ≤12%)
         ("momentum_ranking", "ETHUSDT", "1d", 0.12, {"roc_period": 60, "lookback": 240, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1.5}),
         ("momentum_ranking", "BNBUSDT", "1d", 0.08, {"roc_period": 90, "lookback": 120, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1.5}),
         ("momentum_ranking", "SOLUSDT", "1d", 0.03, {"roc_period": 20, "lookback": 240, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1.5}),
@@ -324,7 +324,7 @@ def create_v72_strategies(initial_capital: float = 150.0) -> list[VBTBridgeStrat
         ("grid_trend_bias", "BTCUSDT", "4h", 0.04, {"bb_period": 30, "bb_std": 3.0, "ema_period": 200, "leverage": 1}),
         ("grid_trend_bias", "SOLUSDT", "4h", 0.03, {"bb_period": 15, "bb_std": 2.0, "ema_period": 100, "leverage": 1}),
         ("tail_risk_hedge", "BTCUSDT", "1d", 0.03, {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 1}),
-        # ⚠️ FRAGILE TIER — 12% (high Sharpe but <15% viable)
+        # ⚠️ FRAGILE TIER — 12% (very low viable% OR weak stat confidence; capped ≤9%)
         ("grid_trend_bias", "ETHUSDT", "4h", 0.09, {"bb_period": 20, "bb_std": 2.0, "ema_period": 100, "leverage": 2}),
         ("breakout_squeeze", "BTCUSDT", "4h", 0.03, {"bb_period": 30, "bb_std": 3.0, "kc_ema_period": 10, "kc_atr_period": 7, "kc_mult": 2.0, "leverage": 2}),
     ]

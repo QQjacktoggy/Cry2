@@ -27,10 +27,12 @@ from backtest_tool.engine.analytics import (
 )
 from backtest_tool.engine.regime import MarketRegimeDetector, RegimeConfig
 from backtest_tool.engine.robustness import (
+    block_bootstrap_simulation,
     fee_sensitivity_analysis,
     generate_robustness_report,
     monte_carlo_simulation,
     walk_forward_analysis,
+    walk_forward_nested_analysis,
 )
 from backtest_tool.engine.runner import BacktestRunner
 from backtest_tool.strategies import STRATEGY_MAP
@@ -442,11 +444,32 @@ def main() -> None:
     else:
         print("  ⚠️  Insufficient data for walk-forward analysis")
 
+    # ─── Nested Walk-Forward (per-window re-weight) ────────────────────
+    print("\n" + "=" * 70)
+    print("🔍 Nested Walk-Forward (per-window IS-Sharpe reweighting)")
+    print("=" * 70)
+    if daily_curves:
+        for scheme in ("equal", "sharpe_pos"):
+            nwf = walk_forward_nested_analysis(
+                daily_curves,
+                train_bars=min(365, len(combined_equity) // 3),
+                test_bars=min(90, len(combined_equity) // 12),
+                step_bars=min(90, len(combined_equity) // 12),
+                annualization_factor=ann_factor,
+                weighting=scheme,
+            )
+            s = nwf.get("summary", {})
+            if "error" not in s:
+                print(f"  [{scheme:>10}] avg_oos={s.get('avg_oos_sharpe','?'):.3f}  "
+                      f"min={s.get('min_oos_sharpe','?'):.3f}  "
+                      f"pos%={s.get('pct_positive_oos','?'):.1f}  "
+                      f"n_win={s.get('n_windows','?')}")
+
     # ─── Monte Carlo ────────────────────────────────────────────────────
     print("\n" + "=" * 70)
-    print("🎲 Monte Carlo Simulation (1000 runs)")
+    print("🎲 Monte Carlo Simulation (1000 runs each; i.i.d. + block bootstrap)")
     print("=" * 70)
-    mc = monte_carlo_simulation(combined_equity, n_simulations=1000, annualization_factor=ann_factor)
+    mc = monte_carlo_simulation(combined_equity, n_simulations=1000, annualization_factor=ann_factor, method="bootstrap")
     if "original" in mc:
         o = mc["original"]
         s = mc["simulation"]
@@ -456,6 +479,13 @@ def main() -> None:
         print(f"  Sim P95:   Final={s['final_value']['p95']:.4f}  Sharpe={s['sharpe']['p95']:.3f}")
         pr = mc["percentile_rank"]
         print(f"  Percentile Rank: Final={pr['final_value']:.0f}%  MaxDD={pr['max_drawdown']:.0f}%")
+
+    bb = block_bootstrap_simulation(combined_equity, n_simulations=1000, block_size=5, annualization_factor=ann_factor)
+    if "simulation" in bb:
+        s = bb["simulation"]
+        print(f"  [block=5d] Sim P5/P95 Sharpe: {s['sharpe']['p5']:.3f} / {s['sharpe']['p95']:.3f}  "
+              f"Final P5/P95: {s['final_value']['p5']:.3f}x / {s['final_value']['p95']:.3f}x  "
+              f"MaxDD P5: {s['max_drawdown']['p5']:.2f}%")
 
     # ─── Fee Sensitivity ────────────────────────────────────────────────
     print("\n📊 Fee Sensitivity Analysis...")

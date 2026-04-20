@@ -298,20 +298,29 @@ def monte_carlo_simulation(
     n_simulations: int = 1000,
     seed: int = 42,
     annualization_factor: float = 365.0,
+    method: str = "bootstrap",
 ) -> dict[str, Any]:
-    """Monte Carlo simulation by shuffling PnL returns.
+    """Monte Carlo simulation of the return series.
 
-    Randomly reorders the return series to estimate the distribution of
-    outcomes that could have occurred with the same trades in different order.
+    Two supported methods:
+      * ``bootstrap``  (default): sample daily returns with replacement.
+        Produces a real distribution of final values, Sharpe, and drawdown.
+      * ``shuffle`` : permute returns without replacement. This only
+        reorders the same return set, so ∏(1+r_i) and mean/std of returns
+        are mathematically invariant → final value and Sharpe are identical
+        across sims (only MaxDD varies). Retained for path-order stress
+        testing only.
 
     Args:
         equity: Equity curve (cumulative).
-        n_simulations: Number of random shuffle simulations.
+        n_simulations: Number of simulations.
         seed: Random seed for reproducibility.
-        annualization_factor: Bars per year for Sharpe computation (default 365 for crypto daily).
+        annualization_factor: Bars per year for Sharpe (default 365 for crypto daily).
+        method: "bootstrap" (with replacement) or "shuffle" (permutation).
 
     Returns:
-        Dict with percentile statistics and distribution info.
+        Dict with percentile statistics and distribution info. Includes
+        ``method`` key so downstream readers can tell which was used.
     """
     rng = np.random.default_rng(seed)
     returns = equity.pct_change().dropna().values
@@ -319,24 +328,29 @@ def monte_carlo_simulation(
     if len(returns) < 10:
         return {"error": "Insufficient data for Monte Carlo simulation"}
 
+    if method not in {"bootstrap", "shuffle"}:
+        raise ValueError(f"method must be 'bootstrap' or 'shuffle', got {method!r}")
+
     final_values = []
     max_drawdowns = []
     sharpe_ratios = []
 
+    n_returns = len(returns)
     for _ in range(n_simulations):
-        shuffled = rng.permutation(returns)
-        sim_equity = np.cumprod(1 + shuffled)
+        if method == "bootstrap":
+            sim_returns = rng.choice(returns, size=n_returns, replace=True)
+        else:  # shuffle
+            sim_returns = rng.permutation(returns)
+        sim_equity = np.cumprod(1 + sim_returns)
 
         final_values.append(sim_equity[-1])
 
-        # Max drawdown
         cummax = np.maximum.accumulate(sim_equity)
         dd = (sim_equity - cummax) / cummax
         max_drawdowns.append(float(dd.min()))
 
-        # Sharpe
-        mean_r = shuffled.mean()
-        std_r = shuffled.std()
+        mean_r = sim_returns.mean()
+        std_r = sim_returns.std()
         sharpe = mean_r / std_r * np.sqrt(annualization_factor) if std_r > 0 else 0
         sharpe_ratios.append(sharpe)
 
@@ -356,6 +370,7 @@ def monte_carlo_simulation(
 
     return {
         "n_simulations": n_simulations,
+        "method": method,
         "original": {
             "final_value": round(float(orig_equity[-1]), 4),
             "max_drawdown": round(float(orig_dd) * 100, 2),
@@ -724,3 +739,204 @@ def generate_robustness_report(
     }
 
     return report
+
+
+# =============================================================================
+# Block Bootstrap (preserves short-range autocorrelation)
+# =============================================================================
+
+
+def block_bootstrap_simulation(
+    equity: pd.Series,
+    n_simulations: int = 1000,
+    block_size: int = 5,
+    seed: int = 42,
+    annualization_factor: float = 365.0,
+) -> dict[str, Any]:
+    """Block bootstrap: sample contiguous return blocks with replacement.
+
+    Preserves short-range autocorrelation (e.g., volatility clustering) that
+    i.i.d. bootstrap destroys. Each sim is assembled from randomly chosen
+    blocks of ``block_size`` consecutive daily returns.
+
+    Args:
+        equity: Daily equity curve.
+        n_simulations: Number of simulated paths.
+        block_size: Length of each contiguous block (days).
+        seed: RNG seed.
+        annualization_factor: Bars per year for Sharpe (365 for crypto daily).
+
+    Returns:
+        Dict with same shape as ``monte_carlo_simulation`` plus ``block_size``.
+    """
+    rng = np.random.default_rng(seed)
+    returns = equity.pct_change().dropna().values
+    n = len(returns)
+    if n < block_size * 2:
+        return {"error": "Insufficient data for block bootstrap"}
+
+    n_blocks = int(np.ceil(n / block_size))
+    max_start = n - block_size
+
+    final_values, max_drawdowns, sharpe_ratios = [], [], []
+    for _ in range(n_simulations):
+        starts = rng.integers(0, max_start + 1, size=n_blocks)
+        blocks = [returns[s : s + block_size] for s in starts]
+        sim_returns = np.concatenate(blocks)[:n]
+        sim_equity = np.cumprod(1 + sim_returns)
+
+        final_values.append(float(sim_equity[-1]))
+        cummax = np.maximum.accumulate(sim_equity)
+        dd = (sim_equity - cummax) / cummax
+        max_drawdowns.append(float(dd.min()))
+
+        mean_r, std_r = sim_returns.mean(), sim_returns.std()
+        sharpe = mean_r / std_r * np.sqrt(annualization_factor) if std_r > 0 else 0
+        sharpe_ratios.append(float(sharpe))
+
+    fa, da, sa = map(np.array, (final_values, max_drawdowns, sharpe_ratios))
+    orig_eq = np.cumprod(1 + returns)
+    orig_cummax = np.maximum.accumulate(orig_eq)
+    orig_dd = float(((orig_eq - orig_cummax) / orig_cummax).min())
+    orig_sh = returns.mean() / returns.std() * np.sqrt(annualization_factor) if returns.std() > 0 else 0
+
+    return {
+        "n_simulations": n_simulations,
+        "method": "block_bootstrap",
+        "block_size": block_size,
+        "original": {
+            "final_value": round(float(orig_eq[-1]), 4),
+            "max_drawdown": round(orig_dd * 100, 2),
+            "sharpe": round(float(orig_sh), 3),
+        },
+        "simulation": {
+            "final_value": {
+                "mean": round(float(fa.mean()), 4),
+                "median": round(float(np.median(fa)), 4),
+                "p5": round(float(np.percentile(fa, 5)), 4),
+                "p25": round(float(np.percentile(fa, 25)), 4),
+                "p75": round(float(np.percentile(fa, 75)), 4),
+                "p95": round(float(np.percentile(fa, 95)), 4),
+            },
+            "max_drawdown": {
+                "mean": round(float(da.mean()) * 100, 2),
+                "median": round(float(np.median(da)) * 100, 2),
+                "p5": round(float(np.percentile(da, 5)) * 100, 2),
+                "p95": round(float(np.percentile(da, 95)) * 100, 2),
+            },
+            "sharpe": {
+                "mean": round(float(sa.mean()), 3),
+                "median": round(float(np.median(sa)), 3),
+                "p5": round(float(np.percentile(sa, 5)), 3),
+                "p95": round(float(np.percentile(sa, 95)), 3),
+            },
+        },
+    }
+
+
+# =============================================================================
+# Nested Walk-Forward (per-window allocation re-selection)
+# =============================================================================
+
+
+def walk_forward_nested_analysis(
+    equity_curves: dict[str, pd.Series],
+    train_bars: int = 365,
+    test_bars: int = 90,
+    step_bars: int = 90,
+    annualization_factor: float = 365.0,
+    weighting: str = "sharpe_pos",
+) -> dict[str, Any]:
+    """Nested walk-forward that re-selects allocation per IS window.
+
+    Unlike ``walk_forward_analysis`` (which slices a single post-selection
+    combined curve), this takes **per-strategy** equity curves, aligns them
+    on a shared daily index, and for each window:
+
+      1. Uses IS slice to compute per-strategy IS Sharpe.
+      2. Re-derives allocation weights (``weighting``):
+         - ``"equal"``: equal weights across all strategies
+         - ``"sharpe_pos"``: positive IS Sharpe only, normalized
+      3. Applies those weights to OOS daily returns → new combined OOS curve.
+      4. Computes OOS Sharpe / return / MaxDD on that curve.
+
+    Args:
+        equity_curves: Dict mapping strategy name → daily-frequency equity.
+        train_bars / test_bars / step_bars: window sizing in days.
+        annualization_factor: 365 for crypto daily.
+        weighting: "equal" or "sharpe_pos".
+
+    Returns:
+        Dict with per-window OOS stats and summary. Includes ``weighting``
+        key so callers can tell which scheme produced the numbers.
+    """
+    if weighting not in {"equal", "sharpe_pos"}:
+        raise ValueError(f"weighting must be 'equal' or 'sharpe_pos', got {weighting!r}")
+
+    if not equity_curves:
+        return {"windows": [], "summary": {"error": "No curves"}, "passed": False}
+
+    aligned = pd.DataFrame(equity_curves).ffill().bfill().dropna()
+    if len(aligned) < train_bars + test_bars:
+        return {"windows": [], "summary": {"error": "Insufficient data"}, "passed": False}
+
+    returns = aligned.pct_change().fillna(0.0)
+    n = len(aligned)
+
+    windows = []
+    start = 0
+    while start + train_bars + test_bars <= n:
+        is_ret = returns.iloc[start : start + train_bars]
+        oos_ret = returns.iloc[start + train_bars : start + train_bars + test_bars]
+
+        ann = np.sqrt(annualization_factor)
+        is_sharpe = (is_ret.mean() / is_ret.std().replace(0, np.nan)) * ann
+        is_sharpe = is_sharpe.fillna(0.0)
+
+        if weighting == "equal":
+            weights = pd.Series(1.0 / len(is_sharpe), index=is_sharpe.index)
+        else:  # sharpe_pos
+            pos = is_sharpe.clip(lower=0.0)
+            total = pos.sum()
+            weights = (pos / total) if total > 0 else pd.Series(1.0 / len(pos), index=pos.index)
+
+        oos_combined_ret = (oos_ret * weights).sum(axis=1)
+        oos_std = oos_combined_ret.std()
+        oos_sharpe = float(oos_combined_ret.mean() / oos_std * ann) if oos_std > 0 else 0.0
+
+        oos_eq = (1 + oos_combined_ret).cumprod()
+        oos_total = float(oos_eq.iloc[-1] - 1) if len(oos_eq) else 0.0
+        oos_dd_series = (oos_eq - oos_eq.cummax()) / oos_eq.cummax().replace(0, np.nan)
+        oos_dd = float(oos_dd_series.min()) if not oos_dd_series.empty else 0.0
+        if np.isnan(oos_dd):
+            oos_dd = 0.0
+
+        is_sharpe_avg = float(is_sharpe[weights > 0].mean()) if (weights > 0).any() else 0.0
+
+        windows.append({
+            "id": len(windows),
+            "train": f"{aligned.index[start].date()} → {aligned.index[start + train_bars - 1].date()}",
+            "test": f"{aligned.index[start + train_bars].date()} → {aligned.index[start + train_bars + test_bars - 1].date()}",
+            "is_sharpe_avg_weighted": round(is_sharpe_avg, 3),
+            "oos_sharpe": round(oos_sharpe, 3),
+            "oos_return%": round(oos_total * 100, 2),
+            "oos_maxdd%": round(oos_dd * 100, 2),
+            "n_strategies_weighted": int((weights > 0).sum()),
+        })
+        start += step_bars
+
+    if not windows:
+        return {"windows": [], "summary": {"error": "No windows"}, "passed": False}
+
+    oos_sh = [w["oos_sharpe"] for w in windows]
+    summary = {
+        "weighting": weighting,
+        "n_windows": len(windows),
+        "avg_oos_sharpe": round(float(np.mean(oos_sh)), 3),
+        "min_oos_sharpe": round(float(np.min(oos_sh)), 3),
+        "max_oos_sharpe": round(float(np.max(oos_sh)), 3),
+        "oos_sharpe_std": round(float(np.std(oos_sh)), 3),
+        "pct_positive_oos": round(sum(1 for s in oos_sh if s > 0) / len(oos_sh) * 100, 1),
+        "avg_oos_return_pct": round(float(np.mean([w["oos_return%"] for w in windows])), 2),
+    }
+    return {"windows": windows, "summary": summary, "weighting": weighting, "passed": summary["avg_oos_sharpe"] > 0.3}

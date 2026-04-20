@@ -1,0 +1,299 @@
+{
+  "trades": {
+    "trend_donchian_mtf_btc": 7,
+    "trend_donchian_adx_slope_eth": 109,
+    "trend_donchian_adx_slope_btc": 110,
+    "trend_donchian_mtf_xrp": 5,
+    "trend_donchian_mtf_bnb": 10,
+    "momentum_ranking_eth": 10,
+    "momentum_ranking_bnb": 8,
+    "momentum_ranking_sol": 34,
+    "grid_trend_bias_xrp": 37,
+    "tail_risk_hedge_bnb": 12,
+    "tail_risk_hedge_sol": 59,
+    "grid_trend_bias_btc": 16,
+    "grid_trend_bias_sol": 96,
+    "tail_risk_hedge_btc": 12,
+    "grid_trend_bias_eth": 69,
+    "breakout_squeeze_btc": 16
+  },
+  "nested_wf_equal": {
+    "windows": [
+      {
+        "id": 0,
+        "train": "2023-01-01 \u2192 2023-12-31",
+        "test": "2024-01-01 \u2192 2024-03-30",
+        "is_sharpe_avg_weighted": 1.348,
+        "oos_sharpe": 3.577,
+        "oos_return%": 14.47,
+        "oos_maxdd%": -4.19,
+        "n_strategies_weighted": 16
+      },
+      {
+        "id": 1,
+        "train": "2023-04-01 \u2192 2024-03-30",
+        "test": "2024-03-31 \u2192 2024-06-28",
+        "is_sharpe_avg_weighted": 1.271,
+        "oos_sharpe": -0.116,
+        "oos_return%": -0.31,
+        "oos_maxdd%": -4.49,
+        "n_strategies_weighted": 16
+      },
+      {
+        "id": 2,
+        "train": "2023-06-30 \u2192 2024-06-28",
+        "test": "2024-06-29 \u2192 2024-09-26",
+        "is_sharpe_avg_weighted": 1.072,
+        "oos_sharpe": 2.15,
+        "oos_return%": 4.35,
+        "oos_maxdd%": -1.96,
+        "n_strategies_weighted": 16
+      },
+      {
+        "id": 3,
+        "train": "2023-09-28 \u2192 2024-09-26",
+        "test": "2024-09-27 \u2192 2024-12-25",
+        "is_sharpe_avg_weighted": 1.139,
+        "oos_sharpe": 4.76,
+        "oos_return%": 22.26,
+        "oos_maxdd%": -2.23,
+        "n_strategies_weighted": 16
+      },
+      {
+        "id": 4,
+        "train": "2023-12-27 \u2192 2024-12-25",
+        "test": "2024-12-26 \u2192 2025-03-25",
+        "is_sharpe_avg_weighted": 1.198,
+        "oos_sharpe": 2.908,
+        "oos_return%": 10.14,
+        "oos_maxdd%": -2.63,
+        "n_strategies_weighted": 16
+      },
+      {
+        "id": 5,
+        "train": "2024-03-26 \u2192 2025-03-25",
+        "test": "2025-03-26 \u2192 2025-06-23",
+        "is_sharpe_avg_weighted": 1.17,
+        "oos_sharpe": 2.791,
+        "oos_return%": 8.01,
+        "oos_maxdd%": -2.25,
+        "n_strategies_weighted": 16
+      },
+      {
+        "id": 6,
+        "train": "2024-06-24 \u2192 2025-06-23",
+        "test": "2025-06-24 \u2192 2025-09-21",
+        "is_sharpe_avg_weighted": 1.372,
+        "oos_sharpe": 4.712,
+        "oos_return%": 14.86,
+        "oos_maxdd%": -4.26,
+        "n_strategies_weighted": 16
+      },
+      {
+        "id": 7,
+        "train": "2024-09-22 \u2192 2025-09-21",
+        "test": "2025-09-22 \u2192 2025-12-20",
+        "is_sharpe_avg_weighted": 1.621,
+        "oos_sharpe": 1.861,
+        "oos_return%": 4.17,
+        "oos_maxdd%": -2.79,
+        "n_strategies_weighted": 16
+      },
+      {
+        "id": 8,
+        "train": "2024-12-21 \u2192 2025-12-20",
+        "test": "2025-12-21 \u2192 2026-03-20",
+        "is_sharpe_avg_weighted": 1.076,
+        "oos_sharpe": 2.211,
+        "oos_return%": 5.91,
+        "oos_maxdd%": -2.45,
+        "n_strategies_weighted": 16
+      }
+    ],
+    "summary": {
+      "weighting": "equal",
+      "n_windows": 9,
+      "avg_oos_sharpe": 2.762,
+      "min_oos_sharpe": -0.116,
+      "max_oos_sharpe": 4.76,
+      "oos_sharpe_std": 1.424,
+      "pct_positive_oos": 88.9,
+      "avg_oos_return_pct": 9.32
+    },
+    "weighting": "equal",
+    "passed": true
+  },
+  "nested_wf_sharpe_pos": {
+    "windows": [
+      {
+        "id": 0,
+        "train": "2023-01-01 \u2192 2023-12-31",
+        "test": "2024-01-01 \u2192 2024-03-30",
+        "is_sharpe_avg_weighted": 1.438,
+        "oos_sharpe": 2.869,
+        "oos_return%": 15.03,
+        "oos_maxdd%": -5.18,
+        "n_strategies_weighted": 15
+      },
+      {
+        "id": 1,
+        "train": "2023-04-01 \u2192 2024-03-30",
+        "test": "2024-03-31 \u2192 2024-06-28",
+        "is_sharpe_avg_weighted": 1.356,
+        "oos_sharpe": 0.796,
+        "oos_return%": 2.58,
+        "oos_maxdd%": -7.34,
+        "n_strategies_weighted": 15
+      },
+      {
+        "id": 2,
+        "train": "2023-06-30 \u2192 2024-06-28",
+        "test": "2024-06-29 \u2192 2024-09-26",
+        "is_sharpe_avg_weighted": 1.143,
+        "oos_sharpe": -1.082,
+        "oos_return%": -3.7,
+        "oos_maxdd%": -8.57,
+        "n_strategies_weighted": 15
+      },
+      {
+        "id": 3,
+        "train": "2023-09-28 \u2192 2024-09-26",
+        "test": "2024-09-27 \u2192 2024-12-25",
+        "is_sharpe_avg_weighted": 1.215,
+        "oos_sharpe": 3.219,
+        "oos_return%": 16.79,
+        "oos_maxdd%": -3.28,
+        "n_strategies_weighted": 15
+      },
+      {
+        "id": 4,
+        "train": "2023-12-27 \u2192 2024-12-25",
+        "test": "2024-12-26 \u2192 2025-03-25",
+        "is_sharpe_avg_weighted": 1.198,
+        "oos_sharpe": 3.16,
+        "oos_return%": 6.8,
+        "oos_maxdd%": -1.42,
+        "n_strategies_weighted": 16
+      },
+      {
+        "id": 5,
+        "train": "2024-03-26 \u2192 2025-03-25",
+        "test": "2025-03-26 \u2192 2025-06-23",
+        "is_sharpe_avg_weighted": 1.316,
+        "oos_sharpe": 3.141,
+        "oos_return%": 6.69,
+        "oos_maxdd%": -1.64,
+        "n_strategies_weighted": 15
+      },
+      {
+        "id": 6,
+        "train": "2024-06-24 \u2192 2025-06-23",
+        "test": "2025-06-24 \u2192 2025-09-21",
+        "is_sharpe_avg_weighted": 1.514,
+        "oos_sharpe": 4.727,
+        "oos_return%": 14.4,
+        "oos_maxdd%": -3.8,
+        "n_strategies_weighted": 15
+      },
+      {
+        "id": 7,
+        "train": "2024-09-22 \u2192 2025-09-21",
+        "test": "2025-09-22 \u2192 2025-12-20",
+        "is_sharpe_avg_weighted": 1.621,
+        "oos_sharpe": 1.727,
+        "oos_return%": 3.79,
+        "oos_maxdd%": -2.59,
+        "n_strategies_weighted": 16
+      },
+      {
+        "id": 8,
+        "train": "2024-12-21 \u2192 2025-12-20",
+        "test": "2025-12-21 \u2192 2026-03-20",
+        "is_sharpe_avg_weighted": 1.37,
+        "oos_sharpe": 1.9,
+        "oos_return%": 5.88,
+        "oos_maxdd%": -3.7,
+        "n_strategies_weighted": 13
+      }
+    ],
+    "summary": {
+      "weighting": "sharpe_pos",
+      "n_windows": 9,
+      "avg_oos_sharpe": 2.273,
+      "min_oos_sharpe": -1.082,
+      "max_oos_sharpe": 4.727,
+      "oos_sharpe_std": 1.588,
+      "pct_positive_oos": 88.9,
+      "avg_oos_return_pct": 7.58
+    },
+    "weighting": "sharpe_pos",
+    "passed": true
+  },
+  "block_bootstrap": {
+    "n_simulations": 1000,
+    "method": "block_bootstrap",
+    "block_size": 5,
+    "original": {
+      "final_value": 3.4269,
+      "max_drawdown": -10.59,
+      "sharpe": 2.356
+    },
+    "simulation": {
+      "final_value": {
+        "mean": 3.5811,
+        "median": 3.4653,
+        "p5": 2.2145,
+        "p25": 2.8515,
+        "p75": 4.133,
+        "p95": 5.3165
+      },
+      "max_drawdown": {
+        "mean": -11.06,
+        "median": -10.65,
+        "p5": -16.51,
+        "p95": -7.19
+      },
+      "sharpe": {
+        "mean": 2.366,
+        "median": 2.378,
+        "p5": 1.601,
+        "p95": 3.107
+      }
+    }
+  },
+  "iid_bootstrap": {
+    "n_simulations": 1000,
+    "method": "bootstrap",
+    "original": {
+      "final_value": 3.4269,
+      "max_drawdown": -10.59,
+      "sharpe": 2.356
+    },
+    "simulation": {
+      "final_value": {
+        "mean": 3.532,
+        "median": 3.3496,
+        "p5": 2.0561,
+        "p25": 2.7633,
+        "p75": 4.134,
+        "p95": 5.6917
+      },
+      "max_drawdown": {
+        "mean": -12.58,
+        "median": -11.98,
+        "p5": -19.87,
+        "p95": -7.93
+      },
+      "sharpe": {
+        "mean": 2.329,
+        "median": 2.319,
+        "p5": 1.43,
+        "p95": 3.256
+      }
+    },
+    "percentile_rank": {
+      "final_value": 52.9,
+      "max_drawdown": 63.5
+    }
+  }
+}

@@ -10,6 +10,7 @@ from backtest_tool.strategies.arb_family import (
 from backtest_tool.strategies.base_vbt import BaseVBTStrategy
 from backtest_tool.strategies.funding_arb_vbt import FundingArbVBT
 from backtest_tool.strategies.funding_reversal_vbt import FundingReversalVBT
+from backtest_tool.strategies.pair_trading_vbt import PairTradingBTCETH
 from backtest_tool.strategies.grid_family import (
     GridATRAdaptive,
     GridBollingerBands,
@@ -148,6 +149,8 @@ STRATEGY_MAP: dict[str, type[BaseVBTStrategy]] = {
     "walk_forward_trend": WalkForwardTrend,
     # G4: Funding reversal (1)
     "funding_reversal": FundingReversalVBT,
+    # G5: Pair trading (1)
+    "pair_btc_eth": PairTradingBTCETH,
     # H: Phase 7 — New strategy exploration (10)
     "momentum_rotation": MomentumRotation,
     "trend_strength_sizing": TrendStrengthSizing,
