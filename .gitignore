@@ -21,7 +21,6 @@ data/
 logs/
 *.log
 *.parquet
-*.csv
 !tests/fixtures/*.parquet
 !backtest_tool/data/DATA_CATALOG.md
 
