@@ -56,6 +56,18 @@ from backtest_tool.strategies.reversal_family import (
     RSI2Connors,
     StochasticReversal,
 )
+from backtest_tool.strategies.phase7_family import (
+    DualChannelBreakout,
+    FundingContrarian,
+    GammaScalpingGrid,
+    MomentumRotation,
+    PairsSpreadMR,
+    PriceVolumeDivergence,
+    TailRiskHedge,
+    TimeOfDayFilter,
+    TrendStrengthSizing,
+    VolatilityMeanReversion,
+)
 from backtest_tool.strategies.trend_donchian_vbt import TrendDonchianVBT
 from backtest_tool.strategies.trend_family import (
     TrendDonchianADXSlope,
@@ -133,6 +145,17 @@ STRATEGY_MAP: dict[str, type[BaseVBTStrategy]] = {
     "long_horizon_eth": LongHorizonETH,
     "long_horizon_sol": LongHorizonSOL,
     "walk_forward_trend": WalkForwardTrend,
+    # H: Phase 7 — New strategy exploration (10)
+    "momentum_rotation": MomentumRotation,
+    "trend_strength_sizing": TrendStrengthSizing,
+    "dual_channel_breakout": DualChannelBreakout,
+    "vol_mean_reversion": VolatilityMeanReversion,
+    "gamma_scalping": GammaScalpingGrid,
+    "funding_contrarian": FundingContrarian,
+    "pv_divergence": PriceVolumeDivergence,
+    "time_of_day_filter": TimeOfDayFilter,
+    "pairs_spread_mr": PairsSpreadMR,
+    "tail_risk_hedge": TailRiskHedge,
 }
 
 __all__ = [

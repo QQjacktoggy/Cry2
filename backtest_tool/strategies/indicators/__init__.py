@@ -8,6 +8,7 @@ from backtest_tool.strategies.indicators.heikin_ashi import compute_heikin_ashi
 from backtest_tool.strategies.indicators.ichimoku import compute_ichimoku
 from backtest_tool.strategies.indicators.keltner import compute_keltner
 from backtest_tool.strategies.indicators.macd import compute_macd
+from backtest_tool.strategies.indicators.obv import compute_mfi, compute_obv
 from backtest_tool.strategies.indicators.patterns import detect_pin_bar
 from backtest_tool.strategies.indicators.stoch import compute_roc, compute_stochastic
 from backtest_tool.strategies.indicators.supertrend import compute_supertrend
@@ -25,6 +26,8 @@ __all__ = [
     "compute_ichimoku",
     "compute_keltner",
     "compute_macd",
+    "compute_mfi",
+    "compute_obv",
     "compute_roc",
     "compute_stochastic",
     "compute_supertrend",
