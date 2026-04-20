@@ -42,12 +42,11 @@ OUTPUT_DIR = ROOT / "backtest_tool" / "reports" / "output"
 
 PORTFOLIO = {
     # ═══════════════════════════════════════════════════════════
-    # V2 ALLOCATION — optimized for MaxDD <20%
-    # Removed: mean_reversion_bb (Sharpe -1.40), grid_funding_aware (-17.9%)
-    # Boosted: grid_trend_bias (Sharpe 1.61), trend_donchian_mtf (1.03)
-    # Reduced: trend_donchian (Sharpe 0.26, DD -48.5%)
+    # V3 ALLOCATION — Phase 7 replacements for weak strategies
+    # Replaced: trend_donchian (Sharpe 0.26) → tail_risk_hedge (0.95)
+    #           regime_switcher (Sharpe 0.15) → pv_divergence (0.49)
     # ═══════════════════════════════════════════════════════════
-    # Long-term core (55%)
+    # Long-term core (48%)
     "momentum_ranking": {
         "allocation": 0.20,
         "symbol": "ETHUSDT",
@@ -66,19 +65,13 @@ PORTFOLIO = {
         "timeframe": "4h",
         "params": {"entry_period": 20, "exit_period": 10, "adx_slope_bars": 5, "adx_slope_min": 0.3, "leverage": 2},
     },
-    "trend_donchian": {
-        "allocation": 0.07,
-        "symbol": "BTCUSDT",
-        "timeframe": "4h",
-        "params": {"entry_period": 30, "exit_period": 5, "adx_threshold": 30, "atr_stop_mult": 2.0, "leverage": 1.5},
-    },
     "long_horizon_eth": {
         "allocation": 0.05,
         "symbol": "ETHUSDT",
         "timeframe": "1d",
         "params": {"leverage": 1},
     },
-    # Short-term fill (40%)
+    # Short-term fill (37%)
     "grid_trend_bias": {
         "allocation": 0.25,
         "symbol": "ETHUSDT",
@@ -91,12 +84,18 @@ PORTFOLIO = {
         "timeframe": "4h",
         "params": {"bb_period": 30, "bb_std": 2.5, "kc_ema_period": 15, "kc_atr_period": 7, "kc_mult": 2.0, "leverage": 2},
     },
-    # Defensive (5%)
-    "regime_switcher": {
+    # NEW Phase 7 replacements (15%)
+    "tail_risk_hedge": {
         "allocation": 0.08,
         "symbol": "BTCUSDT",
+        "timeframe": "1d",
+        "params": {"leverage": 1},
+    },
+    "pv_divergence": {
+        "allocation": 0.07,
+        "symbol": "BTCUSDT",
         "timeframe": "4h",
-        "params": {"entry_period": 20, "exit_period": 10, "adx_trend": 25, "adx_range": 20, "leverage": 1},
+        "params": {"leverage": 2},
     },
 }
 

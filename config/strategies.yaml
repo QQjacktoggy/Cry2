@@ -1,10 +1,10 @@
 strategies:
   # =============================================
-  # V2 配置 — 5/5 目標全過 (2023-01→2026-04 回測驗證)
-  # Sharpe 1.43 | Ann Return 31.3% | MaxDD -19.0%
+  # V3 配置 — Phase 7 策略替換弱策略，5/5 目標全過
+  # Sharpe 1.47 | Ann Return 31.9% | MaxDD -17.8% | Calmar 1.80
   # =============================================
 
-  # 🟢 長線核心 (55% 資金) — 穩定趨勢追蹤
+  # 🟢 長線核心 (48% 資金) — 穩定趨勢追蹤
   momentum_ranking:
     enabled: true
     allocation: 0.20
@@ -41,21 +41,6 @@ strategies:
     leverage: 2
     regime_filter: [trending_up]
 
-  trend_donchian:
-    enabled: true
-    allocation: 0.07
-    symbols: [BTCUSDT, ETHUSDT, SOLUSDT]
-    timeframe: 4h
-    entry_period: 30
-    exit_period: 5
-    adx_period: 14
-    adx_threshold: 30
-    atr_period: 14
-    atr_stop_mult: 2.0
-    risk_per_trade_pct: 1.0
-    leverage: 1.5
-    regime_filter: [trending_up, trending_down]
-
   long_horizon_eth:
     enabled: true
     allocation: 0.05
@@ -88,41 +73,50 @@ strategies:
     leverage: 2
     regime_filter: [ranging]
 
-  # 🔵 防禦 (8% 資金) — 環境適應
-  regime_switcher:
+  # 🔵 Phase 7 新策略 (15% 資金) — 替換弱策略
+  tail_risk_hedge:
     enabled: true
     allocation: 0.08
-    symbols: [BTCUSDT, ETHUSDT]
-    timeframe: 4h
-    entry_period: 20
-    exit_period: 10
-    adx_trend: 25
-    adx_range: 20
+    symbols: [BTCUSDT]
+    timeframe: 1d
     leverage: 1
 
-  # ❌ 移除 (回測虧損)
+  pv_divergence:
+    enabled: true
+    allocation: 0.07
+    symbols: [BTCUSDT, ETHUSDT]
+    timeframe: 4h
+    leverage: 2
+
+  # ❌ 移除策略
+  trend_donchian:
+    enabled: false    # Sharpe 0.26, DD -48.5% → replaced by tail_risk_hedge
+    allocation: 0.00
+  regime_switcher:
+    enabled: false    # Sharpe 0.15, DD -35.7% → replaced by pv_divergence
+    allocation: 0.00
   mean_reversion_bb:
-    enabled: false
+    enabled: false    # Sharpe -1.40, DD -53.5%
     allocation: 0.00
   grid_funding_aware:
-    enabled: false
+    enabled: false    # Return -17.9%
     allocation: 0.00
 
 # =============================================
-# V2 資金配置摘要 (100%)
+# V3 資金配置摘要 (100%)
 # =============================================
 capital_allocation:
-  # 長線核心 55%
+  # 長線核心 48%
   momentum_ranking: 0.20
   trend_donchian_mtf: 0.15
   trend_donchian_adx_slope: 0.08
-  trend_donchian: 0.07
   long_horizon_eth: 0.05
   # 短線補位 37%
   grid_trend_bias: 0.25
   breakout_squeeze: 0.12
-  # 防禦 8%
-  regime_switcher: 0.08
+  # Phase 7 新策略 15%
+  tail_risk_hedge: 0.08
+  pv_divergence: 0.07
 
 # =============================================
 # 市場環境感知配置 (Phase 4)

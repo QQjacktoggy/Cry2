@@ -642,6 +642,11 @@ def fee_sensitivity_analysis(
     # Safety margin: ratio of breakeven fee to actual fee
     safety_margin = breakeven_fee / base_fee_bps if breakeven_fee and base_fee_bps > 0 else None
 
+    # If breakeven wasn't found but portfolio is profitable at max fee, it's very safe
+    if breakeven_fee is None and results and results[-1]["profitable"]:
+        breakeven_fee = fee_range_bps[1]  # at least this high
+        safety_margin = breakeven_fee / base_fee_bps if base_fee_bps > 0 else None
+
     return {
         "base_fee_bps": base_fee_bps,
         "n_trades": n_trades,
