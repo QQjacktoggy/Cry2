@@ -1,45 +1,46 @@
-# 最佳化參數 — Phase 1+2+7 掃描結果 + V6 SOL 優化
-# 來源: backtest_tool/reports/output/ (phase12, phase7, sol optimization CSVs)
+# 最佳化參數 — V7 Phase 1-2 全面重掃 (7,605 combos) + Phase 7 結果
+# 來源: backtest_tool/reports/output/phase12_rescan_best.csv
 # 日期: 2026-04-20
+# 變更: V6→V7 基於 rescan 發現升級參數
 
 optimized_params:
   # =============================================
-  # Phase 1: 長線核心策略
+  # 🟢 長線核心策略 (Phase 1 + Rescan)
   # =============================================
 
   momentum_ranking:
     BTC:
-      roc_period: 60
-      lookback: 180
-      upper_threshold: 80
-      lower_threshold: 40
-      sharpe: 1.10
-      return_pct: 87.3
-      max_dd_pct: -22.0
+      roc_period: 30
+      lookback: 120
+      upper_threshold: 70
+      lower_threshold: 30
+      sharpe: 0.937
+      return_pct: 160.3
+      max_dd_pct: -48.4
     ETH:
       roc_period: 60
-      lookback: 180
-      upper_threshold: 80
-      lower_threshold: 40
-      sharpe: 1.93
-      return_pct: 203.5
-      max_dd_pct: -18.5
+      lookback: 240          # ⬆ rescan: 180→240
+      upper_threshold: 70     # ⬆ rescan: 80→70
+      lower_threshold: 30     # ⬆ rescan: 40→30
+      sharpe: 1.483
+      return_pct: 584.9
+      max_dd_pct: -46.6
     BNB:
-      roc_period: 60
-      lookback: 180
-      upper_threshold: 80
-      lower_threshold: 40
-      sharpe: 1.52
-      return_pct: 589.9
-      max_dd_pct: -29.1
+      roc_period: 90          # ⬆ rescan: 60→90
+      lookback: 120           # ⬆ rescan: 180→120
+      upper_threshold: 70     # ⬆ rescan: 80→70
+      lower_threshold: 30     # ⬆ rescan: 40→30
+      sharpe: 1.535
+      return_pct: 632.4
+      max_dd_pct: -33.1
     SOL:
-      roc_period: 30
-      lookback: 180
+      roc_period: 20
+      lookback: 240
       upper_threshold: 70
-      lower_threshold: 40
-      sharpe: 1.11
-      return_pct: 406.5
-      max_dd_pct: -45.4
+      lower_threshold: 30
+      sharpe: 1.227
+      return_pct: 601.6
+      max_dd_pct: -47.7
 
   trend_donchian:
     BTC:
@@ -61,42 +62,90 @@ optimized_params:
 
   trend_donchian_mtf:
     BTC:
-      entry_period: 15
+      entry_period: 10         # ⬆ rescan: 15→10
       exit_period: 10
-      adx_threshold: 20
-      htf_period: 200
-      sharpe: 1.02
-      return_pct: 32.5
-      max_dd_pct: -17.3
-    SOL:
-      entry_period: 15
+      adx_threshold: 15        # ⬆ rescan: 20→15
+      htf_period: 150          # ⬆ rescan: 200→150
+      sharpe: 1.032
+      return_pct: 44.6
+      max_dd_pct: -10.8
+    ETH:
+      entry_period: 10
+      exit_period: 7
+      adx_threshold: 30
+      htf_period: 150
+      sharpe: 0.290
+      return_pct: 11.8
+      max_dd_pct: -31.2
+    BNB:                       # 🆕 rescan 新發現
+      entry_period: 10
+      exit_period: 7
+      adx_threshold: 15
+      htf_period: 150
+      sharpe: 1.008
+      return_pct: 62.5
+      max_dd_pct: -16.6
+    XRP:                       # 🆕 rescan 新發現
+      entry_period: 10
       exit_period: 5
-      adx_threshold: 20
+      adx_threshold: 15
+      htf_period: 100
+      sharpe: 1.059
+      return_pct: 114.8
+      max_dd_pct: -21.1
+    SOL:
+      entry_period: 10
+      exit_period: 5
+      adx_threshold: 15
       htf_period: 200
-      sharpe: 0.27
-      return_pct: 12.5
+      sharpe: 0.315
+      return_pct: 16.3
       max_dd_pct: -28.6
 
   trend_donchian_adx_slope:
     BTC:
+      entry_period: 30         # ⬆ rescan: 20→30
+      exit_period: 7           # ⬆ rescan: 10→7
+      adx_slope_bars: 3        # ⬆ rescan: 5→3
+      adx_slope_min: 0.2       # ⬆ rescan: 0.3→0.2
+      sharpe: 1.052            # ⬆ was 0.65
+      return_pct: 143.5
+      max_dd_pct: -31.1
+    ETH:                       # 🆕 rescan 新發現
       entry_period: 20
-      exit_period: 10
+      exit_period: 5
       adx_slope_bars: 5
-      adx_slope_min: 0.3
-      sharpe: 0.65
-      return_pct: 21.0
-      max_dd_pct: -19.5
+      adx_slope_min: 0.2
+      sharpe: 1.172
+      return_pct: 225.2
+      max_dd_pct: -32.2
+    XRP:                       # 🆕 rescan 新發現
+      entry_period: 15
+      exit_period: 10
+      adx_slope_bars: 7
+      adx_slope_min: 0.2
+      sharpe: 1.079
+      return_pct: 362.4
+      max_dd_pct: -48.4
+    BNB:
+      entry_period: 30
+      exit_period: 7
+      adx_slope_bars: 5
+      adx_slope_min: 0.2
+      sharpe: 0.157            # ⚠️ 弱
+      return_pct: -1.5
+      max_dd_pct: -41.7
     SOL:
       entry_period: 30
       exit_period: 10
       adx_slope_bars: 3
-      adx_slope_min: 0.5
-      sharpe: 0.58
+      adx_slope_min: 0.2
+      sharpe: 0.584
       return_pct: 76.3
       max_dd_pct: -66.6
 
   # =============================================
-  # Phase 2: 短線補位策略
+  # 🟡 短線補位策略 (Phase 2 + Rescan)
   # =============================================
 
   grid_trend_bias:
@@ -104,59 +153,84 @@ optimized_params:
       bb_period: 30
       bb_std: 3.0
       ema_period: 200
-      sharpe: 1.14
-      return_pct: 42.8
-      max_dd_pct: -14.2
+      sharpe: 1.327
+      return_pct: 35.2
+      max_dd_pct: -7.4
     ETH:
       bb_period: 20
       bb_std: 2.0
-      ema_period: 50
-      sharpe: 1.76
-      return_pct: 68.3
-      max_dd_pct: -12.1
+      ema_period: 100          # ⬆ rescan: 50→100
+      sharpe: 1.615            # ⬆ was 1.76 (V6 had diff leverage)
+      return_pct: 164.0
+      max_dd_pct: -18.8
     XRP:
-      bb_period: 20
+      bb_period: 15            # ⬆ rescan: 20→15
       bb_std: 2.0
       ema_period: 50
-      sharpe: 0.93
-      return_pct: 34.2
-      max_dd_pct: -8.4
+      sharpe: 1.117            # ⬆ was 0.93
+      return_pct: 77.5
+      max_dd_pct: -23.9
+    BNB:
+      bb_period: 30
+      bb_std: 2.0
+      ema_period: 200
+      sharpe: 0.856
+      return_pct: 73.6
+      max_dd_pct: -28.6
     SOL:
       bb_period: 15
       bb_std: 2.0
       ema_period: 100
-      sharpe: 1.22
+      sharpe: 1.224
       return_pct: 224.6
       max_dd_pct: -31.4
 
   breakout_squeeze:
     BTC:
       bb_period: 30
-      bb_std: 2.5
-      kc_ema_period: 15
+      bb_std: 3.0              # ⬆ rescan: 2.5→3.0
+      kc_ema_period: 10        # ⬆ rescan: 15→10
       kc_atr_period: 7
       kc_mult: 2.0
-      sharpe: 1.33
-      return_pct: 38.5
-      max_dd_pct: -11.7
+      sharpe: 0.793
+      return_pct: 27.9
+      max_dd_pct: -16.7
     ETH:
-      bb_period: 20
+      bb_period: 30
       bb_std: 2.0
-      kc_ema_period: 15
+      kc_ema_period: 10
       kc_atr_period: 7
       kc_mult: 1.5
-      sharpe: 0.92
-      return_pct: 25.4
-      max_dd_pct: -16.2
+      sharpe: 0.878
+      return_pct: 46.6
+      max_dd_pct: -16.7
+    XRP:                       # 🆕 rescan 新發現
+      bb_period: 20
+      bb_std: 2.5
+      kc_ema_period: 10
+      kc_atr_period: 7
+      kc_mult: 2.0
+      sharpe: 1.054
+      return_pct: 249.6
+      max_dd_pct: -40.8
     SOL:
       bb_period: 30
       bb_std: 2.0
-      kc_ema_period: 20
-      kc_atr_period: 10
+      kc_ema_period: 10
+      kc_atr_period: 7
       kc_mult: 1.5
-      sharpe: 1.04
+      sharpe: 1.043
       return_pct: 109.4
       max_dd_pct: -14.0
+    BNB:
+      bb_period: 30
+      bb_std: 2.0
+      kc_ema_period: 10
+      kc_atr_period: 7
+      kc_mult: 2.0
+      sharpe: 0.535
+      return_pct: 31.8
+      max_dd_pct: -18.5
 
   mean_reversion_bb:
     BTC:
@@ -189,34 +263,51 @@ optimized_params:
       max_dd_pct: -18.3
 
   # =============================================
-  # Phase 7: 新策略優化結果
+  # 🔵 防禦/對沖策略 (Phase 7 + Rescan)
   # =============================================
 
   tail_risk_hedge:
     BTC:
-      consec_up_threshold: 14
+      consec_up_threshold: 10  # ⬆ rescan: 14→10
       consec_down_threshold: 5
       exit_bars: 10
       leverage: 1
-      sharpe: 1.24
+      sharpe: 1.241
       return_pct: 95.0
       max_dd_pct: -12.7
+      decay_warning: "90d Sharpe -1.08"
     BNB:
-      consec_up_threshold: 14
+      consec_up_threshold: 10  # ⬆ rescan: 14→10
       consec_down_threshold: 5
-      exit_bars: 10
+      exit_bars: 15            # ⬆ rescan: 10→15
       leverage: 1
-      sharpe: 1.41
-      return_pct: 114.1
-      max_dd_pct: -14.3
-    SOL:
-      consec_up_threshold: 14
+      sharpe: 1.427
+      return_pct: 135.1
+      max_dd_pct: -15.5
+    SOL:                       # 🆕 rescan 確認
+      consec_up_threshold: 10
       consec_down_threshold: 3
       exit_bars: 10
       leverage: 1
-      sharpe: 1.24
+      sharpe: 1.243
       return_pct: 472.3
       max_dd_pct: -39.3
+    ETH:
+      consec_up_threshold: 10
+      consec_down_threshold: 5
+      exit_bars: 5
+      leverage: 1
+      sharpe: 0.494
+      return_pct: 35.0
+      max_dd_pct: -22.2
+    XRP:
+      consec_up_threshold: 10
+      consec_down_threshold: 3
+      exit_bars: 10
+      leverage: 1
+      sharpe: 1.035
+      return_pct: 375.5
+      max_dd_pct: -30.2
 
   dual_channel_breakout:
     ETH:
@@ -227,20 +318,32 @@ optimized_params:
       adx_period: 14
       adx_threshold: 20
       leverage: 2
-      sharpe: 1.20
+      sharpe: 1.203
       return_pct: 223.1
       max_dd_pct: -28.4
+      decay_warning: "30d Sharpe -3.22"
     SOL:
       dc_period: 20
-      kc_ema: 15
-      kc_atr: 10
+      kc_ema: 10
+      kc_atr: 14
       kc_mult: 2.0
       adx_period: 14
-      adx_threshold: 20
+      adx_threshold: 15
       leverage: 1
-      sharpe: 0.70
-      return_pct: 110.3
-      max_dd_pct: -50.0
+      sharpe: 0.928
+      return_pct: 168.4
+      max_dd_pct: -34.6
+    BTC:
+      dc_period: 40
+      kc_ema: 15
+      kc_atr: 10
+      kc_mult: 2.5
+      adx_period: 14
+      adx_threshold: 25
+      leverage: 1
+      sharpe: 0.813
+      return_pct: 62.5
+      max_dd_pct: -32.2
 
 # =============================================
 # Risk Management Params (Phase 3)
