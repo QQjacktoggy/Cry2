@@ -46,22 +46,20 @@ INITIAL_CAPITAL = 150  # USDT
 
 PORTFOLIO = {
     # ═══════════════════════════════════════════════════════════
-    # V7.2 ALLOCATION — Phase B/C Optimized (deep stability analysis)
-    # Philosophy: Parameter stability > Raw Sharpe + Remove decaying strategies
-    # Tier criteria are composite (family + viable% + allocation cap), NOT strict
-    # viable% cutoffs. See docs/BACKTEST_REPORT_V7.md §3 for full definitions.
-    #   - ⭐ Robust tier (40%)  — trend_donchian family; viable% 13.9%~75%
-    #                              (low-viable members capped at 2-8%)
-    #   - 🔵 Moderate tier (48%) — momentum / tail_risk / mid-confidence grid;
-    #                              viable% 5.6%~25%, capped at 3-12%
-    #   - ⚠️ Fragile tier (12%) — very low viable% OR weak statistical confidence;
-    #                              allocation capped ≤9%
-    # Changes from V7.1:
-    #   - ❌ REMOVED dual_channel_breakout ETH (30d=-3.22, 90d=-3.52 DECAY)
-    #   - 🆕 momentum_ranking SOL 3% (Sharpe 1.227, 25% viable, diversifies)
-    #   - ↑ trend_donchian_mtf BTC 15→16% (most robust: 61% viable)
-    #   - ↑ adx_slope ETH 9→10% (59% viable, strongest Sharpe in robust)
-    # Result: MaxDD -12.0% → -10.6%, Fragile 17%→12%, +3% momentum diversification
+    # V7.3 ALLOCATION — Phase G Integrated (G4 + G5 new strategies)
+    # Philosophy: Parameter stability > Raw Sharpe + Market-neutral diversification
+    # Changes from V7.2:
+    #   - 🆕 pair_btc_eth 5% (G5 market-neutral, Sharpe 1.334, corr≈0.025)
+    #   - 🆕 funding_reversal_eth 3% (G4 gap filler, Sharpe 0.934)
+    #   - ❌ REMOVED breakout_squeeze BTC (fragile, low conviction)
+    #   - ↓ grid_trend_bias ETH 9→7%, momentum_ranking ETH 12→10%
+    #   - ↓ grid_trend_bias BTC 4→3%
+    # Tier structure:
+    #   - ⭐ Robust tier (40%)  — trend_donchian family
+    #   - 🔵 Moderate tier (45%) — momentum / tail_risk / mid-grid
+    #   - ⚠️ Fragile tier (7%) — grid_trend_bias ETH (high Sharpe but sensitive)
+    #   - 🟣 Market Neutral + Gap (8%) — pair trading + funding reversal
+    # Result: 17 strategy positions, 5 coins, 4 strategy families + 2 new
     # ═══════════════════════════════════════════════════════════
 
     # ── ⭐ ROBUST TIER — 40% (trend_donchian family; mixed viable%) ──────
@@ -101,10 +99,10 @@ PORTFOLIO = {
         "params": {"entry_period": 10, "exit_period": 7, "adx_threshold": 15, "htf_period": 150, "leverage": 2},
     },
 
-    # ── 🔵 MODERATE TIER — 48% (momentum/tail_risk/mid-grid; viable% 5.6-25%, capped ≤12%) ───────
+    # ── 🔵 MODERATE TIER — 45% (momentum/tail_risk/mid-grid; viable% 5.6-25%, capped ≤10%) ───────
     "momentum_ranking_eth": {
         "strategy_name": "momentum_ranking",
-        "allocation": 0.12,
+        "allocation": 0.10,
         "symbol": "ETHUSDT",
         "timeframe": "1d",
         "params": {"roc_period": 60, "lookback": 240, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1.5},
@@ -146,7 +144,7 @@ PORTFOLIO = {
     },
     "grid_trend_bias_btc": {
         "strategy_name": "grid_trend_bias",
-        "allocation": 0.04,
+        "allocation": 0.03,
         "symbol": "BTCUSDT",
         "timeframe": "4h",
         "params": {"bb_period": 30, "bb_std": 3.0, "ema_period": 200, "leverage": 1},
@@ -166,20 +164,29 @@ PORTFOLIO = {
         "params": {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 1},
     },
 
-    # ── ⚠️ FRAGILE TIER — 12% (very low viable% OR weak stat confidence; capped ≤9%) ─
+    # ── ⚠️ FRAGILE TIER — 7% (very low viable% OR weak stat confidence; capped ≤7%) ─
     "grid_trend_bias_eth": {
         "strategy_name": "grid_trend_bias",
-        "allocation": 0.09,
+        "allocation": 0.07,
         "symbol": "ETHUSDT",
         "timeframe": "4h",
         "params": {"bb_period": 20, "bb_std": 2.0, "ema_period": 100, "leverage": 2},
     },
-    "breakout_squeeze_btc": {
-        "strategy_name": "breakout_squeeze",
-        "allocation": 0.03,
-        "symbol": "BTCUSDT",
+
+    # ── 🟣 MARKET NEUTRAL + GAP FILLER — 8% (new G4+G5; near-zero corr) ─
+    "pair_btc_eth": {
+        "strategy_name": "pair_btc_eth",
+        "allocation": 0.05,
+        "symbol": "BTCUSDT",  # Primary symbol (loads ETH internally)
         "timeframe": "4h",
-        "params": {"bb_period": 30, "bb_std": 3.0, "kc_ema_period": 10, "kc_atr_period": 7, "kc_mult": 2.0, "leverage": 2},
+        "params": {"ols_window": 480, "zscore_period": 90, "entry_z": 2.5, "exit_z": 0.0, "stop_z": 4.0, "leverage": 1},
+    },
+    "funding_reversal_eth": {
+        "strategy_name": "funding_reversal",
+        "allocation": 0.03,
+        "symbol": "ETHUSDT",
+        "timeframe": "4h",
+        "params": {"entry_rate_long": -4, "hold_bars": 12, "entry_rate_short": 999, "leverage": 1},
     },
 }
 
@@ -246,8 +253,20 @@ def run_single_strategy(name: str, cfg: dict, runner: BacktestRunner) -> dict | 
         if len(funding_df) > 0:
             ohlcv = strategy.prepare_data(ohlcv, funding_df)
 
+    # Pair trading strategies load data internally via run_backtest
+    is_pair = hasattr(strategy, "required_symbols") and len(getattr(strategy, "required_symbols", [])) > 1
+
     try:
-        result = runner.run_single(
+        if is_pair:
+            result = runner.run_single(
+                strategy=strategy,
+                ohlcv=ohlcv,
+                symbol=cfg["symbol"],
+                timeframe=cfg["timeframe"],
+                initial_capital=capital,
+            )
+        else:
+            result = runner.run_single(
             strategy=strategy,
             ohlcv=ohlcv,
             symbol=cfg["symbol"],
