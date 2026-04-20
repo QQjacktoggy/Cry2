@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+import inspect
 
 import numpy as np
 import pandas as pd
@@ -97,13 +98,23 @@ class BacktestRunner:
             leverage=lev,
         )
 
-        portfolio = strategy.run_backtest(
-            ohlcv=ohlcv,
-            initial_capital=capital,
-            fees=self.cost_model.default_fee_rate,
-            slippage=self.cost_model.slippage_rate,
-            leverage=lev,
-        )
+        # Build kwargs and call strategy.run_backtest with context when supported
+        run_kwargs = {
+            "ohlcv": ohlcv,
+            "initial_capital": capital,
+            "fees": self.cost_model.default_fee_rate,
+            "slippage": self.cost_model.slippage_rate,
+            "leverage": lev,
+        }
+
+        sig = inspect.signature(strategy.run_backtest)
+        accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+        if "symbol" in sig.parameters or accepts_kwargs:
+            run_kwargs["symbol"] = symbol
+        if "timeframe" in sig.parameters or accepts_kwargs:
+            run_kwargs["timeframe"] = timeframe or strategy.required_timeframe
+
+        portfolio = strategy.run_backtest(**run_kwargs)
 
         metrics = self._extract_metrics(portfolio)
         trades = self._extract_trades(portfolio)

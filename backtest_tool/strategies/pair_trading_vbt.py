@@ -285,15 +285,10 @@ class PairTradingBTCETH(BaseVBTStrategy):
             ratio_ohlcv = self.compute_ratio_ohlcv(df_a, df_b)
             ratio_ohlcv["_zscore"] = z
 
-        except FileNotFoundError:
-            # Fallback: use provided ohlcv with simple log z-score
-            ratio_ohlcv = ohlcv.copy()
-            log_close = np.log(ohlcv["close"])
-            period = self.params["zscore_period"]
-            mean = log_close.rolling(period).mean()
-            std = log_close.rolling(period).std(ddof=0)
-            ratio_ohlcv["_zscore"] = (log_close - mean) / std.replace(0, pd.NA)
-            ratio_close = ohlcv["close"]
+        except FileNotFoundError as e:
+            raise FileNotFoundError(
+                f"Pair data not found for required symbols {self.required_symbols}. Provide both symbols\' OHLCV or a synthetic ratio DataFrame to run_backtest."
+            ) from e
 
         entries = self.generate_entries(ratio_ohlcv).fillna(False).astype(bool)
         exits = self.generate_exits(ratio_ohlcv).fillna(False).astype(bool)
