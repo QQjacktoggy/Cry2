@@ -46,9 +46,14 @@ PORTFOLIO = {
     # ═══════════════════════════════════════════════════════════
     # V7.2 ALLOCATION — Phase B/C Optimized (deep stability analysis)
     # Philosophy: Parameter stability > Raw Sharpe + Remove decaying strategies
-    #   - ⭐ Robust strategies (>50% viable combos) → 40% total
-    #   - 🔵 Moderate strategies (25-50% viable) → 48% total
-    #   - ⚠️ Fragile strategies (<15% viable) → 12% total
+    # Tier criteria are composite (family + viable% + allocation cap), NOT strict
+    # viable% cutoffs. See docs/BACKTEST_REPORT_V7.md §3 for full definitions.
+    #   - ⭐ Robust tier (40%)  — trend_donchian family; viable% 13.9%~75%
+    #                              (low-viable members capped at 2-8%)
+    #   - 🔵 Moderate tier (48%) — momentum / tail_risk / mid-confidence grid;
+    #                              viable% 5.6%~25%, capped at 3-12%
+    #   - ⚠️ Fragile tier (12%) — very low viable% OR weak statistical confidence;
+    #                              allocation capped ≤9%
     # Changes from V7.1:
     #   - ❌ REMOVED dual_channel_breakout ETH (30d=-3.22, 90d=-3.52 DECAY)
     #   - 🆕 momentum_ranking SOL 3% (Sharpe 1.227, 25% viable, diversifies)
@@ -57,7 +62,7 @@ PORTFOLIO = {
     # Result: MaxDD -12.0% → -10.6%, Fragile 17%→12%, +3% momentum diversification
     # ═══════════════════════════════════════════════════════════
 
-    # ── ⭐ ROBUST TIER — 40% (parameter stability >50%) ──────
+    # ── ⭐ ROBUST TIER — 40% (trend_donchian family; mixed viable%) ──────
     "trend_donchian_mtf_btc": {
         "strategy_name": "trend_donchian_mtf",
         "allocation": 0.16,
@@ -94,7 +99,7 @@ PORTFOLIO = {
         "params": {"entry_period": 10, "exit_period": 7, "adx_threshold": 15, "htf_period": 150, "leverage": 2},
     },
 
-    # ── 🔵 MODERATE TIER — 48% (25-50% viable combos) ───────
+    # ── 🔵 MODERATE TIER — 48% (momentum/tail_risk/mid-grid; viable% 5.6-25%, capped ≤12%) ───────
     "momentum_ranking_eth": {
         "strategy_name": "momentum_ranking",
         "allocation": 0.12,
@@ -159,7 +164,7 @@ PORTFOLIO = {
         "params": {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 1},
     },
 
-    # ── ⚠️ FRAGILE TIER — 12% (high Sharpe but <15% viable) ─
+    # ── ⚠️ FRAGILE TIER — 12% (very low viable% OR weak stat confidence; capped ≤9%) ─
     "grid_trend_bias_eth": {
         "strategy_name": "grid_trend_bias",
         "allocation": 0.09,
@@ -232,6 +237,12 @@ def run_single_strategy(name: str, cfg: dict, runner: BacktestRunner) -> dict | 
 
     strategy = strategy_cls(cfg["params"])
     capital = INITIAL_CAPITAL * cfg["allocation"]
+
+    # Auto-merge funding data for funding-aware strategies
+    if hasattr(strategy, "load_funding") and hasattr(strategy, "prepare_data"):
+        funding_df = strategy.load_funding(cfg["symbol"])
+        if len(funding_df) > 0:
+            ohlcv = strategy.prepare_data(ohlcv, funding_df)
 
     try:
         result = runner.run_single(
