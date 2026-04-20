@@ -44,33 +44,30 @@ INITIAL_CAPITAL = 150  # USDT
 
 PORTFOLIO = {
     # ═══════════════════════════════════════════════════════════
-    # V7.1 ALLOCATION — Robustness-Weighted (based on stability analysis)
-    # Philosophy: Parameter stability > Raw Sharpe
-    #   - ⭐ Robust strategies (>50% viable combos) → 38% total
-    #   - 🔵 Moderate strategies (25-50% viable) → 45% total
-    #   - ⚠️ Fragile strategies (<15% viable) → 17% total
-    # Changes from V7:
-    #   - ↑ trend_donchian_mtf BTC 12→15% (61% robust)
-    #   - ↑ adx_slope ETH 5→9% (59% robust)
-    #   - ↑ adx_slope BTC 6→8% (robust)
-    #   - 🆕 trend_donchian_mtf XRP 4% (75% robust!)
-    #   - 🆕 trend_donchian_mtf BNB 2% (robust)
-    #   - ↓ grid_trend_bias ETH 15→9% (5.6% viable = fragile)
-    #   - ↓ dual_channel_breakout 10→5% (fragile + decay)
-    #   - ↓ breakout_squeeze BTC 5→3% (fragile)
+    # V7.2 ALLOCATION — Phase B/C Optimized (deep stability analysis)
+    # Philosophy: Parameter stability > Raw Sharpe + Remove decaying strategies
+    #   - ⭐ Robust strategies (>50% viable combos) → 40% total
+    #   - 🔵 Moderate strategies (25-50% viable) → 48% total
+    #   - ⚠️ Fragile strategies (<15% viable) → 12% total
+    # Changes from V7.1:
+    #   - ❌ REMOVED dual_channel_breakout ETH (30d=-3.22, 90d=-3.52 DECAY)
+    #   - 🆕 momentum_ranking SOL 3% (Sharpe 1.227, 25% viable, diversifies)
+    #   - ↑ trend_donchian_mtf BTC 15→16% (most robust: 61% viable)
+    #   - ↑ adx_slope ETH 9→10% (59% viable, strongest Sharpe in robust)
+    # Result: MaxDD -12.0% → -10.6%, Fragile 17%→12%, +3% momentum diversification
     # ═══════════════════════════════════════════════════════════
 
-    # ── ⭐ ROBUST TIER — 38% (parameter stability >50%) ──────
+    # ── ⭐ ROBUST TIER — 40% (parameter stability >50%) ──────
     "trend_donchian_mtf_btc": {
         "strategy_name": "trend_donchian_mtf",
-        "allocation": 0.15,
+        "allocation": 0.16,
         "symbol": "BTCUSDT",
         "timeframe": "4h",
         "params": {"entry_period": 10, "exit_period": 10, "adx_threshold": 15, "htf_period": 150, "leverage": 2},
     },
     "trend_donchian_adx_slope_eth": {
         "strategy_name": "trend_donchian_adx_slope",
-        "allocation": 0.09,
+        "allocation": 0.10,
         "symbol": "ETHUSDT",
         "timeframe": "4h",
         "params": {"entry_period": 20, "exit_period": 5, "adx_slope_bars": 5, "adx_slope_min": 0.2, "leverage": 2},
@@ -97,7 +94,7 @@ PORTFOLIO = {
         "params": {"entry_period": 10, "exit_period": 7, "adx_threshold": 15, "htf_period": 150, "leverage": 2},
     },
 
-    # ── 🔵 MODERATE TIER — 45% (25-50% viable combos) ───────
+    # ── 🔵 MODERATE TIER — 48% (25-50% viable combos) ───────
     "momentum_ranking_eth": {
         "strategy_name": "momentum_ranking",
         "allocation": 0.12,
@@ -111,6 +108,13 @@ PORTFOLIO = {
         "symbol": "BNBUSDT",
         "timeframe": "1d",
         "params": {"roc_period": 90, "lookback": 120, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1.5},
+    },
+    "momentum_ranking_sol": {
+        "strategy_name": "momentum_ranking",
+        "allocation": 0.03,
+        "symbol": "SOLUSDT",
+        "timeframe": "1d",
+        "params": {"roc_period": 20, "lookback": 240, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1.5},
     },
     "grid_trend_bias_xrp": {
         "strategy_name": "grid_trend_bias",
@@ -155,19 +159,13 @@ PORTFOLIO = {
         "params": {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 1},
     },
 
-    # ── ⚠️ FRAGILE TIER — 17% (high Sharpe but <15% viable) ─
+    # ── ⚠️ FRAGILE TIER — 12% (high Sharpe but <15% viable) ─
     "grid_trend_bias_eth": {
         "strategy_name": "grid_trend_bias",
         "allocation": 0.09,
         "symbol": "ETHUSDT",
         "timeframe": "4h",
         "params": {"bb_period": 20, "bb_std": 2.0, "ema_period": 100, "leverage": 2},
-    },
-    "dual_channel_breakout": {
-        "allocation": 0.05,
-        "symbol": "ETHUSDT",
-        "timeframe": "4h",
-        "params": {"dc_period": 30, "kc_ema": 15, "kc_atr": 14, "kc_mult": 2.0, "adx_period": 14, "adx_threshold": 20, "leverage": 2},
     },
     "breakout_squeeze_btc": {
         "strategy_name": "breakout_squeeze",
