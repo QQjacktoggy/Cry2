@@ -59,20 +59,20 @@
 
 ### 3. Dashboard / 分析介面
 - [x] 即時顯示 TradeJournal 統計（勝率、PnL、持倉）
-- [ ] TradeAnalyzer 健康報告視覺化（rolling Sharpe, decay detection）
-- [ ] 策略相關性矩陣圖表
-- [ ] Monte Carlo 模擬結果圖
+- [x] TradeAnalyzer 健康報告視覺化（rolling Sharpe, decay detection）
+- [x] 策略相關性矩陣圖表
+- [x] Monte Carlo 模擬結果圖
 
 ### 4. 進階優化
 - [x] 將 `_reconcile_from_binance` 抽成共用模組（目前 run_live / run_paper 重複）
 - [x] WebSocket 斷線重連時也觸發 reconcile
 - [x] 加入 strategy name 自動推斷（根據 client_order_id 前綴）
-- [ ] 定時自動 snapshot + reconcile（每小時）
+- [x] 定時自動 snapshot + reconcile（每小時）
 
 ### 5. 測試覆蓋率提升
 - [x] CircuitBreaker 3 個 pre-existing 失敗修復
-- [ ] TradeAnalyzer 單元測試
-- [ ] LiveExecutor 整合測試（mock exchange）
+- [x] TradeAnalyzer 單元測試
+- [x] LiveExecutor 整合測試（mock exchange）
 
 ---
 
