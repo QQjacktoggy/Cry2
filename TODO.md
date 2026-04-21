@@ -51,26 +51,26 @@
 - [ ] 推送所有變更後請 GPT-5.4 做一次完整 review
 - [ ] 檢查是否有新的高優先問題
 
-### 2. reconcile 單元測試
-- [ ] Mock Binance API 回傳的 trade 格式
-- [ ] 測試 dedup 邏輯（已存在的 order_id 不重複插入）
-- [ ] 測試空 journal → 跳過 reconcile
-- [ ] 測試有 open trades → 正確查詢對應 symbols
+### 2. reconcile 單元測試 ✅
+- [x] Mock Binance API 回傳的 trade 格式
+- [x] 測試 dedup 邏輯（已存在的 order_id 不重複插入）
+- [x] 測試空 journal → 跳過 reconcile
+- [x] 測試有 open trades → 正確查詢對應 symbols
 
 ### 3. Dashboard / 分析介面
-- [ ] 即時顯示 TradeJournal 統計（勝率、PnL、持倉）
+- [x] 即時顯示 TradeJournal 統計（勝率、PnL、持倉）
 - [ ] TradeAnalyzer 健康報告視覺化（rolling Sharpe, decay detection）
 - [ ] 策略相關性矩陣圖表
 - [ ] Monte Carlo 模擬結果圖
 
 ### 4. 進階優化
-- [ ] 將 `_reconcile_from_binance` 抽成共用模組（目前 run_live / run_paper 重複）
-- [ ] WebSocket 斷線重連時也觸發 reconcile
-- [ ] 加入 strategy name 自動推斷（根據 client_order_id 前綴）
+- [x] 將 `_reconcile_from_binance` 抽成共用模組（目前 run_live / run_paper 重複）
+- [x] WebSocket 斷線重連時也觸發 reconcile
+- [x] 加入 strategy name 自動推斷（根據 client_order_id 前綴）
 - [ ] 定時自動 snapshot + reconcile（每小時）
 
 ### 5. 測試覆蓋率提升
-- [ ] CircuitBreaker 3 個 pre-existing 失敗修復
+- [x] CircuitBreaker 3 個 pre-existing 失敗修復
 - [ ] TradeAnalyzer 單元測試
 - [ ] LiveExecutor 整合測試（mock exchange）
 
