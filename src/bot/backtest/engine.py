@@ -178,7 +178,7 @@ class BacktestEngine:
                 self._process_pending_signals()
 
                 # Check circuit breaker
-                if self.circuit_breaker.is_tripped(event.timestamp):
+                if self.circuit_breaker.is_tripped_at(event.timestamp):
                     continue
 
                 if not self.circuit_breaker.check_bar(event):

@@ -16,7 +16,6 @@ import signal
 import sys
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -34,6 +33,7 @@ from bot.exchange.binance_rest import BinanceRestClient
 from bot.execution.executor_live import LiveExecutor
 from bot.monitoring.telegram_notifier import TelegramNotifier
 from bot.portfolio.portfolio import Portfolio
+from bot.portfolio.reconcile import reconcile_from_binance
 from bot.portfolio.trade_journal import TradeJournal
 from bot.risk.circuit_breaker import CircuitBreaker
 from bot.risk.kill_switch import KillSwitch
@@ -41,65 +41,6 @@ from bot.risk.risk_manager import RiskManager
 from bot.strategy.bridge import create_v6_strategies, create_v72_strategies
 
 logger = structlog.get_logger(__name__)
-
-
-def _reconcile_from_binance(
-    client: BinanceRestClient,
-    journal: TradeJournal,
-    log: Any = None,
-) -> int:
-    """Fetch recent fills from Binance and backfill any missing from journal."""
-    import datetime as _dt
-    _log = log or structlog.get_logger(__name__)
-
-    open_trades = journal.open_trades()
-    symbols = set()
-    if not open_trades.empty:
-        symbols = set(open_trades["symbol"].unique())
-
-    fills_df = journal.export_fills()
-    if not fills_df.empty:
-        cutoff = _dt.datetime.now() - _dt.timedelta(hours=24)
-        recent = fills_df[fills_df["timestamp"] >= str(cutoff)]
-        if not recent.empty:
-            symbols.update(recent["symbol"].unique())
-
-    if not symbols:
-        _log.info("reconcile_skipped", reason="no_active_symbols")
-        return 0
-
-    total_inserted = 0
-    for sym in symbols:
-        try:
-            raw_trades = client.get_account_trades(sym, limit=100)
-            mapped = []
-            for t in raw_trades:
-                mapped.append({
-                    "timestamp": _dt.datetime.fromtimestamp(
-                        int(t["time"]) / 1000
-                    ).isoformat(),
-                    "strategy": "unknown",
-                    "symbol": t["symbol"],
-                    "side": t["side"],
-                    "qty": float(t["qty"]),
-                    "price": float(t["price"]),
-                    "commission": float(t.get("commission", 0)),
-                    "comm_asset": t.get("commissionAsset", "USDT"),
-                    "order_id": str(t.get("orderId", "")),
-                    "client_oid": "",
-                    "realized_pnl": float(t.get("realizedPnl", 0)),
-                    "source": "reconcile",
-                })
-            inserted = journal.reconcile(mapped)
-            total_inserted += inserted
-        except Exception as e:
-            _log.warning("reconcile_symbol_failed", symbol=sym, error=str(e))
-
-    if total_inserted > 0:
-        _log.info("reconcile_complete", new_fills=total_inserted)
-    else:
-        _log.info("reconcile_complete", message="no_missing_fills")
-    return total_inserted
 
 
 def dry_run_validation(strategies, capital: float, version: str) -> None:
@@ -239,7 +180,7 @@ async def main() -> None:
         )
 
     # Reconcile missed fills from Binance (server disconnect recovery)
-    _reconcile_from_binance(client, journal, logger)
+    reconcile_from_binance(client, journal, logger)
 
     # Risk
     risk_cfg = config.get("risk_limits", {})

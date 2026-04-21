@@ -36,20 +36,18 @@ class CircuitBreaker:
         self._trip_time: datetime | None = None
         self._trip_reason: str = ""
 
-    def is_tripped(self, current_time: datetime | None = None) -> bool:
-        """Check if circuit breaker is currently tripped.
+    @property
+    def is_tripped(self) -> bool:
+        """True if the breaker is currently tripped (uses wall-clock time)."""
+        return self.is_tripped_at(datetime.now(UTC))
 
-        Args:
-            current_time: Reference time for cooldown checks. If not provided,
-                use current UTC time.
-        """
+    def is_tripped_at(self, current_time: datetime) -> bool:
+        """Check trip status at a specific time (use this in backtests)."""
         if not self._tripped:
             return False
 
-        # Check if cooldown has expired
         if self._trip_time:
-            now = current_time or datetime.now(UTC)
-            elapsed = now - self._trip_time
+            elapsed = current_time - self._trip_time
             if elapsed >= timedelta(minutes=self.cooldown_minutes):
                 self.reset()
                 return False

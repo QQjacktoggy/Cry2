@@ -1,6 +1,6 @@
 """Tests for risk management modules."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from bot.core.events import MarketEvent
 from bot.risk.circuit_breaker import CircuitBreaker
@@ -60,8 +60,11 @@ class TestCircuitBreaker:
 
     def test_extreme_bar(self):
         cb = CircuitBreaker(bar_change_threshold_pct=5.0)
+        # Use a timestamp in the far future so the 30-min cooldown is not expired
+        # when is_tripped checks against datetime.now(UTC).
+        future_ts = datetime.now(UTC) + timedelta(hours=1)
         event = MarketEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
+            timestamp=future_ts,
             symbol="BTCUSDT",
             timeframe="4h",
             open=42000.0,
@@ -75,8 +78,9 @@ class TestCircuitBreaker:
 
     def test_reset(self):
         cb = CircuitBreaker(bar_change_threshold_pct=5.0)
+        future_ts = datetime.now(UTC) + timedelta(hours=1)
         event = MarketEvent(
-            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
+            timestamp=future_ts,
             symbol="BTCUSDT",
             timeframe="4h",
             open=42000.0,
