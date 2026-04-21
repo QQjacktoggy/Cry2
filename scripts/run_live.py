@@ -180,9 +180,11 @@ async def main() -> None:
         rest_client=client,
         funding_poll_interval=300,
     )
-    feed.on_reconnect = lambda: reconcile_from_binance(
-        client, journal, logger, known_strategies=strategy_names
-    )
+    def _do_reconcile():
+        reconcile_from_binance(client, journal, logger, known_strategies=strategy_names)
+
+    feed.on_reconnect = _do_reconcile
+    feed.periodic_sync_fn = _do_reconcile
 
     # Wire strategies to market events
     def on_market(event):

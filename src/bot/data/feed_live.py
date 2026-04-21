@@ -46,6 +46,8 @@ class LiveFeed(DataFeed):
         self._rest_client = rest_client
         self._funding_poll_interval = funding_poll_interval
         self.on_reconnect: Callable[[], None] | None = None
+        self.periodic_sync_fn: Callable[[], None] | None = None
+        self.periodic_sync_interval: int = 3600
 
     def _build_stream_url(self) -> str:
         """Build combined WebSocket stream URL."""
@@ -174,12 +176,23 @@ class LiveFeed(DataFeed):
                     logger.warning("funding_poll_error", symbol=symbol, error=str(e))
             await asyncio.sleep(self._funding_poll_interval)
 
+    async def _periodic_sync(self) -> None:
+        """Run periodic_sync_fn every periodic_sync_interval seconds."""
+        while self._running:
+            await asyncio.sleep(self.periodic_sync_interval)
+            if not self._running or self.periodic_sync_fn is None:
+                break
+            await asyncio.get_event_loop().run_in_executor(None, self.periodic_sync_fn)
+            logger.info("periodic_sync_completed")
+
     async def start_async(self) -> None:
         """Start the WebSocket connection and funding rate poller."""
         self._running = True
         tasks = [asyncio.create_task(self._connect_and_listen())]
         if self._rest_client is not None:
             tasks.append(asyncio.create_task(self._poll_funding_rates()))
+        if self.periodic_sync_fn is not None:
+            tasks.append(asyncio.create_task(self._periodic_sync()))
         await asyncio.gather(*tasks)
 
     def stop(self) -> None:
