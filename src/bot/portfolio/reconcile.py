@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from bot.utils.id_generator import extract_strategy_from_client_oid
+
 if TYPE_CHECKING:
     from bot.exchange.binance_rest import BinanceRestClient
     from bot.portfolio.trade_journal import TradeJournal
@@ -22,11 +24,19 @@ def reconcile_from_binance(
     client: BinanceRestClient,
     journal: TradeJournal,
     log: Any = None,
+    known_strategies: list[str] | None = None,
 ) -> int:
     """Fetch recent fills from Binance and back-fill any missing from the journal.
 
     Called on startup to recover fills that occurred during a disconnect.
     Queries the last 100 trades per symbol found in open trades or 24h fills.
+
+    Args:
+        client: Binance REST client.
+        journal: TradeJournal to back-fill.
+        log: Optional structlog logger.
+        known_strategies: Full strategy names used to resolve the 8-char prefix
+            embedded in client_order_id (e.g. ``["trend_donchian", ...]``).
 
     Returns:
         Number of newly inserted fills.
@@ -58,7 +68,11 @@ def reconcile_from_binance(
                     "timestamp": _dt.datetime.fromtimestamp(
                         int(t["time"]) / 1000, tz=_dt.timezone.utc
                     ),
-                    "strategy": "unknown",
+                    "strategy": (
+                        extract_strategy_from_client_oid(
+                            str(t.get("clientOrderId", "")), known_strategies
+                        ) or "unknown"
+                    ),
                     "symbol": t["symbol"],
                     "side": t["side"],
                     "qty": float(t["qty"]),

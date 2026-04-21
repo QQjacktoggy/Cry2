@@ -170,6 +170,7 @@ async def main() -> None:
 
     # Data feed (multi-timeframe: use smallest common timeframe)
     primary_tf = min(all_timeframes, key=lambda t: {"1h": 1, "4h": 4, "8h": 8, "1d": 24}.get(t, 4))
+    strategy_names = [s.name for s in strategies]
     feed = LiveFeed(
         event_bus=event_bus,
         clock=clock,
@@ -178,6 +179,9 @@ async def main() -> None:
         timeframe=primary_tf,
         rest_client=client,
         funding_poll_interval=300,
+    )
+    feed.on_reconnect = lambda: reconcile_from_binance(
+        client, journal, logger, known_strategies=strategy_names
     )
 
     # Wire strategies to market events

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Callable
 
 import structlog
 
@@ -45,6 +45,7 @@ class LiveFeed(DataFeed):
         self._reconnect_delay = 1.0
         self._rest_client = rest_client
         self._funding_poll_interval = funding_poll_interval
+        self.on_reconnect: Callable[[], None] | None = None
 
     def _build_stream_url(self) -> str:
         """Build combined WebSocket stream URL."""
@@ -100,10 +101,15 @@ class LiveFeed(DataFeed):
 
         while self._running:
             try:
+                is_reconnect = self._reconnect_attempts > 0
                 async with websockets.connect(url, ping_interval=20) as ws:
                     self._ws = ws
                     self._reconnect_attempts = 0
                     logger.info("ws_connected", symbols=self.symbols)
+                    if is_reconnect and self.on_reconnect is not None:
+                        await asyncio.get_event_loop().run_in_executor(
+                            None, self.on_reconnect
+                        )
 
                     async for raw_message in ws:
                         if not self._running:

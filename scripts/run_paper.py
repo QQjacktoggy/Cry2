@@ -220,6 +220,7 @@ async def main() -> None:
             logger.warning("leverage_set_failed", symbol=strat.symbol, error=str(e))
 
     # Data feed
+    strategy_names = [s.name for s in strategies]
     primary_tf = min(all_timeframes, key=lambda t: {"1h": 1, "4h": 4, "8h": 8, "1d": 24}.get(t, 4))
     feed = LiveFeed(
         event_bus=event_bus,
@@ -229,6 +230,9 @@ async def main() -> None:
         timeframe=primary_tf,
         rest_client=client,
         funding_poll_interval=300,
+    )
+    feed.on_reconnect = lambda: reconcile_from_binance(
+        client, journal, logger, known_strategies=strategy_names
     )
 
     # Wire strategies to market events
