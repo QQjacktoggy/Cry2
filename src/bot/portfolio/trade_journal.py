@@ -30,7 +30,7 @@ import structlog
 if TYPE_CHECKING:
     from bot.core.event_bus import EventBus
 
-from bot.core.constants import EventType
+from bot.core.constants import EventType, OrderSide
 from bot.core.events import FillEvent
 
 logger = structlog.get_logger(__name__)
@@ -401,20 +401,21 @@ class TradeJournal:
             key_val = f.get(dedup_key)
             if key_val and key_val in existing:
                 continue
-            self.record_fill(
+            fill_event = FillEvent(
                 timestamp=f["timestamp"],
-                strategy=f.get("strategy", "unknown"),
+                strategy_name=f.get("strategy", "unknown"),
                 symbol=f["symbol"],
-                side=f["side"],
-                qty=f["qty"],
+                side=OrderSide(f["side"]),
+                quantity=f["qty"],
                 price=f["price"],
                 commission=f.get("commission", 0.0),
-                comm_asset=f.get("comm_asset", "USDT"),
+                commission_asset=f.get("comm_asset", "USDT"),
                 order_id=f.get("order_id", ""),
-                client_oid=f.get("client_oid", ""),
+                client_order_id=f.get("client_oid", ""),
                 realized_pnl=f.get("realized_pnl", 0.0),
                 source=f.get("source", "reconcile"),
             )
+            self.record_fill(fill_event)
             inserted += 1
 
         if inserted > 0:

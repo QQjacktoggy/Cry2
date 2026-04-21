@@ -212,3 +212,80 @@ class TestPersistence:
         df = j2.export_fills()
         assert len(df) == 1
         j2.close()
+
+
+def _make_binance_fill(
+    order_id: str = "BINANCE-001",
+    symbol: str = "BTCUSDT",
+    side: str = "BUY",
+    qty: float = 0.01,
+    price: float = 50000.0,
+    strategy: str = "trend",
+    ts: datetime | None = None,
+) -> dict:
+    """Simulate the dict format produced by _reconcile_from_binance()."""
+    return {
+        "timestamp": ts or datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC),
+        "strategy": strategy,
+        "symbol": symbol,
+        "side": side,
+        "qty": qty,
+        "price": price,
+        "commission": 0.5,
+        "comm_asset": "USDT",
+        "order_id": order_id,
+        "client_oid": "",
+        "realized_pnl": 0.0,
+        "source": "reconcile",
+    }
+
+
+class TestReconcile:
+    """TradeJournal.reconcile() — Binance REST back-fill on reconnect."""
+
+    def test_reconcile_inserts_new_fills(self, journal):
+        fills = [
+            _make_binance_fill(order_id="ORD-A"),
+            _make_binance_fill(order_id="ORD-B", side="SELL", price=51000.0),
+        ]
+        inserted = journal.reconcile(fills)
+        assert inserted == 2
+        assert len(journal.export_fills()) == 2
+
+    def test_reconcile_dedup_skips_existing_order_id(self, journal):
+        # Pre-insert a fill with the same order_id
+        journal.record_fill(_make_fill(symbol="BTCUSDT"))  # order_id = "ORD-001"
+
+        fills = [
+            _make_binance_fill(order_id="ORD-001"),   # already in DB → skip
+            _make_binance_fill(order_id="ORD-NEW"),   # new → insert
+        ]
+        inserted = journal.reconcile(fills)
+        assert inserted == 1
+        # Total fills = 1 (pre-existing) + 1 (new)
+        assert len(journal.export_fills()) == 2
+
+    def test_reconcile_empty_list_returns_zero(self, journal):
+        inserted = journal.reconcile([])
+        assert inserted == 0
+        assert len(journal.export_fills()) == 0
+
+    def test_open_trades_returns_only_unclosed(self, journal):
+        # Open a long, then close it
+        journal.record_fill(_make_fill(
+            side=OrderSide.BUY, symbol="BTCUSDT",
+            ts=datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC),
+        ))
+        journal.record_fill(_make_fill(
+            side=OrderSide.SELL, symbol="BTCUSDT",
+            ts=datetime(2024, 6, 2, 12, 0, 0, tzinfo=UTC),
+        ))
+        # Open a second position that is NOT closed
+        journal.record_fill(_make_fill(
+            side=OrderSide.BUY, symbol="ETHUSDT", strategy="eth_strat",
+            ts=datetime(2024, 6, 3, 12, 0, 0, tzinfo=UTC),
+        ))
+
+        open_df = journal.open_trades()
+        assert len(open_df) == 1
+        assert open_df.iloc[0]["symbol"] == "ETHUSDT"
