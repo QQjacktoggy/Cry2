@@ -19,6 +19,7 @@ from bot.core.clock import BaseClock, RealClock
 from bot.core.constants import EventType
 from bot.core.event_bus import EventBus
 from bot.core.events import FillEvent, OrderEvent, RejectEvent, SignalEvent
+from bot.risk.regime_detector import Regime, RegimeDetector
 
 logger = structlog.get_logger(__name__)
 
@@ -39,6 +40,18 @@ class RiskManager:
         drawdown_cooldown_bars: int = 48,
         max_consecutive_losses: int = 5,
         loss_cooldown_bars: int = 24,
+        # D2 Regime detection
+        regime_adx_period: int = 14,
+        regime_trending_threshold: float = 25.0,
+        regime_ranging_threshold: float = 20.0,
+        block_trend_in_ranging: bool = False,
+        # D3 Volatility-adaptive leverage
+        atr_adaptive_leverage: bool = False,
+        atr_window: int = 100,
+        atr_high_pct: float = 80.0,
+        atr_low_pct: float = 20.0,
+        atr_high_leverage: float = 1.0,
+        atr_low_leverage: float = 3.0,
         clock: BaseClock | None = None,
     ) -> None:
         self.event_bus = event_bus
@@ -73,6 +86,24 @@ class RiskManager:
         self._consecutive_losses: dict[str, int] = {}
         self._strategy_cooldown: dict[str, int] = {}
 
+        # D2 Regime detection
+        self.block_trend_in_ranging = block_trend_in_ranging
+        self._regime_detector = RegimeDetector(
+            period=regime_adx_period,
+            trending_threshold=regime_trending_threshold,
+            ranging_threshold=regime_ranging_threshold,
+        )
+
+        # D3 Volatility-adaptive leverage
+        self.atr_adaptive_leverage = atr_adaptive_leverage
+        self._atr_window = atr_window
+        self._atr_high_pct = atr_high_pct
+        self._atr_low_pct = atr_low_pct
+        self._atr_high_leverage = atr_high_leverage
+        self._atr_low_leverage = atr_low_leverage
+        self._atr_history: list[float] = []
+        self._effective_max_leverage: float = float(max_leverage)
+
         # Subscribe to events
         self.event_bus.subscribe(EventType.SIGNAL.value, self._on_signal)
         self.event_bus.subscribe(EventType.FILL.value, self._on_fill)
@@ -82,6 +113,53 @@ class RiskManager:
         self._equity = equity
         if equity > self._peak_equity:
             self._peak_equity = equity
+
+    def update_market_data(self, high: float, low: float, close: float, atr: float = 0.0) -> None:
+        """Feed latest bar data for regime detection and adaptive leverage.
+
+        Call this once per bar (e.g. in the on_market handler) before
+        check_signal().
+        """
+        # D2: update ADX-based regime
+        self._regime_detector.update(high, low, close)
+
+        # D3: update ATR history and recompute effective leverage
+        if self.atr_adaptive_leverage and atr > 0:
+            self._atr_history.append(atr)
+            if len(self._atr_history) > self._atr_window:
+                self._atr_history.pop(0)
+            if len(self._atr_history) >= 10:
+                sorted_atrs = sorted(self._atr_history)
+                n = len(sorted_atrs)
+                pct_rank = (
+                    sorted_atrs.index(
+                        min(sorted_atrs, key=lambda x: abs(x - atr))
+                    )
+                    / n
+                    * 100
+                )
+                if pct_rank >= self._atr_high_pct:
+                    self._effective_max_leverage = self._atr_high_leverage
+                    logger.debug("atr_high_vol_leverage",
+                                 pct_rank=round(pct_rank, 1),
+                                 leverage=self._atr_high_leverage)
+                elif pct_rank <= self._atr_low_pct:
+                    self._effective_max_leverage = self._atr_low_leverage
+                    logger.debug("atr_low_vol_leverage",
+                                 pct_rank=round(pct_rank, 1),
+                                 leverage=self._atr_low_leverage)
+                else:
+                    self._effective_max_leverage = float(self.max_leverage)
+
+    @property
+    def regime(self) -> Regime:
+        """Current market regime from ADX detector."""
+        return self._regime_detector.regime
+
+    @property
+    def effective_max_leverage(self) -> float:
+        """Current max leverage after ATR-adaptive adjustment."""
+        return self._effective_max_leverage
 
     def _check_daily_reset(self) -> None:
         """Reset daily counters at UTC midnight."""
@@ -116,6 +194,15 @@ class RiskManager:
         self._check_daily_reset()
         self._check_weekly_reset()
         self._equity = equity
+
+        # D2: block trend-following signals in ranging markets
+        if self.block_trend_in_ranging and self._regime_detector.regime == Regime.RANGING:
+            strat = getattr(signal, "strategy_name", "")
+            if any(k in strat for k in ("trend", "donchian", "breakout", "momentum")):
+                return False, (
+                    f"Regime is RANGING (ADX={self._regime_detector.adx:.1f}) "
+                    f"- trend signal blocked for {strat}"
+                )
 
         # Check portfolio drawdown halt
         if self._drawdown_halted:

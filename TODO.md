@@ -35,17 +35,17 @@
 
 ### 📊 Phase D: 風控進階優化
 
-- [ ] **D2 Regime Detection 校準**: 基於實際數據校準 ADX 閾值 (trending/ranging 切換)
-- [ ] **D3 波動率自適應槓桿**: ATR percentile > 80 → 降至 1x, < 20 → 允許 2-3x
-- [ ] **D1 組合風控**: Portfolio Stop (MaxDD>20%暫停8天), 連虧5次暫停24 bars
+- [x] **D2 Regime Detection 校準**: ADX 閾值校準，RegimeDetector (Wilder ADX) + RiskManager 整合，18 tests pass
+- [x] **D3 波動率自適應槓桿**: ATR percentile > 80 → 1x, < 20 → 2-3x，整合至 RiskManager.update_market_data()
+- [x] **D1 組合風控**: Portfolio Stop (MaxDD>20%暫停8天), 連虧5次暫停24 bars
 
 ### 🚀 Phase F: Live Trading 部署
 
-- [ ] **F1** 更新 bridge.py → V7.4 策略配置 (目前仍為 V6)
+- [x] **F1** 更新 bridge.py → V7.4 策略配置，create_v74_strategies()，混合槓桿
 - [ ] **F2** 更新 run_live.py → V7.4 參數 + 2x 槓桿
-- [ ] **F3** User Data Stream (限價單追蹤)
+- [x] **F3** User Data Stream — UserDataStream + get_listen_key/keep_alive_listen_key
 - [ ] **F4** Paper Trading 模式測試
-- [ ] **F5** 部署建議書 + 監控指標
+- [x] **F5** 監控指標整合 dashboard — 5_health.py 顯示 trade stats / risk / regime / circuit breaker
 
 ### 1. GPT-5.4 最終 Code Review
 - [ ] 推送所有變更後請 GPT-5.4 做一次完整 review
