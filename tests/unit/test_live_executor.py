@@ -163,3 +163,17 @@ class TestLimitOrderNoFill:
         executor.submit_order(order)
 
         assert len(fills) == 0
+
+
+def test_market_fill_publication_can_be_disabled(event_bus, mock_client):
+    executor = LiveExecutor(
+        event_bus=event_bus,
+        client=mock_client,
+        publish_market_fills=False,
+    )
+    fills: list[FillEvent] = []
+    event_bus.subscribe("FILL", fills.append)
+
+    executor.submit_order(_make_order())
+
+    assert fills == []

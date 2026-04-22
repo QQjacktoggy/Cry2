@@ -10,7 +10,7 @@ Multi-layer risk checks:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import structlog
@@ -103,6 +103,7 @@ class RiskManager:
         self._atr_low_leverage = atr_low_leverage
         self._atr_history: list[float] = []
         self._effective_max_leverage: float = float(max_leverage)
+        self._prev_close_for_atr: float | None = None
 
         # Subscribe to events
         self.event_bus.subscribe(EventType.SIGNAL.value, self._on_signal)
@@ -124,8 +125,9 @@ class RiskManager:
         self._regime_detector.update(high, low, close)
 
         # D3: update ATR history and recompute effective leverage
-        if self.atr_adaptive_leverage and atr > 0:
-            self._atr_history.append(atr)
+        atr_value = atr if atr > 0 else self._estimate_atr_input(high, low, close)
+        if self.atr_adaptive_leverage and atr_value > 0:
+            self._atr_history.append(atr_value)
             if len(self._atr_history) > self._atr_window:
                 self._atr_history.pop(0)
             if len(self._atr_history) >= 10:
@@ -133,7 +135,7 @@ class RiskManager:
                 n = len(sorted_atrs)
                 pct_rank = (
                     sorted_atrs.index(
-                        min(sorted_atrs, key=lambda x: abs(x - atr))
+                        min(sorted_atrs, key=lambda x: abs(x - atr_value))
                     )
                     / n
                     * 100
@@ -160,6 +162,11 @@ class RiskManager:
     def effective_max_leverage(self) -> float:
         """Current max leverage after ATR-adaptive adjustment."""
         return self._effective_max_leverage
+
+    @property
+    def adx(self) -> float:
+        """Current ADX value from the regime detector."""
+        return self._regime_detector.adx
 
     def _check_daily_reset(self) -> None:
         """Reset daily counters at UTC midnight."""
@@ -234,7 +241,7 @@ class RiskManager:
 
         # Check position value limit
         if signal.quantity > 0 and signal.price > 0:
-            notional = signal.quantity * signal.price
+            notional = self._effective_signal_quantity(signal) * signal.price
             max_notional = equity * (self.max_position_value_pct / 100.0)
             if notional > max_notional:
                 return False, (
@@ -272,7 +279,7 @@ class RiskManager:
             symbol=event.symbol,
             side=event.side,
             order_type=event.order_type,
-            quantity=event.quantity,
+            quantity=self._effective_signal_quantity(event),
             price=event.price,
             stop_price=event.stop_price,
             reduce_only=event.reduce_only,
@@ -389,4 +396,52 @@ class RiskManager:
             "equity": self._equity,
             "consecutive_losses": dict(self._consecutive_losses),
             "strategy_cooldowns": dict(self._strategy_cooldown),
+            "is_halted": self.is_halted,
         }
+
+    def get_regime_status(self) -> dict[str, Any]:
+        """Get regime detector and adaptive leverage status."""
+        status = self._regime_detector.get_status()
+        status["effective_leverage"] = round(self._effective_max_leverage, 2)
+        return status
+
+    def _estimate_atr_input(self, high: float, low: float, close: float) -> float:
+        """Estimate ATR input from OHLC when no external ATR is supplied."""
+        prev_close = self._prev_close_for_atr
+        self._prev_close_for_atr = close
+        if prev_close is None:
+            return max(high - low, 0.0)
+        return max(high - low, abs(high - prev_close), abs(low - prev_close))
+
+    def _effective_signal_quantity(self, signal: SignalEvent) -> float:
+        """Apply the current leverage cap to a signal quantity."""
+        if signal.reduce_only:
+            return signal.quantity
+
+        requested = signal.metadata.get("requested_leverage")
+        if requested is None:
+            return signal.quantity
+
+        try:
+            requested_leverage = float(requested)
+        except (TypeError, ValueError):
+            return signal.quantity
+
+        if requested_leverage <= 0:
+            return signal.quantity
+
+        allowed_leverage = min(requested_leverage, self._effective_max_leverage)
+        if allowed_leverage >= requested_leverage:
+            return signal.quantity
+
+        adjusted_quantity = signal.quantity * allowed_leverage / requested_leverage
+        logger.info(
+            "signal_quantity_scaled_for_leverage",
+            strategy=signal.strategy_name,
+            symbol=signal.symbol,
+            requested_leverage=requested_leverage,
+            allowed_leverage=allowed_leverage,
+            original_quantity=signal.quantity,
+            adjusted_quantity=adjusted_quantity,
+        )
+        return adjusted_quantity

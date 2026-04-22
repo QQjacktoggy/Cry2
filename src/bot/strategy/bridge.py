@@ -27,11 +27,10 @@ from __future__ import annotations
 from collections import deque
 from typing import Any
 
-import numpy as np
 import pandas as pd
 import structlog
 
-from bot.core.constants import OrderSide, PositionSide
+from bot.core.constants import OrderSide
 from bot.core.events import MarketEvent, SignalEvent
 from bot.strategy.base import BaseStrategy
 
@@ -86,7 +85,7 @@ class VBTBridgeStrategy(BaseStrategy):
         # VBT strategy instance (lazy init)
         self._vbt_strategy = None
 
-    def _init_vbt_strategy(self):
+    def _init_vbt_strategy(self) -> None:
         """Lazily initialize the VBT strategy."""
         if self._vbt_strategy is None:
             cls = VBT_STRATEGY_MAP.get(self.vbt_strategy_name)
@@ -153,6 +152,7 @@ class VBTBridgeStrategy(BaseStrategy):
 
         signals: list[SignalEvent] = []
         price = event.close
+        signal_metadata = {"requested_leverage": float(self.leverage)}
 
         # Calculate position size
         quantity = self._allocation_usd * self.leverage / price
@@ -165,7 +165,9 @@ class VBTBridgeStrategy(BaseStrategy):
                     side=OrderSide.BUY,
                     quantity=quantity,
                     timestamp=event.timestamp,
+                    price=price,
                     reason=f"bridge_long_entry_{self.vbt_strategy_name}",
+                    metadata=signal_metadata,
                 ))
                 self._in_position = "long"
                 logger.info("bridge_long_entry",
@@ -178,7 +180,9 @@ class VBTBridgeStrategy(BaseStrategy):
                     side=OrderSide.SELL,
                     quantity=quantity,
                     timestamp=event.timestamp,
+                    price=price,
                     reason=f"bridge_short_entry_{self.vbt_strategy_name}",
+                    metadata=signal_metadata,
                 ))
                 self._in_position = "short"
                 logger.info("bridge_short_entry",
@@ -195,6 +199,7 @@ class VBTBridgeStrategy(BaseStrategy):
                     side=OrderSide.SELL,
                     quantity=close_qty,
                     timestamp=event.timestamp,
+                    price=price,
                     reduce_only=True,
                     reason=f"bridge_long_exit_{self.vbt_strategy_name}",
                 ))
@@ -208,40 +213,44 @@ class VBTBridgeStrategy(BaseStrategy):
                         side=OrderSide.SELL,
                         quantity=quantity,
                         timestamp=event.timestamp,
+                        price=price,
                         reason=f"bridge_short_entry_{self.vbt_strategy_name}",
+                        metadata=signal_metadata,
                     ))
                     self._in_position = "short"
                 else:
                     self._in_position = "flat"
 
-        elif self._in_position == "short":
-            if curr_short_exit or curr_long_entry:
-                # Close short
-                pos = self._get_position(self.symbol)
-                close_qty = pos.quantity if pos.quantity > 0 else quantity
+        elif self._in_position == "short" and (curr_short_exit or curr_long_entry):
+            # Close short
+            pos = self._get_position(self.symbol)
+            close_qty = pos.quantity if pos.quantity > 0 else quantity
+            signals.append(self._create_signal(
+                symbol=self.symbol,
+                side=OrderSide.BUY,
+                quantity=close_qty,
+                timestamp=event.timestamp,
+                price=price,
+                reduce_only=True,
+                reason=f"bridge_short_exit_{self.vbt_strategy_name}",
+            ))
+            logger.info("bridge_short_exit",
+                        strategy=self.vbt_strategy_name,
+                        symbol=self.symbol, price=price)
+
+            if curr_long_entry:
                 signals.append(self._create_signal(
                     symbol=self.symbol,
                     side=OrderSide.BUY,
-                    quantity=close_qty,
+                    quantity=quantity,
                     timestamp=event.timestamp,
-                    reduce_only=True,
-                    reason=f"bridge_short_exit_{self.vbt_strategy_name}",
+                    price=price,
+                    reason=f"bridge_long_entry_{self.vbt_strategy_name}",
+                    metadata=signal_metadata,
                 ))
-                logger.info("bridge_short_exit",
-                            strategy=self.vbt_strategy_name,
-                            symbol=self.symbol, price=price)
-
-                if curr_long_entry:
-                    signals.append(self._create_signal(
-                        symbol=self.symbol,
-                        side=OrderSide.BUY,
-                        quantity=quantity,
-                        timestamp=event.timestamp,
-                        reason=f"bridge_long_entry_{self.vbt_strategy_name}",
-                    ))
-                    self._in_position = "long"
-                else:
-                    self._in_position = "flat"
+                self._in_position = "long"
+            else:
+                self._in_position = "flat"
 
         return signals
 
@@ -265,7 +274,7 @@ def create_bridged_strategy(
 
 def create_v6_strategies(initial_capital: float = 150.0) -> list[VBTBridgeStrategy]:
     """Create all V6 portfolio strategies as bridged live strategies (legacy)."""
-    V6_CONFIG = [
+    v6_config = [
         ("momentum_ranking", "ETHUSDT", "1d", 0.14, {"roc_period": 60, "lookback": 180, "upper_threshold": 80, "lower_threshold": 40, "leverage": 1.5}),
         ("momentum_ranking", "BNBUSDT", "1d", 0.08, {"roc_period": 60, "lookback": 180, "upper_threshold": 80, "lower_threshold": 40, "leverage": 1.5}),
         ("trend_donchian_mtf", "BTCUSDT", "4h", 0.15, {"entry_period": 15, "exit_period": 10, "adx_threshold": 20, "htf_period": 200, "leverage": 2}),
@@ -281,7 +290,7 @@ def create_v6_strategies(initial_capital: float = 150.0) -> list[VBTBridgeStrate
     ]
 
     strategies = []
-    for strat_name, symbol, tf, alloc, params in V6_CONFIG:
+    for strat_name, symbol, tf, alloc, params in v6_config:
         alloc_usd = initial_capital * alloc
         strategy = create_bridged_strategy(
             strategy_name=strat_name,
@@ -310,7 +319,7 @@ def create_v74_strategies(initial_capital: float = 150.0) -> list[VBTBridgeStrat
 
     Expected: Sharpe ~2.0, MaxDD < -12%, more conservative equity curve.
     """
-    V74_CONFIG = [
+    v74_config = [
         # ⭐ ROBUST TIER — trend_donchian: stable, keep 2x
         ("trend_donchian_mtf",      "BTCUSDT", "4h", 0.16, {"entry_period": 10, "exit_period": 10, "adx_threshold": 15, "htf_period": 150, "leverage": 2}),
         ("trend_donchian_adx_slope","ETHUSDT", "4h", 0.10, {"entry_period": 20, "exit_period": 5,  "adx_slope_bars": 5, "adx_slope_min": 0.2, "leverage": 2}),
@@ -337,7 +346,7 @@ def create_v74_strategies(initial_capital: float = 150.0) -> list[VBTBridgeStrat
     ]
 
     strategies = []
-    for strat_name, symbol, tf, alloc, params in V74_CONFIG:
+    for strat_name, symbol, tf, alloc, params in v74_config:
         alloc_usd = initial_capital * alloc
         strategy = create_bridged_strategy(
             strategy_name=strat_name,
@@ -363,7 +372,7 @@ def create_v72_strategies(initial_capital: float = 150.0) -> list[VBTBridgeStrat
     16 strategy positions across 5 coins (BTC, ETH, BNB, XRP, SOL).
     Sharpe 2.355, MaxDD -10.6%, Calmar 4.27.
     """
-    V72_CONFIG = [
+    v72_config = [
         # ⭐ ROBUST TIER — 40% (trend_donchian family; viable% mixed 13.9%~75%, low-viable capped)
         ("trend_donchian_mtf", "BTCUSDT", "4h", 0.16, {"entry_period": 10, "exit_period": 10, "adx_threshold": 15, "htf_period": 150, "leverage": 2}),
         ("trend_donchian_adx_slope", "ETHUSDT", "4h", 0.10, {"entry_period": 20, "exit_period": 5, "adx_slope_bars": 5, "adx_slope_min": 0.2, "leverage": 2}),
@@ -386,7 +395,7 @@ def create_v72_strategies(initial_capital: float = 150.0) -> list[VBTBridgeStrat
     ]
 
     strategies = []
-    for strat_name, symbol, tf, alloc, params in V72_CONFIG:
+    for strat_name, symbol, tf, alloc, params in v72_config:
         alloc_usd = initial_capital * alloc
         strategy = create_bridged_strategy(
             strategy_name=strat_name,

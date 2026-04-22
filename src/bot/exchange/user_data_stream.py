@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
+from contextlib import suppress
 from datetime import UTC, datetime
-from typing import Any, Callable
+from typing import Any
 
 import structlog
 
-from bot.core.constants import EventType, OrderSide
+from bot.core.constants import OrderSide
 from bot.core.event_bus import EventBus
 from bot.core.events import FillEvent
 from bot.exchange.binance_rest import BinanceRestClient
@@ -50,12 +52,14 @@ class UserDataStream:
         ws_url: str = "wss://fstream.binance.com",
         known_strategies: list[str] | None = None,
         on_fill: Callable[[FillEvent], None] | None = None,
+        on_status_change: Callable[[bool], None] | None = None,
     ) -> None:
         self.event_bus = event_bus
         self._rest = rest_client
         self._ws_url = ws_url
         self._known_strategies = known_strategies or []
         self._on_fill = on_fill
+        self._on_status_change = on_status_change
 
         self._listen_key: str = ""
         self._ws: Any = None
@@ -68,6 +72,11 @@ class UserDataStream:
         """Start the user data stream (runs until stop() is called)."""
         self._running = True
         self._listen_key = self._rest.get_listen_key()
+        if not self._listen_key:
+            logger.error("user_data_stream_no_listen_key")
+            self._running = False
+            self._notify_status_change(False)
+            return
         logger.info("user_data_stream_started", listen_key=self._listen_key[:8] + "...")
 
         await asyncio.gather(
@@ -79,10 +88,9 @@ class UserDataStream:
         """Stop the stream gracefully."""
         self._running = False
         if self._ws:
-            try:
+            with suppress(Exception):
                 await self._ws.close()
-            except Exception:
-                pass
+        self._notify_status_change(False)
         logger.info("user_data_stream_stopped")
 
     # ── Internal WebSocket loop ─────────────────────────────────────────────
@@ -101,6 +109,7 @@ class UserDataStream:
                 async with websockets.connect(url, ping_interval=20) as ws:
                     self._ws = ws
                     self._reconnect_attempts = 0
+                    self._notify_status_change(True)
                     logger.info("user_data_stream_connected", url=url[:60])
 
                     async for raw in ws:
@@ -113,11 +122,13 @@ class UserDataStream:
                             logger.warning("user_data_msg_parse_error", error=str(exc))
 
             except Exception as exc:
+                self._notify_status_change(False)
                 if not self._running:
                     break
                 self._reconnect_attempts += 1
                 if self._reconnect_attempts > _MAX_RECONNECT_ATTEMPTS:
                     logger.error("user_data_stream_max_reconnect_exceeded")
+                    self._running = False
                     break
                 delay = min(
                     _RECONNECT_BASE_DELAY * (2 ** (self._reconnect_attempts - 1)),
@@ -154,6 +165,10 @@ class UserDataStream:
                     logger.info("listen_key_refreshed_after_keepalive_failure")
                 except Exception as ke:
                     logger.error("listen_key_refresh_failed", error=str(ke))
+
+    def _notify_status_change(self, healthy: bool) -> None:
+        if self._on_status_change is not None:
+            self._on_status_change(healthy)
 
     # ── Message parsing ─────────────────────────────────────────────────────
 

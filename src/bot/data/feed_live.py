@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, Callable
+from typing import Any
 
 import structlog
 
@@ -46,6 +47,7 @@ class LiveFeed(DataFeed):
         self._rest_client = rest_client
         self._funding_poll_interval = funding_poll_interval
         self.on_reconnect: Callable[[], None] | None = None
+        self.on_status_change: Callable[[bool], None] | None = None
         self.periodic_sync_fn: Callable[[], None] | None = None
         self.periodic_sync_interval: int = 3600
 
@@ -59,7 +61,6 @@ class LiveFeed(DataFeed):
 
     def _parse_kline_message(self, data: dict[str, Any]) -> MarketEvent | None:
         """Parse WebSocket kline message into MarketEvent."""
-        stream = data.get("stream", "")
         kline_data = data.get("data", {}).get("k", {})
 
         if not kline_data:
@@ -108,6 +109,7 @@ class LiveFeed(DataFeed):
                     self._ws = ws
                     self._reconnect_attempts = 0
                     logger.info("ws_connected", symbols=self.symbols)
+                    self._notify_status_change(True)
                     if is_reconnect and self.on_reconnect is not None:
                         await asyncio.get_event_loop().run_in_executor(
                             None, self.on_reconnect
@@ -125,6 +127,7 @@ class LiveFeed(DataFeed):
                             logger.warning("ws_invalid_json")
 
             except Exception as e:
+                self._notify_status_change(False)
                 self._reconnect_attempts += 1
                 if self._reconnect_attempts > self._max_reconnect_attempts:
                     logger.error("ws_max_reconnect_exceeded")
@@ -198,6 +201,7 @@ class LiveFeed(DataFeed):
     def stop(self) -> None:
         """Stop the live feed."""
         self._running = False
+        self._notify_status_change(False)
         logger.info("live_feed_stopped")
 
     def has_next(self) -> bool:
@@ -207,3 +211,7 @@ class LiveFeed(DataFeed):
     def next(self) -> None:
         """Live feed uses push model via event bus."""
         return None
+
+    def _notify_status_change(self, connected: bool) -> None:
+        if self.on_status_change is not None:
+            self.on_status_change(connected)
