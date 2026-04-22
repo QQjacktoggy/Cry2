@@ -17,6 +17,7 @@ import sys
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -177,9 +178,9 @@ async def main() -> None:
     )
 
     health = HealthStateWriter("./data/health.json")
-    state: dict[str, object] = {"circuit_breaker_symbol": ""}
+    state: dict[str, Any] = {"circuit_breaker_symbol": ""}
 
-    def _sync_health(**updates: object) -> None:
+    def _sync_health(**updates: Any) -> None:
         state.update(updates)
         health.update(
             ws_connected=bool(state.get("ws_connected", False)),
