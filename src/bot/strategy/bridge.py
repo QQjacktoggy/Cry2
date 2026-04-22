@@ -39,7 +39,7 @@ logger = structlog.get_logger(__name__)
 V74_CONFIG = [
     # ⭐ ROBUST TIER — trend_donchian: stable, keep 2x
     ("trend_donchian_mtf", "BTCUSDT", "4h", 0.16, {"entry_period": 10, "exit_period": 10, "adx_threshold": 15, "htf_period": 150, "leverage": 2}),
-    ("trend_donchian_adx_slope", "ETHUSDT", "4h", 0.10, {"entry_period": 20, "exit_period": 5, "adx_slope_bars": 5, "adx_slope_min": 0.2, "leverage": 2}),
+    ("trend_donchian_adx_slope", "ETHUSDT", "4h", 0.10, {"entry_period": 15, "exit_period": 5, "adx_threshold": 20, "adx_slope_bars": 3, "leverage": 1}),
     ("trend_donchian_adx_slope", "BTCUSDT", "4h", 0.08, {"entry_period": 30, "exit_period": 7, "adx_slope_bars": 3, "adx_slope_min": 0.2, "leverage": 2}),
     ("trend_donchian_mtf", "XRPUSDT", "4h", 0.04, {"entry_period": 10, "exit_period": 5, "adx_threshold": 15, "htf_period": 100, "leverage": 2}),
     ("trend_donchian_mtf", "BNBUSDT", "4h", 0.02, {"entry_period": 10, "exit_period": 7, "adx_threshold": 15, "htf_period": 150, "leverage": 2}),
@@ -55,7 +55,7 @@ V74_CONFIG = [
     ("tail_risk_hedge", "BTCUSDT", "1d", 0.03, {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 1}),
     # ⚠️ FRAGILE TIER — keep weights but cap leverage at 1x
     ("grid_trend_bias", "ETHUSDT", "4h", 0.09, {"bb_period": 20, "bb_std": 2.0, "ema_period": 100, "leverage": 1}),
-    ("breakout_squeeze", "BTCUSDT", "4h", 0.03, {"bb_period": 30, "bb_std": 3.0, "kc_ema_period": 10, "kc_atr_period": 7, "kc_mult": 2.0, "leverage": 1}),
+    ("breakout_squeeze", "BTCUSDT", "4h", 0.03, {"bb_period": 30, "bb_std": 2.5, "kc_ema": 15, "kc_atr": 7, "kc_mult": 2.0, "leverage": 1}),
 ]
 
 # Import backtest strategy registry
@@ -302,12 +302,12 @@ def create_v6_strategies(initial_capital: float = 150.0) -> list[VBTBridgeStrate
         ("trend_donchian_mtf", "BTCUSDT", "4h", 0.15, {"entry_period": 15, "exit_period": 10, "adx_threshold": 20, "htf_period": 200, "leverage": 2}),
         ("trend_donchian_adx_slope", "BTCUSDT", "4h", 0.05, {"entry_period": 20, "exit_period": 10, "adx_slope_bars": 5, "adx_slope_min": 0.3, "leverage": 2}),
         ("grid_trend_bias", "ETHUSDT", "4h", 0.18, {"bb_period": 20, "bb_std": 2.0, "ema_period": 50, "leverage": 2}),
-        ("breakout_squeeze", "BTCUSDT", "4h", 0.06, {"bb_period": 30, "bb_std": 2.5, "kc_ema_period": 15, "kc_atr_period": 7, "kc_mult": 2.0, "leverage": 2}),
+        ("breakout_squeeze", "BTCUSDT", "4h", 0.06, {"bb_period": 30, "bb_std": 2.5, "kc_ema": 15, "kc_atr": 7, "kc_mult": 2.0, "leverage": 2}),
         ("tail_risk_hedge", "BTCUSDT", "1d", 0.07, {"consec_up_threshold": 14, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 1}),
         ("tail_risk_hedge", "BNBUSDT", "1d", 0.05, {"consec_up_threshold": 14, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 1}),
         ("dual_channel_breakout", "ETHUSDT", "4h", 0.10, {"dc_period": 30, "kc_ema": 15, "kc_atr": 14, "kc_mult": 2.0, "adx_period": 14, "adx_threshold": 20, "leverage": 2}),
         ("grid_trend_bias", "XRPUSDT", "4h", 0.05, {"bb_period": 20, "bb_std": 2.0, "ema_period": 50, "leverage": 2}),
-        ("breakout_squeeze", "SOLUSDT", "4h", 0.04, {"bb_period": 30, "bb_std": 2.0, "kc_ema_period": 20, "kc_atr_period": 10, "kc_mult": 1.5, "leverage": 1}),
+        ("breakout_squeeze", "SOLUSDT", "4h", 0.04, {"bb_period": 30, "bb_std": 2.0, "kc_ema": 20, "kc_atr": 10, "kc_mult": 1.5, "leverage": 1}),
         ("grid_trend_bias", "SOLUSDT", "4h", 0.03, {"bb_period": 15, "bb_std": 2.0, "ema_period": 100, "leverage": 1}),
     ]
 
@@ -387,7 +387,7 @@ def create_v72_strategies(initial_capital: float = 150.0) -> list[VBTBridgeStrat
         ("tail_risk_hedge", "BTCUSDT", "1d", 0.03, {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 1}),
         # ⚠️ FRAGILE TIER — 12% (very low viable% OR weak stat confidence; capped ≤9%)
         ("grid_trend_bias", "ETHUSDT", "4h", 0.09, {"bb_period": 20, "bb_std": 2.0, "ema_period": 100, "leverage": 2}),
-        ("breakout_squeeze", "BTCUSDT", "4h", 0.03, {"bb_period": 30, "bb_std": 3.0, "kc_ema_period": 10, "kc_atr_period": 7, "kc_mult": 2.0, "leverage": 2}),
+        ("breakout_squeeze", "BTCUSDT", "4h", 0.03, {"bb_period": 30, "bb_std": 3.0, "kc_ema": 10, "kc_atr": 7, "kc_mult": 2.0, "leverage": 2}),
     ]
 
     strategies = []

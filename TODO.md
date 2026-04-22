@@ -49,51 +49,35 @@
 
 ### 1. V7.4 上 GCP VM 跑 Binance Testnet（最高優先）
 
-依賴順序：先把 deploy / rollback 流程定義好（pre-VM gate），再做 runtime 接線與風控（第一批實作），最後接 testnet 時一併把資料回流補起來。
+主軸只分 3 條：**(A) 安全部署 / rollback** → **(B) runtime hardening** → **(C) testnet 資料回流**。  
+`### 2` 是這 3 條主軸的實作拆解，不另開新範圍。
 
-- **策略更新 / 部署 / 回滾流程（上 VM 前就定義好）**
-  - GCP VM 上**不直接手改策略或 YAML**；只允許 versioned image + versioned config bundle 部署
+### 2. GCP VM Testnet 實作拆解（對應上方主軸）
+
+- **A. 策略更新 / 部署 / 回滾流程**
+  - GCP VM 上**不直接手改策略、YAML 或 `git pull` 應用程式碼**；只允許 versioned image + versioned config bundle 部署
   - 更新流程固定化：local dry-run → repo tests → backtest / regression → GCP testnet deploy → smoke / health gate → 觀察期 → 匯出 review bundle → 批准後保留或 rollback
-  - deploy 前自動備份當前 journal / config / health，保留上一版 image 與 config，確保一鍵 rollback
+  - deploy 前自動備份當前 journal / config / health / logs，保留上一版 image 與 config，確保一鍵 rollback
   - 若策略 schema / journal schema 有異動，必須先定義 migration / backward compatibility；不接受直接把 VM 上的既有資料打壞
 
-- **Runtime 接線與風險保護（第一批就做）**
+- **B. Runtime 接線與風險保護**
   - 啟動前 preflight + 單實例保護：檢查 secrets、journal / health path 可寫、exchange connectivity、testnet 環境一致性，並補 single-instance guard，避免 deploy / restart 時同時跑兩個 bot
   - Secret Manager 真正接線：讓 `run_paper.py` / `run_live.py` 在 GCP 環境下真的透過 `bot.cloud.secret_manager` 讀取 secrets，不要只停在 `GOOGLE_CLOUD_PROJECT` 偵測後 early return
   - MaxDD / 風控處置語義補強：把 `config/risk_limits.yaml` 的 `max_drawdown_pct` / `drawdown_cooldown_bars` 真正傳進 `RiskManager`，並定義清楚「超過 MaxDD 後」的 runtime 行為（禁止新開倉、允許 reduce-only / exit、是否加 emergency flatten）
   - 機器可讀的 health probe / endpoint：補給 systemd / GCP uptime check / automation 用的 machine-readable health check（HTTP `/healthz` 或 CLI probe），至少涵蓋 market WS、user data stream、last reconcile、kill switch、circuit breaker、run id / uptime
   - Cloud Logging / Monitoring 真正接線：把既有 `bot.cloud.cloud_logging` / `bot.cloud.metrics` 接進 `run_paper.py` / `run_live.py`，上報 startup / shutdown、WS disconnect、reconcile、drawdown halt、kill switch、daily PnL
 
-- **Testnet 資料回流閉環（接入 testnet 同批補上）**
-  - 對 `TradeJournal` / health snapshot / 結構化 logs 補齊 `run_id`、`config_fingerprint`、`git_sha 或 image_tag`、`environment`、`version`
+- **C. Testnet 資料回流閉環**
+  - 對 `TradeJournal` / health snapshot / 結構化 logs 補齊 `run_id`、`deployment_id`、`config_fingerprint`、`git_sha 或 image_tag`、`environment`、`version`
   - 除 fills / paired trades 外，還要持久化：`signal_generated`、`signal_rejected`、reconcile delta、API latency、WS disconnect / reconnect、daily equity snapshot、position snapshot、risk halt / kill switch 事件
   - 定義一個 review bundle：至少包含 `paper_trades.db`、health snapshot、structured logs、deploy metadata、config snapshot、account snapshot，固定回傳到 GCS 或可拉回本機分析
   - 補一條 paper review pipeline（腳本或報表）：輸出 per-strategy PnL、rolling Sharpe、勝率、slippage / fees、reject reasons、reconcile anomalies、runtime incidents，讓 testnet 資料能直接餵回優化流程
 
-### 2. GCP VM 上線前 APP 補強（必補，延續）
-
-- **Secret Manager 真正接線**
-  - 讓 `run_live.py` / `run_paper.py` 在 GCP 環境下真的透過 `bot.cloud.secret_manager` 讀取 secrets
-  - 不要只停在 `GOOGLE_CLOUD_PROJECT` 偵測後 early return
-  - 明確定義 secret name ↔ env key 的對應與 fallback 行為
-
-- **MaxDD / 風控處置語義補強**
-  - 把 `config/risk_limits.yaml` 的 `max_drawdown_pct` / `drawdown_cooldown_bars` 真正傳進 live / paper `RiskManager`
-  - 定義清楚「超過 MaxDD 後」的 runtime 行為：禁止新開倉、允許 reduce-only / exit
-  - 決定是否需要再加一層更高門檻的 emergency flatten
-
-- **機器可讀的 health probe / endpoint**
-  - 補一個給 systemd / GCP uptime check / automation 用的 machine-readable health check（HTTP `/healthz` 或 CLI probe）
-  - 至少涵蓋：market WS、user data stream、last reconcile、kill switch、circuit breaker、run id / uptime
-
-- **Cloud Logging / Monitoring 真正接線**
-  - 把既有 `bot.cloud.cloud_logging` / `bot.cloud.metrics` 接進 `run_live.py` / `run_paper.py`
-  - 上報關鍵事件：startup / shutdown、WS disconnect、reconcile、drawdown halt、kill switch、daily PnL
-
-- **啟動前 preflight + 單實例保護**
-  - 啟動前檢查：secrets、journal / health path 可寫、exchange connectivity、live vs paper 環境一致性
-  - 補 single-instance guard，避免 deploy / restart 時同時跑兩個 live bot
-  - 補 restart / resume 摘要，讓 VM 重啟後可快速確認當前狀態
+- **D. Testnet ready 驗收 gate**
+  - 連跑固定觀察期且無雙實例 / 無資料毀損
+  - review bundle 可穩定回拉並成功產出 analyzer 報表
+  - reconcile anomaly、runtime incident、signal reject rate 都在可接受範圍
+  - 至少完成一次 rollback drill，確認能回到上一版 image + config
 
 ### 3. GCP VM 上線前 APP 補強（加分）
 

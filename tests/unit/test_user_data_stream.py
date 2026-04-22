@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
+from contextlib import suppress
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -82,3 +84,51 @@ async def test_stop_marks_stream_unhealthy() -> None:
     await stream.stop()
 
     assert statuses[-1] is False
+
+
+@pytest.mark.asyncio
+async def test_wait_until_healthy_returns_false_when_start_stops_immediately() -> None:
+    event_bus = EventBus()
+    statuses: list[bool] = []
+    rest_client = MagicMock()
+    rest_client.get_listen_key.return_value = ""
+    stream = UserDataStream(
+        event_bus=event_bus,
+        rest_client=rest_client,
+        on_status_change=statuses.append,
+    )
+
+    task = asyncio.create_task(stream.start())
+    ready = await stream.wait_until_healthy(timeout=0.2)
+    await task
+
+    assert ready is False
+    assert statuses[-1] is False
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_keepalive_promptly() -> None:
+    event_bus = EventBus()
+    rest_client = MagicMock()
+    rest_client.get_listen_key.return_value = "listen-key"
+    stream = UserDataStream(event_bus=event_bus, rest_client=rest_client)
+
+    async def _idle_ws() -> None:
+        while stream._running:
+            await asyncio.sleep(3600)
+
+    async def _idle_keepalive() -> None:
+        while stream._running:
+            await asyncio.sleep(1800)
+
+    stream._run_ws = _idle_ws  # type: ignore[method-assign]
+    stream._keepalive_loop = _idle_keepalive  # type: ignore[method-assign]
+
+    task = asyncio.create_task(stream.start())
+    await asyncio.sleep(0)
+
+    await stream.stop()
+    with suppress(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=0.5)
+
+    assert task.done()

@@ -32,6 +32,19 @@ def _redact_sensitive(
     return event_dict
 
 
+def _forward_to_cloud_logging(
+    _logger: Any, _method: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
+    """Mirror structured logs to GCP when the structured sink is enabled."""
+    try:
+        from bot.cloud.cloud_logging import emit_structured_log
+
+        emit_structured_log(event_dict)
+    except Exception:
+        pass
+    return event_dict
+
+
 def setup_logging(
     level: str = "INFO",
     log_dir: str | None = None,
@@ -46,6 +59,7 @@ def setup_logging(
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
         _redact_sensitive,
+        _forward_to_cloud_logging,
     ]
 
     if json_format:

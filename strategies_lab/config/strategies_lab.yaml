@@ -1,0 +1,141 @@
+# =============================================
+# strategies_lab — 獨立配置（不覆蓋主線 strategies.yaml）
+#
+# 使用方式：
+#   載入時顯式呼叫 `register_lab_strategies()`，並把此檔案的
+#   `strategies` 節點合併到 main config。主線的 strategies.yaml 永遠不會被修改。
+# =============================================
+
+strategies:
+
+  # ---------------------------------------------
+  # 策略 #1 — Perp-Spot Basis Arbitrage
+  # 預期 Sharpe 4-8（歷史文獻範圍）、市場中性
+  # 依賴 spot 連線（未實作），暫時建議 disabled
+  # ---------------------------------------------
+  lab_perp_spot_basis:
+    enabled: false   # 需補 spot market 連線後再啟用
+    allocation: 0.12
+    symbols: [BTCUSDT, ETHUSDT]
+    timeframe: 4h
+    entry_threshold_annual: 15.0   # perp+funding 年化合計 > 15% 進場
+    exit_threshold_annual: 3.0
+    max_hold_days: 7
+    max_basis_stop_annual: 60.0    # basis 爆炸停損
+    perp_leverage: 2
+    # TODO: spot_borrow_enabled / spot_account_id 等待 spot 連線層實作
+
+  # ---------------------------------------------
+  # 策略 #3 — Statistical Pairs Trading (Kalman)
+  # 預期 Sharpe 1.8-3（穩定）、配對 ETH/BTC
+  # 不需新資料源，可立即回測
+  # ---------------------------------------------
+  lab_stat_arb_pairs:
+    enabled: true
+    allocation: 0.08
+    symbols: [ETHUSDT, BTCUSDT]
+    timeframe: 4h
+    symbol_a: ETHUSDT
+    symbol_b: BTCUSDT
+    entry_z: 2.0
+    exit_z: 0.5
+    stop_z: 4.0
+    spread_window: 120
+    kalman_decay: 0.995
+    leverage: 1
+    # 建議回測 2022-01-01 以後，cointegration 在早期不穩定
+
+  # 第二組候選配對（預設關閉）
+  lab_stat_arb_pairs_bnb_btc:
+    enabled: false
+    allocation: 0.04
+    symbols: [BNBUSDT, BTCUSDT]
+    timeframe: 4h
+    symbol_a: BNBUSDT
+    symbol_b: BTCUSDT
+    entry_z: 2.2
+    exit_z: 0.6
+    stop_z: 4.5
+    spread_window: 180
+    kalman_decay: 0.99
+    leverage: 1
+
+  # ---------------------------------------------
+  # 策略 #2 — Cross-Exchange Funding Delta
+  # 預期 Sharpe 3-5，市場中性，需 Binance + Bybit/OKX 多所連線
+  # 依賴多所連線層（未實作），暫時建議 disabled
+  # ---------------------------------------------
+  lab_cross_exchange_funding:
+    enabled: false   # 需補 multi-exchange connectivity 後再啟用
+    allocation: 0.08
+    symbols: [ETHUSDT, BTCUSDT, SOLUSDT]
+    timeframe: 4h
+    min_delta_annual: 10.0   # 跨所 funding 差 > 10% 年化進場
+    exit_delta_annual: 3.0
+    max_hold_hours: 48
+    home_venue: binance
+    remote_venues: [bybit, okx]
+    leverage: 1
+
+  # ---------------------------------------------
+  # 策略 #5 — BTC Dominance Rotation
+  # 預期 Sharpe 2-4（週期性），需接市值資料（CoinGecko/DefiLlama）
+  # 依賴市值資料源（未實作），暫時建議 disabled
+  # ---------------------------------------------
+  lab_btc_dominance_rotation:
+    enabled: false   # 需補 market-cap data client 後再啟用
+    allocation: 0.04
+    alt_basket: [ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT]
+    symbols: [ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT]
+    timeframe: 1d
+    btc_d_ma_period: 30
+    btc_d_down_pct: 0.05
+    btc_d_up_pct: 0.05
+    per_alt_alloc: 0.03
+    defensive_short: false
+    leverage: 1
+
+  # ---------------------------------------------
+  # 策略 #4 — Liquidation Cascade Hunter
+  # 預期 Sharpe 1.5-3，反向抄底，小配置
+  # 骨架只用 bar-level proxy，production 需接 OI / LS-ratio API
+  # ---------------------------------------------
+  lab_liquidation_hunter:
+    enabled: true
+    allocation: 0.03
+    symbols: [BTCUSDT, ETHUSDT, SOLUSDT]
+    timeframe: 15m
+    bar_range_pct_threshold: 0.03
+    volume_spike_mult: 2.0
+    vol_lookback: 20
+    consecutive_bars: 2
+    exit_bars: 4
+    stop_atr_mult: 1.5
+    atr_period: 14
+    leverage: 2
+    regime_filter: [volatile]
+
+
+# =============================================
+# Lab 資金分配建議（假設主線 V7.2 保留 77%）
+# =============================================
+capital_allocation_lab:
+  lab_perp_spot_basis:          0.12   # 暫不啟用（需 spot 連線）
+  lab_cross_exchange_funding:   0.08   # 暫不啟用（需多所連線）
+  lab_stat_arb_pairs:           0.08
+  lab_btc_dominance_rotation:   0.04   # 暫不啟用（需市值資料）
+  lab_liquidation_hunter:       0.03
+  # 合計 35%，與主線 65% 相加為 100%
+  # （目前僅 stat_arb 與 liquidation_hunter 預設啟用 → 11%）
+
+# =============================================
+# Lab 專用風控閾值（比主線嚴格）
+# =============================================
+lab_risk_limits:
+  daily_loss_pct: 1.5        # 主線 3% → Lab 1.5%
+  weekly_loss_pct: 4.0       # 主線 8% → Lab 4%
+  max_leverage_default: 2
+  max_leverage_hard: 3       # 主線 5 → Lab 3，風險更謹慎
+  single_trade_risk_pct: 0.5 # 主線 1% → Lab 0.5%
+  sharpe_floor_30d: 0.5      # 30 天 Sharpe < 0.5 自動停用
+  max_drawdown_pct: 5.0      # 單策略 MaxDD > 5% 停用

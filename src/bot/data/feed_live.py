@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
 
@@ -50,6 +51,7 @@ class LiveFeed(DataFeed):
         self.on_status_change: Callable[[bool], None] | None = None
         self.periodic_sync_fn: Callable[[], None] | None = None
         self.periodic_sync_interval: int = 3600
+        self._tasks: list[asyncio.Task[None]] = []
 
     def _build_stream_url(self) -> str:
         """Build combined WebSocket stream URL."""
@@ -196,11 +198,39 @@ class LiveFeed(DataFeed):
             tasks.append(asyncio.create_task(self._poll_funding_rates()))
         if self.periodic_sync_fn is not None:
             tasks.append(asyncio.create_task(self._periodic_sync()))
-        await asyncio.gather(*tasks)
+        self._tasks = tasks
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            self._tasks = []
 
     def stop(self) -> None:
         """Stop the live feed."""
         self._running = False
+        ws = self._ws
+        if ws is not None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+            else:
+                loop.create_task(self.stop_async())
+        self._notify_status_change(False)
+        logger.info("live_feed_stopped")
+
+    async def stop_async(self) -> None:
+        """Stop the live feed and actively close the websocket."""
+        self._running = False
+        if self._ws is not None:
+            with suppress(Exception):
+                await self._ws.close()
+            self._ws = None
+        current = asyncio.current_task()
+        pending = [task for task in self._tasks if task is not current and not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         self._notify_status_change(False)
         logger.info("live_feed_stopped")
 

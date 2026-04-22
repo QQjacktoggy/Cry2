@@ -211,19 +211,31 @@ class RiskManager:
                     f"- trend signal blocked for {strat}"
                 )
 
-        # Check portfolio drawdown halt
-        if self._drawdown_halted:
-            return False, (
-                f"Portfolio drawdown exceeds {self.max_drawdown_pct}% "
-                f"- halted for {self._drawdown_halt_bars_remaining} more bars"
-            )
+        # Halted-state gating.
+        # Reduce-only signals are exits — we must let them through even when
+        # drawdown/daily/weekly halts fire, otherwise a halt leaves open
+        # positions unmanageable until cooldown expires.
+        if not signal.reduce_only:
+            if self._drawdown_halted:
+                return False, (
+                    f"Portfolio drawdown exceeds {self.max_drawdown_pct}% "
+                    f"- halted for {self._drawdown_halt_bars_remaining} more bars "
+                    f"(reduce-only exits allowed)"
+                )
 
-        # Check halted state
-        if self._daily_halted:
-            return False, "Daily loss limit reached - trading halted for today"
+            if self._daily_halted:
+                return (
+                    False,
+                    "Daily loss limit reached - trading halted for today "
+                    "(reduce-only exits allowed)",
+                )
 
-        if self._weekly_halted:
-            return False, "Weekly loss limit reached - trading halted for this week"
+            if self._weekly_halted:
+                return (
+                    False,
+                    "Weekly loss limit reached - trading halted for this week "
+                    "(reduce-only exits allowed)",
+                )
 
         # Check per-strategy consecutive loss cooldown
         strat_name = getattr(signal, "strategy_name", "")
@@ -239,8 +251,9 @@ class RiskManager:
         if self._daily_trade_count >= self.daily_trade_count_limit:
             return False, f"Daily trade count limit reached ({self.daily_trade_count_limit})"
 
-        # Check position value limit
-        if signal.quantity > 0 and signal.price > 0:
+        # Check position value limit. Reduce-only exits are not capped:
+        # the cap protects against *opening* oversized positions.
+        if signal.quantity > 0 and signal.price > 0 and not signal.reduce_only:
             notional = self._effective_signal_quantity(signal) * signal.price
             max_notional = equity * (self.max_position_value_pct / 100.0)
             if notional > max_notional:

@@ -251,16 +251,38 @@ gsutil mb -l asia-northeast1 gs://$PROJECT_ID-bot-backup
 ### 3.1 建立 Secrets
 
 ```bash
-# 建立 secret(只需一次)
-for name in binance-api-key binance-api-secret telegram-bot-token telegram-chat-id; do
+# V7.4 testnet 先準備這 4 個（只需建立一次）
+for name in binance-testnet-api-key binance-testnet-api-secret telegram-bot-token telegram-chat-id; do
   gcloud secrets create $name --replication-policy=automatic
 done
 
-# 寫入值(每次更新)
-echo -n "YOUR_BINANCE_API_KEY" | gcloud secrets versions add binance-api-key --data-file=-
-echo -n "YOUR_BINANCE_API_SECRET" | gcloud secrets versions add binance-api-secret --data-file=-
+# 若未來要切 live/mainnet，再額外建立：
+# gcloud secrets create binance-api-key --replication-policy=automatic
+# gcloud secrets create binance-api-secret --replication-policy=automatic
+
+# 寫入值（每次更新）
+echo -n "YOUR_BINANCE_TESTNET_API_KEY" | gcloud secrets versions add binance-testnet-api-key --data-file=-
+echo -n "YOUR_BINANCE_TESTNET_API_SECRET" | gcloud secrets versions add binance-testnet-api-secret --data-file=-
 echo -n "YOUR_TELEGRAM_TOKEN" | gcloud secrets versions add telegram-bot-token --data-file=-
 echo -n "YOUR_CHAT_ID" | gcloud secrets versions add telegram-chat-id --data-file=-
+```
+
+預設 secret id 對應規則如下：
+
+| Env var | 預設 Secret Manager id |
+|---|---|
+| `BINANCE_TESTNET_API_KEY` | `binance-testnet-api-key` |
+| `BINANCE_TESTNET_API_SECRET` | `binance-testnet-api-secret` |
+| `BINANCE_API_KEY` | `binance-api-key` |
+| `BINANCE_API_SECRET` | `binance-api-secret` |
+| `TELEGRAM_BOT_TOKEN` | `telegram-bot-token` |
+| `TELEGRAM_CHAT_ID` | `telegram-chat-id` |
+
+若你的 secret id 不想跟預設規則一致，可在 VM / systemd 設：
+
+```bash
+SECRET_NAME_FOR_BINANCE_TESTNET_API_KEY=my-custom-testnet-key
+SECRET_NAME_FOR_BINANCE_TESTNET_API_SECRET=my-custom-testnet-secret
 ```
 
 ### 3.2 授權 VM 讀取
@@ -278,27 +300,19 @@ gsutil iam ch serviceAccount:bot-sa@$PROJECT_ID.iam.gserviceaccount.com:objectAd
 ### 3.3 應用程式讀取範例
 
 ```python
-# src/bot/cloud/secret_manager.py
-import os
-from google.cloud import secretmanager
+from bot.config.env import get_secret
 
-def get_secret(secret_id: str) -> str:
-    """優先從 Secret Manager 讀取,本機 fallback 到環境變數"""
-    project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-    
-    if project_id:
-        client = secretmanager.SecretManagerServiceClient()
-        name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-        response = client.access_secret_version(request={"name": name})
-        return response.payload.data.decode("UTF-8")
-    
-    # 本機開發 fallback
-    env_name = secret_id.upper().replace("-", "_")
-    value = os.getenv(env_name)
-    if not value:
-        raise RuntimeError(f"Secret {secret_id} not found in env {env_name}")
-    return value
+api_key = get_secret("BINANCE_TESTNET_API_KEY")
+api_secret = get_secret("BINANCE_TESTNET_API_SECRET")
+telegram_token = get_secret("TELEGRAM_BOT_TOKEN", required=False)
 ```
+
+應用程式的實際行為是：
+
+1. 若 env var 已存在，直接使用
+2. 若設定了 `GOOGLE_CLOUD_PROJECT`，就用 env var 名稱推導 secret id（例如 `BINANCE_TESTNET_API_KEY` → `binance-testnet-api-key`）
+3. 若有 `SECRET_NAME_FOR_<ENV_VAR>` override，優先使用 override 的 secret id
+4. 成功讀到後會回填到 `os.environ`，讓後續需要 env 的程式碼也能沿用
 
 ---
 
@@ -557,18 +571,21 @@ tar xzf /tmp/weekly-20260417.tar.gz -C /data/
 ### 7.2 日常更新流程
 
 ```bash
-# 本機
-git push origin main
-
 # 本機或 CI
-docker build -t gcr.io/$PROJECT_ID/binance-bot:latest .
-docker push gcr.io/$PROJECT_ID/binance-bot:latest
+export IMAGE_TAG=v74-testnet-$(git rev-parse --short HEAD)
+export CONFIG_VERSION=v74-testnet-$(git rev-parse --short HEAD)
+docker build -t gcr.io/$PROJECT_ID/binance-bot:$IMAGE_TAG .
+docker push gcr.io/$PROJECT_ID/binance-bot:$IMAGE_TAG
+
+# 發佈對應的 config bundle（範例）
+# gsutil cp deploy/config/$CONFIG_VERSION.tar.gz gs://$BUCKET/config-bundles/
 
 # SSH 進 VM
 cd /opt/bot
-git pull
+export IMAGE_TAG=$IMAGE_TAG
+export CONFIG_VERSION=$CONFIG_VERSION
 docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
 # 驗證
 docker compose logs -f bot --tail=50
@@ -584,7 +601,7 @@ docker compose logs -f bot --tail=50
 | 決策資料 | `signal_generated`、`signal_rejected`、reject reason、requested leverage | 分析策略是不是常被風控卡掉或訊號品質不佳 |
 | 運行資料 | WS disconnect/reconnect、API latency、reconcile 次數與差異、risk halt、kill switch | 分析 runtime 問題是不是拖累策略 |
 | 狀態資料 | equity snapshot、position snapshot、health snapshot | 做 rolling review 與異常定位 |
-| 版本資料 | `run_id`、`config_fingerprint`、`git_sha`/image tag、version、environment | 確保回看資料時知道是「哪一版策略」產生的 |
+| 版本資料 | `run_id`、`deployment_id`、`config_fingerprint`、`git_sha`/image tag、version、environment | 確保回看資料時知道是「哪一版策略」產生的，且同版重啟仍可聚合 |
 
 **建議 bundle 結構：**
 
@@ -600,7 +617,7 @@ docker compose logs -f bot --tail=50
 
 **建議流程：**
 
-1. 每次 deploy 或 restart 產生新的 `run_id`
+1. 每次 deploy 產生新的 `deployment_id`；每次 restart 產生新的 `run_id`
 2. Runtime 持續寫 journal / health / structured logs
 3. 每日或每次停止時輸出 review bundle
 4. 自動同步到 GCS，供本機或分析腳本拉回
@@ -612,7 +629,7 @@ docker compose logs -f bot --tail=50
 
 ### 7.2B 策略更新 / 發布 / 回滾流程（避免把 GCP VM 弄壞）
 
-**不要直接 SSH 到 VM 手改 code 或 YAML。** 正確做法是讓 VM 永遠只吃「版本化產物」。
+**不要直接 SSH 到 VM 手改 code、YAML，或在 VM 上 `git pull` 應用程式碼。** 正確做法是讓 VM 永遠只吃「版本化產物」。
 
 **推薦流程：**
 

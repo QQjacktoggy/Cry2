@@ -44,6 +44,7 @@ def _make_fill(
 ) -> FillEvent:
     return FillEvent(
         timestamp=ts or datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC),
+        fill_id="FILL-001",
         strategy_name=strategy,
         symbol=symbol,
         side=side,
@@ -215,6 +216,7 @@ class TestPersistence:
 
 
 def _make_binance_fill(
+    exchange_fill_id: str = "TRADE-001",
     order_id: str = "BINANCE-001",
     symbol: str = "BTCUSDT",
     side: str = "BUY",
@@ -233,6 +235,7 @@ def _make_binance_fill(
         "price": price,
         "commission": 0.5,
         "comm_asset": "USDT",
+        "exchange_fill_id": exchange_fill_id,
         "order_id": order_id,
         "client_oid": "",
         "realized_pnl": 0.0,
@@ -245,25 +248,143 @@ class TestReconcile:
 
     def test_reconcile_inserts_new_fills(self, journal):
         fills = [
-            _make_binance_fill(order_id="ORD-A"),
-            _make_binance_fill(order_id="ORD-B", side="SELL", price=51000.0),
+            _make_binance_fill(exchange_fill_id="TRADE-A", order_id="ORD-A"),
+            _make_binance_fill(
+                exchange_fill_id="TRADE-B",
+                order_id="ORD-B",
+                side="SELL",
+                price=51000.0,
+            ),
         ]
         inserted = journal.reconcile(fills)
         assert inserted == 2
         assert len(journal.export_fills()) == 2
 
-    def test_reconcile_dedup_skips_existing_order_id(self, journal):
-        # Pre-insert a fill with the same order_id
-        journal.record_fill(_make_fill(symbol="BTCUSDT"))  # order_id = "ORD-001"
+    def test_reconcile_dedup_skips_existing_exchange_fill_id(self, journal):
+        # Pre-insert a fill with the same exchange fill id
+        journal.record_fill(_make_fill(symbol="BTCUSDT"))  # fill_id = "FILL-001"
 
         fills = [
-            _make_binance_fill(order_id="ORD-001"),   # already in DB → skip
-            _make_binance_fill(order_id="ORD-NEW"),   # new → insert
+            _make_binance_fill(exchange_fill_id="FILL-001", order_id="ORD-001"),   # already in DB → skip
+            _make_binance_fill(exchange_fill_id="FILL-NEW", order_id="ORD-NEW"),   # new → insert
         ]
         inserted = journal.reconcile(fills)
         assert inserted == 1
         # Total fills = 1 (pre-existing) + 1 (new)
         assert len(journal.export_fills()) == 2
+
+    def test_reconcile_dedup_skips_legacy_rows_without_exchange_fill_id(self, journal):
+        journal.record_fill(_make_fill(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            qty=0.25,
+            price=50500.0,
+            ts=datetime(2024, 6, 1, 12, 15, 0, tzinfo=UTC),
+        ))
+        journal._conn.execute("UPDATE fills SET exchange_fill_id = ''")  # emulate pre-migration row
+        journal._conn.commit()
+
+        fills = [
+            _make_binance_fill(
+                exchange_fill_id="TRADE-LEGACY",
+                order_id="ORD-001",
+                symbol="BTCUSDT",
+                side="BUY",
+                qty=0.25,
+                price=50500.0,
+                ts=datetime(2024, 6, 1, 12, 15, 0, tzinfo=UTC),
+            )
+        ]
+        inserted = journal.reconcile(fills)
+        assert inserted == 0
+        assert len(journal.export_fills()) == 1
+
+    def test_same_side_partial_fills_aggregate_before_close(self, journal):
+        journal.record_fill(_make_fill(
+            side=OrderSide.BUY,
+            qty=0.1,
+            price=100.0,
+            commission=0.1,
+            ts=datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC),
+        ))
+        journal.record_fill(_make_fill(
+            side=OrderSide.BUY,
+            qty=0.2,
+            price=101.0,
+            commission=0.2,
+            ts=datetime(2024, 6, 1, 12, 5, 0, tzinfo=UTC),
+        ))
+        journal.record_fill(_make_fill(
+            side=OrderSide.SELL,
+            qty=0.3,
+            price=110.0,
+            commission=0.3,
+            ts=datetime(2024, 6, 1, 13, 0, 0, tzinfo=UTC),
+        ))
+
+        trades = journal.export_trades(closed_only=False)
+        assert len(trades) == 1
+        trade = trades.iloc[0]
+        assert trade["Direction"] == "Long"
+        assert trade["Size"] == pytest.approx(0.3)
+        assert trade["Exit Price"] == 110.0
+
+    def test_partial_exits_keep_original_size_and_weighted_exit_price(self, journal):
+        journal.record_fill(_make_fill(
+            side=OrderSide.BUY,
+            qty=0.3,
+            price=100.0,
+            commission=0.1,
+            ts=datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC),
+        ))
+        journal.record_fill(_make_fill(
+            side=OrderSide.SELL,
+            qty=0.1,
+            price=110.0,
+            commission=0.1,
+            ts=datetime(2024, 6, 1, 12, 30, 0, tzinfo=UTC),
+        ))
+        journal.record_fill(_make_fill(
+            side=OrderSide.SELL,
+            qty=0.2,
+            price=120.0,
+            commission=0.1,
+            ts=datetime(2024, 6, 1, 13, 0, 0, tzinfo=UTC),
+        ))
+
+        trades = journal.export_trades()
+        assert len(trades) == 1
+        trade = trades.iloc[0]
+        assert trade["Size"] == pytest.approx(0.3)
+        assert trade["Exit Price"] == pytest.approx((0.1 * 110.0 + 0.2 * 120.0) / 0.3)
+
+    def test_overfill_reversal_opens_new_trade_for_residual_quantity(self, journal):
+        journal.record_fill(_make_fill(
+            side=OrderSide.BUY,
+            qty=1.0,
+            price=100.0,
+            commission=0.0,
+            ts=datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC),
+        ))
+        journal.record_fill(_make_fill(
+            side=OrderSide.SELL,
+            qty=1.5,
+            price=110.0,
+            commission=0.0,
+            ts=datetime(2024, 6, 1, 13, 0, 0, tzinfo=UTC),
+        ))
+
+        closed = journal.export_trades()
+        assert len(closed) == 1
+        assert closed.iloc[0]["Direction"] == "Long"
+        assert closed.iloc[0]["Size"] == pytest.approx(1.0)
+        assert closed.iloc[0]["Exit Price"] == pytest.approx(110.0)
+
+        open_trades = journal.open_trades()
+        assert len(open_trades) == 1
+        assert open_trades.iloc[0]["direction"] == "Short"
+        assert open_trades.iloc[0]["size"] == pytest.approx(0.5)
+        assert open_trades.iloc[0]["remaining_size"] == pytest.approx(0.5)
 
     def test_reconcile_empty_list_returns_zero(self, journal):
         inserted = journal.reconcile([])
