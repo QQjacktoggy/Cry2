@@ -230,7 +230,7 @@ HTML 報告會自動生成至 `data/backtest_results/` 目錄。
 2. 填入 `.env` 的 `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET`
 
 ```bash
-# 啟動模擬交易
+# 啟動模擬交易（預設跑 V7.4）
 python scripts/run_paper.py
 
 # 指定配置檔
@@ -252,7 +252,7 @@ python scripts/run_paper.py --config config/config.yaml
 4. 調整 `config/environments/live.yaml` 的初始資金與策略參數
 
 ```bash
-# 啟動實盤交易
+# 啟動實盤交易（預設跑 V7.4）
 python scripts/run_live.py
 
 # 指定配置檔

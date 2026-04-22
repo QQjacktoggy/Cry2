@@ -29,7 +29,7 @@ def test_emit_structured_log_sends_json_safe_payload(monkeypatch) -> None:
     payload, severity = fake_logger.calls[0]
     assert severity == "INFO"
     assert payload["event"] == "runtime.started"
-    assert payload["path"] == "data\\health.json"
+    assert payload["path"] == "data/health.json"
     assert payload["details"] == {"count": 2, "items": ["a", "b"]}
 
 
@@ -57,5 +57,5 @@ def test_create_stdlib_cloud_handler_filters_app_logs() -> None:
         None,
     )
 
-    assert handler.filter(app_record) is False
-    assert handler.filter(third_party_record) is True
+    assert not handler.filter(app_record)
+    assert handler.filter(third_party_record)

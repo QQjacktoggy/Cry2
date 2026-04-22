@@ -82,6 +82,8 @@ def _sanitize_payload(value: Any) -> Any:
         return {str(key): _sanitize_payload(item) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):
         return [_sanitize_payload(item) for item in value]
+    if isinstance(value, os.PathLike):
+        return os.fspath(value).replace("\\", "/")
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)

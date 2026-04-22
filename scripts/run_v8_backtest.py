@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402
 """Run the V7.4 control baseline or a V8 phase-1 candidate profile."""
 
 from __future__ import annotations
@@ -7,7 +8,9 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT))
 
 import structlog
 
@@ -27,7 +30,7 @@ logger = structlog.get_logger(__name__)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run V8 profile backtest")
+    parser = argparse.ArgumentParser(description="Run experimental V8 profile backtest")
     parser.add_argument(
         "--profile",
         default="baseline",
@@ -35,7 +38,7 @@ def main() -> None:
         help="Profile to run",
     )
     parser.add_argument("--env", default="backtest", help="Environment (default: backtest)")
-    parser.add_argument("--config", default="config\\config.yaml", help="Config file path")
+    parser.add_argument("--config", default="config/config.yaml", help="Config file path")
     parser.add_argument("--start", help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", help="End date (YYYY-MM-DD)")
     parser.add_argument("--capital", type=float, default=150.0, help="Initial capital")

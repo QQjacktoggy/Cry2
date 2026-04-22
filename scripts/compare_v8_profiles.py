@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402
 """Run an apples-to-apples V7.4 vs V8 phase-1 comparison on the same runner."""
 
 from __future__ import annotations
@@ -12,7 +13,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT))
 
 import structlog
 
@@ -236,7 +239,7 @@ def main() -> None:
         help="Profiles to include in the comparison",
     )
     parser.add_argument("--env", default="backtest", help="Environment (default: backtest)")
-    parser.add_argument("--config", default="config\\config.yaml", help="Config file path")
+    parser.add_argument("--config", default="config/config.yaml", help="Config file path")
     parser.add_argument("--start", help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", help="End date (YYYY-MM-DD)")
     parser.add_argument("--capital", type=float, default=150.0, help="Initial capital")
@@ -259,7 +262,11 @@ def main() -> None:
     comparison_root.mkdir(parents=True, exist_ok=True)
 
     slippage, fees = _build_execution_models(config)
-    scenarios = _build_profile_scenarios(args.profiles) + _build_single_sleeve_scenarios()
+    profiles = list(dict.fromkeys(args.profiles))
+    if "baseline" not in profiles:
+        profiles.insert(0, "baseline")
+
+    scenarios = _build_profile_scenarios(profiles) + _build_single_sleeve_scenarios()
 
     rows: list[dict[str, Any]] = []
     for scenario in scenarios:

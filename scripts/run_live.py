@@ -92,7 +92,7 @@ async def main() -> None:
     parser.add_argument("--capital", type=float, default=150.0, help="Initial capital (USDT)")
     parser.add_argument(
         "--version",
-        default="v72",
+        default="v74",
         choices=["v6", "v72", "v74"],
         help="Portfolio version",
     )
