@@ -27,11 +27,10 @@ from __future__ import annotations
 from collections import deque
 from typing import Any
 
-import numpy as np
 import pandas as pd
 import structlog
 
-from bot.core.constants import OrderSide, PositionSide
+from bot.core.constants import OrderSide
 from bot.core.events import MarketEvent, SignalEvent
 from bot.strategy.base import BaseStrategy
 
@@ -86,7 +85,7 @@ class VBTBridgeStrategy(BaseStrategy):
         # VBT strategy instance (lazy init)
         self._vbt_strategy = None
 
-    def _init_vbt_strategy(self):
+    def _init_vbt_strategy(self) -> None:
         """Lazily initialize the VBT strategy."""
         if self._vbt_strategy is None:
             cls = VBT_STRATEGY_MAP.get(self.vbt_strategy_name)
@@ -153,6 +152,7 @@ class VBTBridgeStrategy(BaseStrategy):
 
         signals: list[SignalEvent] = []
         price = event.close
+        signal_metadata = {"requested_leverage": float(self.leverage)}
 
         # Calculate position size
         quantity = self._allocation_usd * self.leverage / price
@@ -165,7 +165,9 @@ class VBTBridgeStrategy(BaseStrategy):
                     side=OrderSide.BUY,
                     quantity=quantity,
                     timestamp=event.timestamp,
+                    price=price,
                     reason=f"bridge_long_entry_{self.vbt_strategy_name}",
+                    metadata=signal_metadata,
                 ))
                 self._in_position = "long"
                 logger.info("bridge_long_entry",
@@ -178,7 +180,9 @@ class VBTBridgeStrategy(BaseStrategy):
                     side=OrderSide.SELL,
                     quantity=quantity,
                     timestamp=event.timestamp,
+                    price=price,
                     reason=f"bridge_short_entry_{self.vbt_strategy_name}",
+                    metadata=signal_metadata,
                 ))
                 self._in_position = "short"
                 logger.info("bridge_short_entry",
@@ -195,6 +199,7 @@ class VBTBridgeStrategy(BaseStrategy):
                     side=OrderSide.SELL,
                     quantity=close_qty,
                     timestamp=event.timestamp,
+                    price=price,
                     reduce_only=True,
                     reason=f"bridge_long_exit_{self.vbt_strategy_name}",
                 ))
@@ -208,40 +213,44 @@ class VBTBridgeStrategy(BaseStrategy):
                         side=OrderSide.SELL,
                         quantity=quantity,
                         timestamp=event.timestamp,
+                        price=price,
                         reason=f"bridge_short_entry_{self.vbt_strategy_name}",
+                        metadata=signal_metadata,
                     ))
                     self._in_position = "short"
                 else:
                     self._in_position = "flat"
 
-        elif self._in_position == "short":
-            if curr_short_exit or curr_long_entry:
-                # Close short
-                pos = self._get_position(self.symbol)
-                close_qty = pos.quantity if pos.quantity > 0 else quantity
+        elif self._in_position == "short" and (curr_short_exit or curr_long_entry):
+            # Close short
+            pos = self._get_position(self.symbol)
+            close_qty = pos.quantity if pos.quantity > 0 else quantity
+            signals.append(self._create_signal(
+                symbol=self.symbol,
+                side=OrderSide.BUY,
+                quantity=close_qty,
+                timestamp=event.timestamp,
+                price=price,
+                reduce_only=True,
+                reason=f"bridge_short_exit_{self.vbt_strategy_name}",
+            ))
+            logger.info("bridge_short_exit",
+                        strategy=self.vbt_strategy_name,
+                        symbol=self.symbol, price=price)
+
+            if curr_long_entry:
                 signals.append(self._create_signal(
                     symbol=self.symbol,
                     side=OrderSide.BUY,
-                    quantity=close_qty,
+                    quantity=quantity,
                     timestamp=event.timestamp,
-                    reduce_only=True,
-                    reason=f"bridge_short_exit_{self.vbt_strategy_name}",
+                    price=price,
+                    reason=f"bridge_long_entry_{self.vbt_strategy_name}",
+                    metadata=signal_metadata,
                 ))
-                logger.info("bridge_short_exit",
-                            strategy=self.vbt_strategy_name,
-                            symbol=self.symbol, price=price)
-
-                if curr_long_entry:
-                    signals.append(self._create_signal(
-                        symbol=self.symbol,
-                        side=OrderSide.BUY,
-                        quantity=quantity,
-                        timestamp=event.timestamp,
-                        reason=f"bridge_long_entry_{self.vbt_strategy_name}",
-                    ))
-                    self._in_position = "long"
-                else:
-                    self._in_position = "flat"
+                self._in_position = "long"
+            else:
+                self._in_position = "flat"
 
         return signals
 

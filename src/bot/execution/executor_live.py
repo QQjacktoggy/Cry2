@@ -30,12 +30,14 @@ class LiveExecutor(BaseExecutor):
         self,
         event_bus: EventBus,
         client: BinanceRestClient,
+        publish_market_fills: bool = True,
     ) -> None:
         self.event_bus = event_bus
         self.client = client
         self.order_manager = OrderManager(client)
         self.account_manager = AccountManager(client)
         self._order_symbols: dict[str, str] = {}  # order_id → symbol
+        self._publish_market_fills = publish_market_fills
 
     def submit_order(self, order: OrderEvent) -> str:
         """Submit order to Binance."""
@@ -61,7 +63,7 @@ class LiveExecutor(BaseExecutor):
             self._order_symbols[client_order_id] = order.symbol
 
             # If market order, it should be filled immediately
-            if order.order_type == OrderType.MARKET:
+            if order.order_type == OrderType.MARKET and self._publish_market_fills:
                 fill = FillEvent(
                     timestamp=datetime.now(UTC),
                     strategy_name=order.strategy_name,

@@ -258,3 +258,65 @@ class TestRegimeBlockInRiskManager:
         rm = self._rm()
         # Before any bars, regime should be NEUTRAL
         assert rm.regime == Regime.NEUTRAL
+
+
+class TestAdaptiveLeverageOrderScaling:
+    def _rm(self, **kwargs) -> RiskManager:
+        return RiskManager(event_bus=EventBus(), **kwargs)
+
+    def _make_signal(self, leverage: float = 2.0):
+        from datetime import UTC, datetime
+
+        from bot.core.constants import OrderSide
+        from bot.core.events import SignalEvent
+
+        return SignalEvent(
+            timestamp=datetime.now(UTC),
+            strategy_name="bridge_trend_donchian_btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            quantity=0.02,
+            price=50_000.0,
+            metadata={"requested_leverage": leverage},
+            source="test",
+        )
+
+    def test_signal_quantity_is_scaled_down_when_effective_leverage_drops(self):
+        rm = self._rm(atr_adaptive_leverage=True, max_leverage=3)
+        for _ in range(20):
+            rm.update_market_data(101.0, 99.0, 100.0, atr=1.0)
+        rm.update_market_data(120.0, 80.0, 100.0, atr=50.0)
+
+        scaled = rm._effective_signal_quantity(self._make_signal(leverage=2.0))
+        assert scaled == pytest.approx(0.01)
+
+    def test_reduce_only_signal_is_not_scaled(self):
+        from datetime import UTC, datetime
+
+        from bot.core.constants import OrderSide
+        from bot.core.events import SignalEvent
+
+        rm = self._rm(atr_adaptive_leverage=True, max_leverage=3)
+        for _ in range(20):
+            rm.update_market_data(101.0, 99.0, 100.0, atr=1.0)
+        rm.update_market_data(120.0, 80.0, 100.0, atr=50.0)
+
+        signal = SignalEvent(
+            timestamp=datetime.now(UTC),
+            strategy_name="bridge_trend_donchian_btc",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            quantity=0.02,
+            price=50_000.0,
+            reduce_only=True,
+            metadata={"requested_leverage": 2.0},
+            source="test",
+        )
+        assert rm._effective_signal_quantity(signal) == pytest.approx(0.02)
+
+    def test_runtime_market_updates_can_drive_adaptive_leverage_without_explicit_atr(self):
+        rm = self._rm(atr_adaptive_leverage=True, max_leverage=3, atr_window=20)
+        for _ in range(20):
+            rm.update_market_data(101.0, 99.0, 100.0)
+        rm.update_market_data(120.0, 80.0, 100.0)
+        assert rm.effective_max_leverage == 1.0
