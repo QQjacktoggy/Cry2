@@ -87,6 +87,7 @@ class FillEvent(BaseEvent):
     """Order filled (execution report)."""
 
     event_type: EventType = EventType.FILL
+    fill_id: str = ""
     strategy_name: str
     symbol: str
     side: OrderSide

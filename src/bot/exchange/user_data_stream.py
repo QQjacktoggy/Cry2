@@ -65,24 +65,37 @@ class UserDataStream:
         self._ws: Any = None
         self._running: bool = False
         self._reconnect_attempts: int = 0
+        self._healthy_event = asyncio.Event()
+        self._stopped_event = asyncio.Event()
+        self._stopped_event.set()
+        self._tasks: list[asyncio.Task[None]] = []
 
     # ── Public interface ────────────────────────────────────────────────────
 
     async def start(self) -> None:
         """Start the user data stream (runs until stop() is called)."""
         self._running = True
-        self._listen_key = self._rest.get_listen_key()
-        if not self._listen_key:
-            logger.error("user_data_stream_no_listen_key")
-            self._running = False
-            self._notify_status_change(False)
-            return
-        logger.info("user_data_stream_started", listen_key=self._listen_key[:8] + "...")
+        self._healthy_event.clear()
+        self._stopped_event.clear()
+        try:
+            self._listen_key = self._rest.get_listen_key()
+            if not self._listen_key:
+                logger.error("user_data_stream_no_listen_key")
+                self._running = False
+                self._notify_status_change(False)
+                return
+            logger.info("user_data_stream_started", listen_key=self._listen_key[:8] + "...")
 
-        await asyncio.gather(
-            self._run_ws(),
-            self._keepalive_loop(),
-        )
+            tasks = [
+                asyncio.create_task(self._run_ws()),
+                asyncio.create_task(self._keepalive_loop()),
+            ]
+            self._tasks = tasks
+            await asyncio.gather(*tasks)
+        finally:
+            self._tasks = []
+            self._healthy_event.clear()
+            self._stopped_event.set()
 
     async def stop(self) -> None:
         """Stop the stream gracefully."""
@@ -90,8 +103,28 @@ class UserDataStream:
         if self._ws:
             with suppress(Exception):
                 await self._ws.close()
+        current = asyncio.current_task()
+        pending = [task for task in self._tasks if task is not current and not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         self._notify_status_change(False)
+        self._stopped_event.set()
         logger.info("user_data_stream_stopped")
+
+    async def wait_until_healthy(self, timeout: float = 30.0) -> bool:
+        """Wait until the stream becomes healthy or clearly stops."""
+        deadline = asyncio.get_running_loop().time() + timeout
+        while True:
+            if self._healthy_event.is_set():
+                return True
+            if self._stopped_event.is_set():
+                return False
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                return False
+            await asyncio.sleep(min(0.1, remaining))
 
     # ── Internal WebSocket loop ─────────────────────────────────────────────
 
@@ -167,6 +200,10 @@ class UserDataStream:
                     logger.error("listen_key_refresh_failed", error=str(ke))
 
     def _notify_status_change(self, healthy: bool) -> None:
+        if healthy:
+            self._healthy_event.set()
+        else:
+            self._healthy_event.clear()
         if self._on_status_change is not None:
             self._on_status_change(healthy)
 
@@ -221,6 +258,7 @@ class UserDataStream:
 
         fill = FillEvent(
             timestamp=ts,
+            fill_id=str(o.get("t", "")),
             strategy_name=strategy,
             symbol=symbol,
             side=side,

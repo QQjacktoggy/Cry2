@@ -79,6 +79,7 @@ def reconcile_from_binance(
                     "price": float(t["price"]),
                     "commission": float(t.get("commission", 0)),
                     "comm_asset": t.get("commissionAsset", "USDT"),
+                    "exchange_fill_id": str(t.get("id", "")),
                     "order_id": str(t.get("orderId", "")),
                     "client_oid": "",
                     "realized_pnl": float(t.get("realizedPnl", 0)),
@@ -86,7 +87,7 @@ def reconcile_from_binance(
                 }
                 for t in raw_trades
             ]
-            inserted = journal.reconcile(mapped)
+            inserted = journal.reconcile(mapped, dedup_key="exchange_fill_id")
             total_inserted += inserted
         except Exception as e:
             _log.warning("reconcile_symbol_failed", symbol=sym, error=str(e))

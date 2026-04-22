@@ -32,15 +32,17 @@ class BacktestFeed(DataFeed):
         clock: SimClock,
         storage: ParquetStorage,
         symbols: list[str],
-        timeframe: str,
         start_ms: int,
         end_ms: int,
+        timeframe: str = "",
+        timeframes: list[str] | None = None,
         funding_data: dict[str, pd.DataFrame] | None = None,
     ) -> None:
         super().__init__(event_bus, clock)
         self.storage = storage
         self.symbols = symbols
-        self.timeframe = timeframe
+        self.timeframes = list(dict.fromkeys(timeframes or ([timeframe] if timeframe else []))) or ["4h"]
+        self.timeframe = self.timeframes[0]
         self.start_ms = start_ms
         self.end_ms = end_ms
         self.funding_data = funding_data or {}
@@ -52,20 +54,22 @@ class BacktestFeed(DataFeed):
         """Load all data and build time-ordered event queue."""
         all_events: list[dict[str, Any]] = []
 
-        # Load kline data for each symbol
+        # Load kline data for each symbol/timeframe
         for symbol in self.symbols:
-            df = self.storage.load_klines(symbol, self.timeframe, self.start_ms, self.end_ms)
-            if df.empty:
-                logger.warning("no_kline_data", symbol=symbol, timeframe=self.timeframe)
-                continue
+            for timeframe in self.timeframes:
+                df = self.storage.load_klines(symbol, timeframe, self.start_ms, self.end_ms)
+                if df.empty:
+                    logger.warning("no_kline_data", symbol=symbol, timeframe=timeframe)
+                    continue
 
-            for _, row in df.iterrows():
-                all_events.append({
-                    "type": "market",
-                    "timestamp": int(row["timestamp"]),
-                    "symbol": symbol,
-                    "data": row.to_dict(),
-                })
+                for _, row in df.iterrows():
+                    all_events.append({
+                        "type": "market",
+                        "timestamp": int(row["timestamp"]),
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "data": row.to_dict(),
+                    })
 
         # Load funding rate data
         for symbol in self.symbols:
@@ -95,7 +99,7 @@ class BacktestFeed(DataFeed):
             "backtest_feed_built",
             total_events=len(all_events),
             symbols=self.symbols,
-            timeframe=self.timeframe,
+            timeframes=self.timeframes,
         )
 
     def start(self) -> None:
@@ -133,7 +137,7 @@ class BacktestFeed(DataFeed):
             return MarketEvent(
                 timestamp=ts_dt,
                 symbol=event_data["symbol"],
-                timeframe=self.timeframe,
+                timeframe=event_data.get("timeframe", self.timeframe),
                 open=float(data["open"]),
                 high=float(data["high"]),
                 low=float(data["low"]),

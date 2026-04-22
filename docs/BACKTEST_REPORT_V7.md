@@ -1,915 +1,384 @@
-# 📊 Cry2 量化交易系統 — 完整回測分析報告
+# 📊 Cry2 V7.4 完整回測報告
 
-**版本**: V7.3 (G4+G5 Market Neutral Integration) | **日期**: 2026-04-20  
+**版本**: V7.4（live-aligned baseline，已套用 breakout 接線修正 + ETH ADX 1x 候選）  
+**日期**: 2026-04-22  
 **初始資金**: 150 USDT  
-**回測期間**: 2023-01-01 ~ 2026-04-20（約 3.3 年）  
-**資料來源**: Binance Futures 4h/1d K線（BTC/ETH/BNB/SOL/XRP）  
-**回測引擎**: VectorBT Pro + 自建策略框架  
-**交易幣種**: BTC、ETH、BNB、XRP、SOL（5 幣種）  
-**策略位**: 17 個（9 種策略 × 5 幣種，含市場中性策略）
+**回測期間**: 2023-01-01 ~ 2026-04-20（1,206 個日頻觀測點）  
+**資料來源**: `backtest_tool/data/klines` Binance Futures 4h / 1d K 線  
+**正式 runner**: `python -m backtest_tool.scripts.full_portfolio_backtest`  
+**配置來源**: `src/bot/strategy/bridge.py` 的 `V74_CONFIG`  
+**輸出檔案**: `backtest_tool/reports/output/portfolio_backtest_results.csv`、`portfolio_combined_equity.csv`
 
----
-
-## 📋 目錄
-
-1. [執行摘要](#1-執行摘要)
-2. [策略演進歷程 V1→V7.3](#2-策略演進歷程-v1v73)
-3. [V7.3 最終組合詳細分析](#3-v73-最終組合詳細分析)
-4. [Phase B/C 深度優化過程](#4-phase-bc-深度優化過程)
-5. [G4/G5 新策略分析](#5-g4g5-新策略分析)
-6. [參數穩健性分析](#6-參數穩健性分析)
-7. [Walk-Forward 驗證](#7-walk-forward-驗證)
-8. [Monte Carlo 模擬](#8-monte-carlo-模擬)
-9. [策略相關性分析](#9-策略相關性分析)
-10. [策略健康度與衰退偵測](#10-策略健康度與衰退偵測)
-11. [市場環境分析](#11-市場環境分析)
-12. [手續費敏感度分析](#12-手續費敏感度分析)
-13. [小資金部署建議](#13-小資金部署建議)
-14. [風險警示](#14-風險警示)
-15. [已知限制與注意事項](#15-已知限制與注意事項)
+> 本文件以 **目前 repo 內實際可跑的 V7.4 baseline** 為準，已納入本次重新回測、breakout 參數接線修正、以及 `trend_donchian_adx_slope_eth` 的 1x 優化替換結果。
 
 ---
 
 ## 1. 執行摘要
 
-### 🎯 目標 vs 達成
+### 1.1 核心結果
 
-| 指標 | 目標 | V7.3 結果 | 狀態 |
+| 指標 | 目標 | V7.4 結果 | 狀態 |
 |------|------|-----------|------|
-| 年化 Sharpe Ratio | > 0.8 | **2.437** | ✅ 超標 205% |
-| 年化報酬率 | > 25% | **44.3%** | ✅ 超標 77% |
-| 最大回撤 | < 20% | **-9.1%** | ✅ 通過（全版本最佳 🏆） |
-| Calmar Ratio | > 1.0 | **4.87** | ✅ 超標 387%（全版本最佳 🏆） |
-| Walk-Forward OOS Sharpe（post-selection） | > 0.5 | **2.103** | ✅ 通過，但非嚴格 nested OOS（見 §7） |
-| 策略相關性（daily-resampled） | < 0.1 | **0.041** | ✅ 通過（大幅改善） |
-| 手續費安全倍數 | > 4.0x | **3.79x** | ⚠️ 略低於 4x，仍安全 |
+| Sharpe Ratio | > 0.8 | **1.984** | ✅ |
+| 年化報酬率 | > 25% | **46.6%** | ✅ |
+| 最大回撤 | < 20% | **-15.5%** | ✅ |
+| Calmar Ratio | > 1.0 | **3.01** | ✅ |
+| Walk-Forward | 通過 | **9/9 視窗中 8 個 OOS 為正，整體 Passed** | ✅ |
+| 手續費安全性 | SAFE / OK | **SAFE，4.41x** | ✅ |
 
-### 💰 投資績效概覽（150 USDT 初始資金）
+### 1.2 投資績效概覽
 
 | 項目 | 數值 |
 |------|------|
-| 初始資金 | **$150 USDT** |
-| 最終價值 | **$505 USDT** |
-| 累計報酬 | **+236.7%** |
-| 年化報酬 | **+44.3%** |
-| 最大回撤 | **-9.1%**（最多虧約 $14） |
-| Sharpe Ratio | **2.437** |
-| Sortino Ratio | **3.625** |
-| Calmar Ratio | **4.87** |
-| 策略間平均相關性 | **0.041**（極低，daily-resampled） |
-| 總交易次數 | ~670 筆 |
-| 手續費安全倍數 | **3.79x** |
-| 策略位 | 17 個 |
-| 幣種 | 5 (BTC/ETH/BNB/XRP/SOL) |
+| 初始資金 | **$150** |
+| 最終價值 | **$530** |
+| 累計報酬 | **+253.7%** |
+| 年化報酬 | **+46.6%** |
+| Sharpe | **1.984** |
+| Sortino | **2.960** |
+| Max Drawdown | **-15.5%** |
+| Calmar | **3.01** |
+| 平均策略相關性 | **0.0643** |
+| 總交易次數 | **620** |
+| 手續費安全倍數 | **4.41x** |
+| 策略位 | **16** |
+| 幣種 | **BTC / ETH / BNB / XRP / SOL** |
+| 最終判定 | **DEPLOYABLE（5/5 checks passed）** |
 
-### 🔄 V7.2 → V7.3 關鍵改進
+### 1.3 一句話結論
 
-| 指標 | V7.2 | V7.3 | 變化 |
-|------|------|------|------|
-| Sharpe | 2.355 | **2.437** | +3.5% |
-| Ann Return | 45.2% | **44.3%** | -2.0%（因配置調整） |
-| MaxDD | -10.6% | **-9.1%** | 改善 14.2% 🏆 |
-| Calmar | 4.27 | **4.87** | +14.1% 🏆 |
-| Sortino | 3.464 | **3.625** | +4.6% |
-| 相關性 | 0.062 | **0.041** | 改善 33.9% |
-| WF OOS Sharpe | 2.004 | **2.103** | +4.9% |
-| Fee Safe | 4.32x | **3.79x** | -12.3% |
-| 策略位 | 16 | **17** | +1（市場中性策略） |
-| 最終價值 | $514 | **$505** | -$9（DD 改善抵消） |
-
-**V7.3 核心改進**: 新增 G4 Funding Rate 反向策略 + G5 BTC-ETH OLS 配對交易，引入市場中性維度，大幅降低 MaxDD 與策略間相關性。
+V7.4 目前已從原本「live-aligned 但回撤偏深」的版本，收斂成 **報酬略降、但 Sharpe / MaxDD 顯著改善** 的可部署 baseline；本輪最有效的優化不是 breakout，而是 **把 ETH ADX 從 2x 換成更健康的 1x 候選**。
 
 ---
 
-## 2. 策略演進歷程 V1→V7.3
+## 2. 回測方法與本次重跑範圍
 
-### 全版本對比
+### 2.1 本次重跑做了什麼
 
-```
-版本   Sharpe  年化報酬  MaxDD     Calmar  策略  幣種  $150→    狀態
-────  ──────  ───────  ────────  ──────  ────  ────  ──────  ────
-V1    1.320    33.1%   -21.8%    1.52     10    2    $200   4/5 ❌
-V2    1.430    31.3%   -19.0%    1.65      8    2    $197   5/5 ✅
-V3    1.470    31.9%   -17.8%    1.80      8    2    $198   5/5 ✅
-V4    1.685    35.1%   -16.7%    2.10      7    2    $203   5/5 ✅
-V5    1.969    37.4%   -13.8%    2.70     10    4    $428   5/5 ✅
-V6    2.063    38.5%   -12.0%    3.20     12    5    $439   5/5 ✅
-V7    2.392    45.8%   -12.8%    3.59     14    5    $521   5/5 ✅
-V7.1  2.414    44.0%   -11.9%    3.68     16    5    $500   5/5 ✅
-V7.2  2.355    45.2%   -10.6%    4.27     16    5    $514   5/5 ✅
-V7.3  2.437    44.3%    -9.1%    4.87     17    5    $505   5/5 ✅ 🏆
-```
+1. 使用正式 baseline runner：`python -m backtest_tool.scripts.full_portfolio_backtest`
+2. 直接讀取 live 端 `V74_CONFIG`，避免報告與部署配置脫鉤
+3. 使用 `full_portfolio_backtest.py` 內的 **explicit return-amplification leverage model**
+4. 重新執行弱勢策略參數掃描，再把確定有效的候選參數套回 baseline 重跑
 
-### V1→V6 摘要
+### 2.2 這份報告相對舊版的更新點
 
-| 版本 | 核心改動 |
-|------|---------|
-| V1 | 初版科學配置（取代 funding_arb 60%） |
-| V2 | 移除 2 個虧損策略，首次 5/5 通過 |
-| V3 | Phase 7 新策略替換（tail_risk_hedge、pv_divergence） |
-| V4 | 630 組參數優化 + 新增 dual_channel_breakout |
-| V5 | BNB + XRP 多幣種擴展（4→4 幣種） |
-| V6 | SOL 加入 + 配置精調（5 幣種 12 策略位） |
+- 不再是「V7.3 主文 + V7.4 附註」混合文件
+- breakout `kc_ema` / `kc_atr` 接線錯誤已修正
+- `trend_donchian_adx_slope_eth` 已從舊 2x 配置換成 1x 候選
+- 所有總表、策略表、WF / MC / fee / correlation 已同步到最新重跑結果
 
-### V6 → V7（Rescan 參數升級）
+### 2.3 槓桿語義
 
-**核心改動**: 7,605 組全面參數重掃，發現多個重大改進
-
-- ⬆️ `adx_slope BTC`: Sharpe 0.65→1.052 (+62%)
-- ⬆️ `grid_trend_bias XRP`: Sharpe 0.93→1.117 (+20%)
-- 🆕 `tail_risk_hedge SOL`: Sharpe 1.243 (472% Return)
-- 🆕 `adx_slope ETH`: Sharpe 1.172 (225% Return)
-- 🆕 `mtf XRP`: Sharpe 1.059 (115% Return)
-
-**結果**: Sharpe 2.063→2.392 (+16%), $150→$521
-
-### V7 → V7.1（穩健度加權）
-
-**核心改動**: 基於 7,605 組合的參數穩定性分析，建立三層架構
-
-- ↑ 穩健策略權重（viable combos >50%）
-- ↓ 脆弱策略權重（viable combos <15%）
-- ↓ `dual_channel_breakout` 10→5%（脆弱）
-- ↓ `grid_trend_bias ETH` 15→9%（僅 5.6% viable）
-
-**結果**: MaxDD -12.8%→-11.9%, Calmar 3.59→3.68
-
-### V7.1 → V7.2（Phase B/C 深度優化）🏆
-
-**核心改動**: 移除衰退策略，新增分散化策略，強化穩健層
-
-- ❌ 移除 `dual_channel_breakout ETH`（30d=-3.22, 90d=-3.52, 嚴重衰退）
-- 🆕 新增 `momentum_ranking SOL` 3%（Sharpe 1.227, 低相關性分散）
-- ↑ `mtf BTC` 15→16%（61% viable, 最穩健）
-- ↑ `adx_slope ETH` 9→10%（59% viable）
-
-**結果**: MaxDD -11.9%→**-10.6%**（V1–V7.2 中最佳）, Calmar 3.68→**4.27**（V1–V7.2 中最佳）
-
-### V7.2 → V7.3（G4+G5 市場中性策略）🏆
-
-**核心改動**: 新增兩個市場中性/缺口填補策略，建立第四層「Market Neutral + Gap」
-
-- 🆕 **G5 BTC-ETH 配對交易** `pair_btc_eth` 5%（Sharpe 1.334, Rolling OLS 共整合）
-- 🆕 **G4 Funding Rate 反向** `funding_reversal_eth` 3%（Sharpe 0.934, 長線低頻逆向）
-- ❌ 移除 `breakout_squeeze BTC` 3%（脆弱層，低交易數，統計信心不足）
-- ↓ `grid_trend_bias ETH` 9→7%（壓低脆弱層暴露）
-- ↓ `momentum_ranking ETH` 12→10%（為新策略騰空間）
-- ↓ `grid_trend_bias BTC` 4→3%（微調）
-
-**關鍵發現**: G5 配對交易使用 Rolling OLS 回歸殘差（非簡單 ratio），解決了 BTC/ETH 長期趨勢問題，與現有策略近零相關（avg 0.025）
-
-**結果**: MaxDD -10.6%→**-9.1%** 🏆, Calmar 4.27→**4.87** 🏆, 相關性 0.062→**0.041**（全版本最佳）
+V7.4 的槓桿欄位應解讀為 **策略目標槓桿設定**。  
+`full_portfolio_backtest.py` 已不再依賴 raw `vectorbt` `size_type="percent"` 直接表達 broker-style >1x 槓桿，而是顯式放大策略報酬路徑。
 
 ---
 
-## 3. V7.3 最終組合詳細分析
+## 3. V7.4 組合結構
 
-### 四層架構配置
+### 3.1 三層配置
 
-> 📌 **V7.3 新增第四層「市場中性 + 缺口填補」**，從三層升級為四層架構。
-> 📌 **符號說明**：策略列名後有 ⚠️ 表示該策略總交易數 < 10，統計顯著性低。
+| 層級 | 配置 | 說明 |
+|------|------|------|
+| Robust | **40%** | `trend_donchian` 家族；其中 ETH ADX 已改為 1x 健康版 |
+| Moderate / Defensive | **48%** | `momentum_ranking`、`grid_trend_bias`、`tail_risk_hedge` |
+| Fragile | **12%** | `grid_trend_bias_eth` + `breakout_squeeze_btc` |
 
-#### ⭐ 穩健層 — 40%（`trend_donchian` 族群，長線趨勢核心）
+### 3.2 幣種曝險
 
-> **分層準則**：同 V7.2，以「策略族群 = 趨勢追蹤 `trend_donchian_*`」歸類。
-> XRP mtf (75%)、BTC mtf (61%)、ETH adx_slope (59%) viable% >50%；
-> BTC adx_slope (18.5%)、BNB mtf (13.9%) 歸入穩健層是因同屬族群且配置壓低。
+| 幣種 | 配置 |
+|------|------|
+| BTC | **34%** |
+| ETH | **31%** |
+| BNB | **15%** |
+| XRP | **10%** |
+| SOL | **10%** |
 
-| 策略位 | 幣種 | 配置 | 實際資金 | Sharpe | Return | MaxDD | Trades | Win% | Viable% |
-|--------|------|------|----------|--------|--------|-------|--------|------|---------|
-| trend_donchian_mtf ⚠️ | BTC | **16%** | $24.0 | 1.032 | 44.6% | -10.8% | 7 | 71.4% | 61.1% |
-| trend_donchian_adx_slope | ETH | **10%** | $15.0 | 1.172 | 225.2% | -32.2% | 109 | 42.2% | 59.3% |
-| trend_donchian_adx_slope | BTC | **8%** | $12.0 | 1.052 | 143.5% | -31.1% | 110 | 43.6% | 18.5% |
-| trend_donchian_mtf ⚠️ | XRP | **4%** | $6.0 | 1.059 | 114.8% | -21.1% | 5 | 80.0% | 75.0% |
-| trend_donchian_mtf | BNB | **2%** | $3.0 | 1.008 | 62.5% | -16.6% | 10 | 70.0% | 13.9% |
+### 3.3 時間框架與目標槓桿
 
-**特徵**: 趨勢追蹤型，4h 時間框架，持倉數天~數週。在趨勢明確時表現最佳。
+| 維度 | 數值 |
+|------|------|
+| 4h 策略配置 | **65%** |
+| 1d 策略配置 | **35%** |
+| 2x 目標槓桿配置 | **30%** |
+| 1x 目標槓桿配置 | **70%** |
+| 配置加權平均目標槓桿 | **1.30x** |
 
-#### 🔵 中等層 — 45%（混合策略，短線補位 + 防禦）
+### 3.4 分層貢獻
 
-> **V7.3 變動**: mom_ETH 12→10%，grid_BTC 4→3%，總量 48→45%，為新策略騰出空間。
+| 層級 | 配置 | 初始資金 | 最終價值 | 損益 | 層內報酬 |
+|------|------|----------|----------|------|----------|
+| Robust | 40% | $60.0 | $151.6 | $91.6 | **+152.6%** |
+| Moderate / Defensive | 48% | $72.0 | $337.4 | $265.4 | **+368.6%** |
+| Fragile | 12% | $18.0 | $41.5 | $23.5 | **+130.7%** |
 
-| 策略位 | 幣種 | 配置 | 實際資金 | Sharpe | Return | MaxDD | Trades | Win% | 分類 |
-|--------|------|------|----------|--------|--------|-------|--------|------|------|
-| momentum_ranking | ETH | **10%** | $15.0 | 1.483 | 584.9% | -46.6% | 10 | 90.0% | 長線動量 |
-| momentum_ranking ⚠️ | BNB | **8%** | $12.0 | 1.535 | 632.4% | -33.1% | 8 | 87.5% | 長線動量 |
-| momentum_ranking | SOL | **3%** | $4.5 | 1.227 | 601.6% | -47.7% | 34 | 41.2% | 長線動量 |
-| grid_trend_bias | XRP | **6%** | $9.0 | 1.117 | 77.5% | -23.9% | 37 | 73.0% | 短線網格 |
-| tail_risk_hedge | BNB | **5%** | $7.5 | 1.427 | 135.1% | -15.5% | 12 | 83.3% | 防禦 |
-| tail_risk_hedge | SOL | **4%** | $6.0 | 1.243 | 472.3% | -39.3% | 59 | 62.7% | 防禦 |
-| grid_trend_bias | BTC | **3%** | $4.5 | 1.327 | 35.2% | -7.4% | 16 | 75.0% | 短線網格 |
-| grid_trend_bias | SOL | **3%** | $4.5 | 1.224 | 224.6% | -31.4% | 96 | 72.9% | 短線網格 |
-| tail_risk_hedge | BTC | **3%** | $4.5 | 1.241 | 95.0% | -12.7% | 12 | 50.0% | 防禦 |
-
-**特徵**: 混合型，涵蓋長線動量（1d）、短線網格（4h）、防禦對沖（1d）。
-
-#### ⚠️ 脆弱層 — 7%（高 Sharpe + 低 viable%，V7.3 大幅壓縮）
-
-> **V7.3 變動**: 移除 `breakout_squeeze BTC`（低交易數、統計信心不足），`grid_ETH` 9→7%。
-> 脆弱層從 12%→7%，風險暴露顯著降低。
-
-| 策略位 | 幣種 | 配置 | 實際資金 | Sharpe | Return | MaxDD | Trades | Win% | Viable% |
-|--------|------|------|----------|--------|--------|-------|--------|------|---------|
-| grid_trend_bias | ETH | **7%** | $10.5 | 1.615 | 164.0% | -18.8% | 69 | 79.7% | 5.6% |
-
-**特徵**: 高 Sharpe 但僅少數參數組合有效。V7.3 壓至 7% 以限制參數失效風險。
-
-#### 🟣 市場中性 + 缺口填補層 — 8%（V7.3 新增）
-
-> **V7.3 全新層級**: 引入市場中性配對交易與 Funding Rate 反向策略，
-> 填補趨勢空窗期的獲利，與現有策略近零相關（avg correlation 0.025）。
-
-| 策略位 | 幣種 | 配置 | 實際資金 | Sharpe | Return | MaxDD | Trades | Win% | 特色 |
-|--------|------|------|----------|--------|--------|-------|--------|------|------|
-| pair_btc_eth | BTC/ETH | **5%** | $7.5 | 1.334 | 154.0% | -15.1% | 59 | 76.3% | OLS 共整合配對 |
-| funding_reversal | ETH | **3%** | $4.5 | 0.934 | 84.4% | -18.2% | ~20 | ~65% | 極負 funding 逆向 |
-
-**特徵**:
-- `pair_btc_eth`: 使用 Rolling OLS 回歸 `log(BTC) = α + β × log(ETH) + ε` 的殘差做 z-score 均值回歸，動態 hedge ratio β≈0.71。**市場中性**，不暴露方向性風險。
-- `funding_reversal_eth`: 在 funding rate 極負時（市場恐慌）逆向做多，屬低頻抄底策略。年年皆盈利。
-
-### 💵 $150 資金分配明細
-
-| 策略 | 配置 | 資金 | 幣種 | TF | 槓桿 | 分類 |
-|------|------|------|------|----|------|------|
-| trend_donchian_mtf BTC | 16% | $24.0 | BTC | 4h | 2x | ⭐穩健 |
-| trend_donchian_adx_slope ETH | 10% | $15.0 | ETH | 4h | 2x | ⭐穩健 |
-| momentum_ranking ETH | 10% | $15.0 | ETH | 1d | 1.5x | 🔵長線 |
-| momentum_ranking BNB | 8% | $12.0 | BNB | 1d | 1.5x | 🔵長線 |
-| trend_donchian_adx_slope BTC | 8% | $12.0 | BTC | 4h | 2x | ⭐穩健 |
-| grid_trend_bias ETH | 7% | $10.5 | ETH | 4h | 2x | ⚠️脆弱 |
-| grid_trend_bias XRP | 6% | $9.0 | XRP | 4h | 2x | 🔵短線 |
-| tail_risk_hedge BNB | 5% | $7.5 | BNB | 1d | 1x | 🔵防禦 |
-| pair_btc_eth | 5% | $7.5 | BTC/ETH | 4h | 1x | 🟣中性 |
-| tail_risk_hedge SOL | 4% | $6.0 | SOL | 1d | 1x | 🔵防禦 |
-| trend_donchian_mtf XRP | 4% | $6.0 | XRP | 4h | 2x | ⭐穩健 |
-| momentum_ranking SOL | 3% | $4.5 | SOL | 1d | 1.5x | 🔵長線 |
-| grid_trend_bias BTC | 3% | $4.5 | BTC | 4h | 1x | 🔵短線 |
-| grid_trend_bias SOL | 3% | $4.5 | SOL | 4h | 1x | 🔵短線 |
-| tail_risk_hedge BTC | 3% | $4.5 | BTC | 1d | 1x | 🔵防禦 |
-| funding_reversal ETH | 3% | $4.5 | ETH | 4h | 1x | 🟣缺口 |
-| trend_donchian_mtf BNB | 2% | $3.0 | BNB | 4h | 2x | ⭐穩健 |
-| **合計** | **100%** | **$150.0** | **5 幣種** | | | |
-
-### 幣種集中度
-
-| 幣種 | 配置 | 策略數 | V7.2→V7.3 變化 |
-|------|------|--------|---------------|
-| BTC | **30%** | 4 | -4%（移除 breakout，但配對交易不含方向性 BTC 暴露） |
-| ETH | **30%** | 4 | -1%（新增 funding 3%，但降 mom/grid） |
-| BNB | **15%** | 3 | 不變 |
-| SOL | **10%** | 3 | 不變 |
-| XRP | **10%** | 2 | 不變 |
-| 市場中性 | **5%** | 1 | 🆕 配對交易不屬任一幣種 |
-
-### 策略類型分布
-
-| 類型 | 配置 | 目的 | V7.2→V7.3 |
-|------|------|------|-----------|
-| 🟢 長線趨勢（trend_donchian + momentum） | **61%** | 捕捉大趨勢，核心獲利 | 63→61% |
-| 🟡 短線網格（grid_trend_bias） | **19%** | 盤整期補位，交易頻率高 | 25→19% |
-| 🔵 防禦對沖（tail_risk_hedge） | **12%** | 極端行情保護 | 12%不變 |
-| 🟣 市場中性 + 缺口填補（pair + funding） | **8%** | 趨勢空窗期獲利，降低相關性 | 🆕 |
+**解讀**：組合主要 alpha 仍來自 Moderate / Defensive 層；ETH ADX 改成 1x 後，Robust 層的報酬貢獻略降，但整體風險品質明顯提升。
 
 ---
 
-## 4. Phase B/C 深度優化過程
+## 4. 個別策略結果
 
-### 優化方法論
+### 4.1 全策略明細
 
-基於 7,605 組參數掃描結果，進行以下分析：
+| 策略位 | Symbol | TF | 配置 | 初始資金 | Final | Return | Sharpe | MaxDD | Calmar | Trades | Win% |
+|--------|--------|----|------|----------|-------|--------|--------|-------|--------|--------|------|
+| trend_donchian_mtf_btc | BTCUSDT | 4h | 16% | $24.0 | $51.8 | 116.0% | 1.018 | -23.5% | 1.12 | 7 | 71.4% |
+| trend_donchian_adx_slope_eth | ETHUSDT | 4h | 10% | $15.0 | $48.8 | 225.5% | 1.142 | -30.5% | 1.41 | 118 | 42.4% |
+| trend_donchian_adx_slope_btc | BTCUSDT | 4h | 8% | $12.0 | $18.7 | 55.4% | 0.598 | -72.5% | 0.20 | 110 | 43.6% |
+| trend_donchian_mtf_xrp | XRPUSDT | 4h | 4% | $6.0 | $24.1 | 301.8% | 1.068 | -39.5% | 1.33 | 5 | 80.0% |
+| trend_donchian_mtf_bnb | BNBUSDT | 4h | 2% | $3.0 | $8.1 | 171.0% | 1.011 | -31.4% | 1.12 | 10 | 70.0% |
+| momentum_ranking_eth | ETHUSDT | 1d | 12% | $18.0 | $116.0 | 544.6% | 1.446 | -46.6% | 1.63 | 10 | 90.0% |
+| momentum_ranking_bnb | BNBUSDT | 1d | 8% | $12.0 | $87.9 | 632.4% | 1.535 | -33.1% | 2.50 | 8 | 87.5% |
+| momentum_ranking_sol | SOLUSDT | 1d | 3% | $4.5 | $34.0 | 655.8% | 1.262 | -47.7% | 1.77 | 33 | 42.4% |
+| grid_trend_bias_xrp | XRPUSDT | 4h | 6% | $9.0 | $16.0 | 77.5% | 1.117 | -23.9% | 0.79 | 37 | 73.0% |
+| tail_risk_hedge_bnb | BNBUSDT | 1d | 5% | $7.5 | $17.6 | 135.1% | 1.427 | -15.5% | 1.91 | 12 | 83.3% |
+| tail_risk_hedge_sol | SOLUSDT | 1d | 4% | $6.0 | $34.3 | 472.3% | 1.243 | -39.3% | 1.77 | 59 | 62.7% |
+| grid_trend_bias_btc | BTCUSDT | 4h | 4% | $6.0 | $8.1 | 35.2% | 1.327 | -7.4% | 1.29 | 16 | 75.0% |
+| grid_trend_bias_sol | SOLUSDT | 4h | 3% | $4.5 | $14.6 | 224.6% | 1.224 | -31.4% | 1.36 | 96 | 72.9% |
+| tail_risk_hedge_btc | BTCUSDT | 1d | 3% | $4.5 | $8.8 | 95.0% | 1.241 | -12.7% | 1.76 | 12 | 50.0% |
+| grid_trend_bias_eth | ETHUSDT | 4h | 9% | $13.5 | $35.6 | 164.0% | 1.615 | -18.8% | 1.82 | 69 | 79.7% |
+| breakout_squeeze_btc | BTCUSDT | 4h | 3% | $4.5 | $5.9 | 30.9% | 0.732 | -16.8% | 0.50 | 18 | 50.0% |
 
-1. **參數穩定性分析**: 計算每個策略×幣種在 80% 峰值 Sharpe 以上的參數比例
-2. **衰退偵測**: 對比全期 vs 近期 (30d/90d) Sharpe 變化
-3. **變體回測**: 設計 4 個替代配置，完整回測比較
-4. **最終選擇**: 基於 MaxDD、Calmar、相關性綜合評判
+### 4.2 主要獲利來源（以 PnL 排序）
 
-### 變體比較
+| 策略位 | PnL | 備註 |
+|--------|-----|------|
+| momentum_ranking_eth | **+$98.0** | 本組合最大單一獲利來源 |
+| momentum_ranking_bnb | **+$75.9** | 報酬效率最高之一 |
+| trend_donchian_adx_slope_eth | **+$33.8** | 套用 1x 候選後，風險品質明顯改善 |
+| momentum_ranking_sol | **+$29.5** | 小權重高彈性 |
+| tail_risk_hedge_sol | **+$28.3** | 防禦策略同時提供高報酬 |
 
-| 變體 | 改動 | Sharpe | MaxDD | Calmar | 結果 |
-|------|------|--------|-------|--------|------|
-| V7.1 (基準) | — | 2.414 | -11.9% | 3.68 | 基準 |
-| V7.2a | +adx_slope XRP 取代 DCB | ≈同 | -12.3% | ≈同 | ❌ DD 更差 |
-| V7.2b | +robust 權重 | ≈同 | -11.8% | ≈同 | △ 僅微改 |
-| V7.2c | +momentum SOL 取代 DCB | ↓2% | **-10.0%** | **7.63** | ✅ MaxDD 最佳 |
-| **V7.2 (最終)** | **c + 增強穩健層** | **2.355** | **-10.6%** | **4.27** | **✅ 最佳綜合** |
+### 4.3 個別策略風險觀察
 
-### 關鍵決策
-
-#### ❌ 移除 dual_channel_breakout ETH
-
-**理由**:
-- 30d Sharpe: **-3.22**（嚴重衰退）
-- 90d Sharpe: **-3.52**（持續惡化）
-- 參數穩定性: 5.6%（僅 18/324 組合 viable）
-- 22.9% 最大回撤（佔組合 DD 的主要來源）
-
-#### 🆕 新增 momentum_ranking SOL (3%)
-
-**理由**:
-- Sharpe 1.227，601.6% Return（強收益）
-- 與現有策略相關性極低（correlation ≈ 0）
-- 增加 SOL 暴露（從 7%→10%）
-- 34 筆交易，41.2% 勝率（動量型正常）
-
-#### ↑ 強化穩健層
-
-- `mtf BTC` 15→16%: 61% viable，最穩健的趨勢策略
-- `adx_slope ETH` 9→10%: 59% viable，穩健且高 Sharpe
+- **最大單體風險來源仍是 BTC ADX**：`trend_donchian_adx_slope_btc` MaxDD **-72.5%**
+- **低交易數**：`trend_donchian_mtf_btc` 7 筆、`trend_donchian_mtf_xrp` 5 筆、`momentum_ranking_bnb` 8 筆
+- **最弱單體**：`breakout_squeeze_btc` Sharpe **0.732**，可保留但不應被視為主要 alpha 引擎
 
 ---
 
-## 5. G4/G5 新策略分析
+## 5. 組合層級表現
 
-### G5 BTC-ETH 配對交易（Rolling OLS 共整合）
-
-#### 問題與發現
-
-BTC/ETH 原始 ratio 存在**巨大長期上升趨勢**（BTC dominance 持續增加 2023-2026），導致傳統均值回歸方法**完全失敗**：
-
-- 原始 ratio z-score 方法: 75 組參數全部 negative Sharpe
-- Long-only ratio: 仍然虧損
-- Return spread: 微弱改善但不可用
-- **Rolling OLS**: ✅ 成功！回歸殘差是平穩的
-
-#### Rolling OLS 方法
-
-```
-模型: log(BTC_price) = α + β × log(ETH_price) + ε
-殘差: ε_t = log(BTC_t) - α̂_t - β̂_t × log(ETH_t)
-Z-score: z_t = (ε_t - mean(ε, window)) / std(ε, window)
-```
-
-- 動態 hedge ratio β ≈ 0.71（非 1:1），隨 regime 自適應
-- OLS 視窗 = 480 bars，z-score 視窗 = 90 bars
-- 進場: |z| > 2.5，出場: z 穿越 0，止損: |z| > 4.0
-
-#### 參數掃描結果
-
-| OLS Window | Z Period | Entry Z | Sharpe | Return | MaxDD | Trades |
-|-----------|----------|---------|--------|--------|-------|--------|
-| **480** | **90** | **2.5** | **1.351** | +157.7% | -15.1% | 59 |
-| 480 | 60 | 2.5 | 1.287 | +142.3% | -16.8% | 72 |
-| 360 | 90 | 2.5 | 1.198 | +128.4% | -17.2% | 65 |
-| 480 | 120 | 2.0 | 1.156 | +135.6% | -18.9% | 81 |
-
-#### 最終驗證結果
+### 5.1 核心績效
 
 | 指標 | 數值 |
 |------|------|
-| Sharpe Ratio | **1.334** |
-| 累計報酬 | **+154%** |
-| 最大回撤 | **-15.1%** |
-| 交易次數 | 59 |
-| 勝率 | **76.3%** |
-| 與 V7.2 策略平均相關性 | **0.025**（近零） |
+| 初始資金 | $150 |
+| 最終價值 | **$530** |
+| 累計報酬 | **+253.7%** |
+| 年化報酬 | **+46.6%** |
+| Sharpe | **1.984** |
+| Sortino | **2.960** |
+| Max Drawdown | **-15.5%** |
+| Calmar | **3.01** |
+| 期間 | 2023-01-01 → 2026-04-20 |
 
-#### 年度表現
+### 5.2 年度表現
 
-| 年份 | Return | 狀態 |
-|------|--------|------|
-| 2023 | +3.5% | ✅ |
-| 2024 | +39.1% | ✅ |
-| 2025 | +53.1% | ✅ |
-| 2026 (YTD) | +15.9% | ✅ |
+| 年度 | 年內報酬 | 年底資產 |
+|------|----------|----------|
+| 2023 | **+47.60%** | $221.40 |
+| 2024 | **+48.35%** | $333.62 |
+| 2025 | **+43.17%** | $477.80 |
+| 2026 YTD | **+11.19%** | $530.48 |
 
-**所有年度均盈利**，2024-2025 為主要獲利期。
+### 5.3 月度極值
 
-### G4 Funding Rate 反向策略（長線低頻逆向）
+| 項目 | 數值 |
+|------|------|
+| 最佳月份 | **2024-11：+28.10%** |
+| 最差月份 | **2023-05：-5.80%** |
 
-#### 策略邏輯
+### 5.4 最大回撤區間
 
-在 funding rate 極度負值時（市場極度恐慌、空頭擁擠），逆向做多 ETH：
+| 項目 | 日期 / 數值 |
+|------|-------------|
+| 前高點 | **2024-03-13** |
+| 最深回撤點 | **2024-06-06** |
+| 最大回撤 | **-15.51%** |
+| 回到前高 | **2024-11-08** |
 
-- 進場: funding rate < -4 bps（極度負值，空頭過度擁擠）
-- 持倉: 12 bars（~2天，等待 funding 正常化）
-- 僅做多（short side 在牛市中 fade trend 一直虧損）
-
-#### 各幣種測試結果
-
-| 幣種 | Sharpe | Return | 狀態 | 結論 |
-|------|--------|--------|------|------|
-| **ETH** | **0.934** | **+84.4%** | ✅ 採用 | Funding 反向最可靠的幣種 |
-| XRP | ~0.1 | ~+5% | ❌ 不採用 | 不穩定，低信心 |
-| BTC | ~0.2 | ~+8% | ❌ 不採用 | Funding 極負事件太少 |
-| SOL | ~-0.1 | ~-3% | ❌ 不採用 | 虧損 |
-
-**決策**: 僅採用 ETH 的 Funding Rate 反向策略，配置 3%。
-
-### V7.3 組合整合效果
-
-| 指標 | V7.2 (無 G4/G5) | V7.3 (含 G4/G5) | 改善 |
-|------|-----------------|-----------------|------|
-| Sharpe | 2.355 | **2.437** | +3.5% |
-| MaxDD | -10.6% | **-9.1%** | 改善 14.2% |
-| Calmar | 4.27 | **4.87** | +14.1% |
-| 策略間相關性 | 0.062 | **0.041** | 改善 33.9% |
-| 低相關對 | 113 | **130** | +17 |
-
-**結論**: 市場中性策略的引入大幅降低了組合的系統性風險，MaxDD 和 Calmar 同時創歷史新高。
+**解讀**：ETH ADX 的 1x 化後，組合最大回撤從原本 V7.4 重新回測的 ~17.6% 區間進一步壓到 ~15.5%，恢復期仍長，但已更接近可實際承受的部署輪廓。
 
 ---
 
-## 6. 參數穩健性分析
+## 6. 穩健性與診斷
 
-### 穩定性排名（7,605 組掃描）
+### 6.1 市場 regime 分布（BTC 4h）
 
-> **Viable%** = 80% 峰值 Sharpe 以上的參數組合比例，越高越穩健
+| Regime | 佔比 | Bars | 最長連續區段 |
+|--------|------|------|--------------|
+| trending_up | 18.7% | 1,351 | 97 |
+| trending_down | 16.3% | 1,179 | 73 |
+| ranging | 42.9% | 3,098 | 120 |
+| volatile | 22.1% | 1,598 | 82 |
 
-| 等級 | 策略 | 幣種 | Peak Sharpe | Avg Sharpe | Viable% | Positive% |
-|------|------|------|-------------|-----------|---------|-----------|
-| ⭐ ROBUST | trend_donchian_mtf | XRP | 1.059 | 0.935 | **75.0%** | 100% |
-| ⭐ ROBUST | trend_donchian_mtf | BTC | 1.032 | 0.832 | **61.1%** | 100% |
-| ⭐ ROBUST | trend_donchian_adx_slope | ETH | 1.172 | 0.972 | **59.3%** | 100% |
-| ⭐ ROBUST | trend_donchian_adx_slope | XRP | 1.079 | 0.824 | **44.4%** | 100% |
-| 🔵 MODERATE | momentum_ranking | ETH | 1.483 | 0.927 | 25.0% | 100% |
-| 🔵 MODERATE | momentum_ranking | BNB | 1.535 | 0.726 | 25.0% | 75% |
-| 🔵 MODERATE | momentum_ranking | SOL | 1.227 | 0.457 | 25.0% | 75% |
-| 🔵 MODERATE | tail_risk_hedge | BNB | 1.427 | 0.580 | 22.2% | 67% |
-| 🔵 MODERATE | tail_risk_hedge | SOL | 1.243 | 0.624 | 22.2% | 100% |
-| 🔵 MODERATE | tail_risk_hedge | BTC | 1.241 | 0.704 | 22.2% | 100% |
-| 🔵 MODERATE | trend_donchian_adx_slope | BTC | 1.052 | 0.649 | 18.5% | 100% |
-| 🔵 MODERATE | breakout_squeeze | BTC | 0.793 | 0.238 | 16.7% | 67% |
-| ⚠️ FRAGILE | grid_trend_bias | XRP | 1.117 | 0.391 | 13.9% | 83% |
-| ⚠️ FRAGILE | grid_trend_bias | SOL | 1.224 | 0.665 | 13.9% | 97% |
-| ⚠️ FRAGILE | grid_trend_bias | ETH | 1.615 | 0.377 | **5.6%** | 75% |
-| ⚠️ FRAGILE | grid_trend_bias | BTC | 1.327 | 0.110 | **5.6%** | 56% |
+### 6.2 相關性
 
-### 核心發現
+| 指標 | 數值 |
+|------|------|
+| 平均相關性 | **0.0643** |
+| 低相關對數（< 0.3） | **112** |
 
-1. **參數穩定性 > 原始 Sharpe**: `grid_trend_bias ETH` 有最高 Sharpe (1.615) 但僅 5.6% viable → 參數失效風險極高
-2. **趨勢策略最穩健**: `trend_donchian_mtf` 在 BTC/XRP 上 61-75% viable → 參數改變影響小
-3. **動量策略中等穩健**: `momentum_ranking` 在 25% viable → 需要較精確的 roc/lookback 選擇
-4. **Threshold 參數不敏感**: `momentum_ranking` 的 upper/lower threshold 對結果無影響 → 可安全使用預設值
+代表性低相關配對：
 
-### 關鍵參數敏感度
+- `trend_donchian_adx_slope_eth` ↔ `grid_trend_bias_xrp`: 0.000
+- `trend_donchian_mtf_bnb` ↔ `tail_risk_hedge_btc`: -0.003
+- `trend_donchian_mtf_xrp` ↔ `momentum_ranking_sol`: -0.003
 
-#### momentum_ranking ETH
-- `roc_period`: **60 最佳** (mean 1.236)，30 次佳 (1.113)，20 最差 (0.272)
-- `lookback`: 180 最佳 (1.125)，240 次佳 (0.928)
-- `upper/lower threshold`: **無影響**（完全相同的 mean）
+### 6.3 健康度與近期衰退
 
-#### trend_donchian_mtf BTC
-- `exit_period`: **10 最佳** (mean 0.921)，7 次佳 (0.860)，5 最差 (0.715)
-- `entry_period`: **無影響**（完全相同的 mean = 0.832）
+**明確被標記為衰退**
 
-#### grid_trend_bias ETH
-- `bb_std`: **2.0 最佳** (mean 0.884)，其餘大幅下降
-- `bb_period`: **20 最佳** (mean 0.652)，30 降至 0.027
-- `ema_period`: 50/100 相近，200 大幅下降
+| 策略位 | Sharpe 30d | Sharpe 90d | Current DD |
+|--------|------------|------------|------------|
+| tail_risk_hedge_btc | n/a | -1.30 | -12.8% |
 
----
+**近期 30d Sharpe 偏弱**
 
-## 7. Walk-Forward 驗證（post-selection）
+| 策略位 | Sharpe 30d | Sharpe 90d |
+|--------|------------|------------|
+| trend_donchian_adx_slope_eth | -2.55 | 0.42 |
+| trend_donchian_adx_slope_btc | -1.15 | 1.00 |
+| momentum_ranking_bnb | -0.38 | 2.22 |
+| momentum_ranking_sol | -4.39 | 0.72 |
+| tail_risk_hedge_sol | -0.10 | 1.43 |
 
-### 方法與限制
+**低交易數策略需降低信心**
 
-- 滾動窗口: 12 個月「IS」+ 3 個月「OOS」
-- 共 9 個窗口覆蓋完整回測期間
-- 驗證標準: OOS Sharpe > 0.5, 通過率 > 70%
+- `trend_donchian_mtf_btc`: 7 trades
+- `trend_donchian_mtf_xrp`: 5 trades
+- `momentum_ranking_bnb`: 8 trades
 
-> ⚠️ **重要限制 — 這不是嚴格 nested OOS**
-> 目前 WF 是在**已經選好策略與權重的 combined equity curve 上切窗**，並非每個窗口重新：
-> (a) 用 IS 資料重新掃參數、(b) 用 IS 選最佳組合、(c) 再用 OOS 資料跑新組合。
->
-> 因此以下 OOS Sharpe 本質上是「對已選組合的路徑穩定性測試 / pseudo-OOS」，
-> 不應視為對「未來真實部署」的嚴格外推。真正 nested walk-forward 的 OOS Sharpe
-> 通常會低於此處報告值，誤差幅度視 IS 選參階段的樣本內偏誤而定。
-
-### 結果
+### 6.4 Walk-Forward（組合）
 
 | Window | IS Sharpe | OOS Sharpe | OOS Return | OOS MaxDD |
 |--------|-----------|------------|------------|-----------|
-| W0 | 3.426 | **2.657** | +15.3% | -7.1% |
-| W1 | 2.969 | -1.117 | -3.7% | -9.6% |
-| W2 | 2.522 | **1.041** | +3.5% | -4.2% |
-| W3 | 2.329 | **3.633** | +21.3% | -4.8% |
-| W4 | 1.978 | **1.907** | +8.7% | -3.9% |
-| W5 | 1.741 | **1.919** | +8.2% | -4.3% |
-| W6 | 2.237 | **4.115** | +23.0% | -6.7% |
-| W7 | 3.018 | **1.586** | +6.7% | -5.4% |
-| W8 | 2.406 | **2.298** | +10.4% | -3.8% |
+| W0 | 2.534 | 1.807 | 13.8% | -9.9% |
+| W1 | 1.959 | -1.157 | -4.5% | -10.1% |
+| W2 | 1.773 | 1.241 | 5.6% | -6.0% |
+| W3 | 1.892 | 3.728 | 27.6% | -5.2% |
+| W4 | 1.764 | 0.955 | 4.4% | -6.2% |
+| W5 | 1.566 | 1.236 | 5.3% | -4.8% |
+| W6 | 1.928 | 4.081 | 22.1% | -6.5% |
+| W7 | 2.655 | 1.588 | 7.7% | -6.3% |
+| W8 | 1.944 | 2.118 | 11.9% | -4.8% |
 
-### 摘要（post-selection）
-
-| 指標 | 數值 |
-|------|------|
-| 平均 OOS Sharpe（post-selection） | **2.103** |
-| 最低 OOS Sharpe | -1.117 (W1) |
-| 效率 (OOS/IS) | **0.838** |
-| 正向 OOS 比率 | **89%** (8/9) |
-| 通過 | ✅ YES（但須搭配下方 nested WF 判讀） |
-
-### Nested Walk-Forward（已實作，每窗口重新配權）
-
-作為對上方 post-selection WF 的補強，實作 `walk_forward_nested_analysis`：**每個 IS 窗口重新**計算每個策略的 IS Sharpe，
-再用該權重套用到 OOS 區段上，得到「非事後觀察」的組合 OOS 表現。兩種配權方案：
-
-| 配權方案 | n_win | 平均 OOS Sharpe | 最小 OOS | 正向 OOS% | 平均 OOS Return |
-|---------|-------|----------------|----------|-----------|-----------------|
-| **Equal-weight**（忽略權重、只測策略池） | 9 | **2.762** | -0.116 | 88.9% | 9.32% |
-| **IS Sharpe-weighted**（按 IS Sharpe 正值加權） | 9 | **2.273** | **-1.082** | 88.9% | 7.58% |
-| post-selection（§7 上方，固定 V7.3 權重） | 9 | 2.103 | -1.117 | 88.9% | — |
-
-**解讀**：
-- **Sharpe-weighted nested OOS (2.273) > post-selection (2.103)**：顯示 V7.3 的手動權重並非數據事後偷跑的結果
-- **最小 OOS 仍是負值**（-1.08 / -1.12 / -0.12），三種方法在 W1 或 W2 都出現負 OOS，對應 2023-Q2 / 2024-Q3 的回檔期
-- 此處 nested 仍有限：**未重新掃策略參數**（只重配權重），真正 strict nested WF 需要 per-window 重跑參數掃描；本報告 §6 viable% 分析已在參數維度提供獨立證據
-
-### 分析（須搭配上方兩種 WF 結果閱讀）
-
-- W1 是最負的 OOS 窗口，對應 2023-Q2 市場調整期；其次 W2 在 sharpe_pos 方案下也為負
-- nested sharpe_pos 方案下 W2 OOS=-1.08 較 post-selection 更差，說明**事後固定權重確實有一定 lookahead 偏誤**（約 0.3~0.5 Sharpe 區間）
-- OOS/IS 效率（post-selection）83.8% 僅為**該已選組合**的 IS→OOS 衰減；真實重選參數下的衰減還會更大
-- **更可靠的參數不敏感證據來自 §6（viable%）**，這裡的 OOS Sharpe 只是「權重穩定性」的測試
-
----
-
-## 8. Monte Carlo 模擬
-
-### 方法
-
-- 1,000 次 **bootstrap** 模擬（對每日收益做「有放回」取樣）
-- 使用 daily 頻率 combined equity，annualization factor = 365
-- 評估最終淨值 / Sharpe / 最大回撤 的分布
-
-> ⚠️ **方法澄清**：舊版程式碼使用 `rng.permutation`（shuffle 無放回），此時 `∏(1+rᵢ)` 與 `mean/std` 皆為不變量，
-> 因此 final value 與 Sharpe 在所有模擬中相同 — 並非真正的分布。已於此版改為有放回 bootstrap，
-> 下表為新方法下的真實分布。
-
-### 結果 A — i.i.d. bootstrap（n=1,000, seed=42）
-
-| 指標 | 原始 | 模擬均值 | P5 | P25 | P75 | P95 |
-|------|------|---------|-----|-----|-----|-----|
-| 最終淨值（相對初始） | 3.367x | 3.470x | **2.010x** | 2.700x | 4.080x | **5.580x** |
-| Sharpe | 2.437 | 2.410 | **1.480** | — | — | **3.350** |
-| MaxDD | -9.1% | -11.5% | **-18.5%** | — | — | **-6.8%** |
-
-- **最終淨值 Percentile Rank**: ~50%（原始表現落在模擬分布中位數附近）
-- **MaxDD Percentile Rank**: ~68%（原始 DD 比 68% 的模擬路徑更好）
-- **P5 Sharpe 仍 > 1.0**，但信賴區間跨度大，實際交易應以 P5 為風險參考
-- **P5 MaxDD = -18.5%**：i.i.d. 假設下有 5% 的路徑最大回撤接近 18.5%，比歷史實現的 -9.1% 嚴重約一倍
-
-### 結果 B — Block bootstrap（block_size=5 天, n=1,000, seed=42）
-
-為了保留波動聚集（volatility clustering）與短期自相關，額外跑 block bootstrap：每次抽取連續 5 天的 return 區塊，再拼接成一條新路徑。
-
-| 指標 | 原始 | 模擬均值 | P5 | P25 | P75 | P95 |
-|------|------|---------|-----|-----|-----|-----|
-| 最終淨值（相對初始） | 3.367x | 3.520x | 2.170x | 2.800x | 4.080x | 5.220x |
-| Sharpe | 2.437 | 2.450 | 1.650 | — | — | 3.210 |
-| MaxDD | -9.1% | -10.2% | -15.2% | — | — | -6.5% |
-
-**i.i.d. vs block 對照解讀**：
-- Block bootstrap 的 **P5 Sharpe (1.65) 略高於 i.i.d. (1.48)**，P5 MaxDD (-15.2%) 也較 i.i.d. (-18.5%) 溫和
-- 這**並非**代表實際更安全 — 而是因為歷史資料中的自相關以「趨勢延續 + 恢復段」為主，保留區塊結構反而降低拼接的變異
-- 真正要看的是兩個方法的**共同下界**：即便是更溫和的 block bootstrap，**P5 MaxDD 仍達 -15.2%**，代表最壞 5% 路徑下 DD 會比歷史 -9.1% 深約 67%
-
-> 備註：即使 block bootstrap 也只對「同分布下的路徑變異」建模，對 regime 切換（牛熊轉換）仍無法外推。
-
----
-
-## 9. 策略相關性分析
-
-### 組合整體
+Walk-Forward summary:
 
 | 指標 | 數值 |
 |------|------|
-| 平均相關性 | **0.041** |
-| 低相關對 (< 0.3) | **130 對** |
-| 近零相關對 (< 0.01) | 多對 |
+| 視窗數 | 9 |
+| 平均 OOS Sharpe | **1.733** |
+| 最低 OOS Sharpe | **-1.157** |
+| OOS / IS 效率比 | **0.866** |
+| OOS 為正比例 | **89%** |
+| 判定 | **PASSED** |
 
-### 最低相關性策略對
+### 6.5 Nested Walk-Forward（每視窗重配權重）
 
-| 策略 A | 策略 B | 相關性 |
-|--------|--------|--------|
-| pair_btc_eth | trend_donchian_mtf BTC | -0.015 |
-| pair_btc_eth | momentum_ranking BNB | -0.008 |
-| trend_donchian_adx_slope BTC | tail_risk_hedge BNB | 0.002 |
-| funding_reversal ETH | trend_donchian_mtf XRP | -0.005 |
-| grid_trend_bias SOL | funding_reversal ETH | 0.003 |
+| 權重法 | Avg OOS Sharpe | Min OOS Sharpe | Positive OOS | 視窗數 |
+|--------|----------------|----------------|--------------|--------|
+| equal | **2.543** | -0.073 | 88.9% | 9 |
+| sharpe_pos | **2.148** | -1.199 | 88.9% | 9 |
 
-### 分析
+### 6.6 Monte Carlo
 
-- **0.041** 的平均相關性較 V7.2 的 0.062 **大幅改善 33.9%**，主要來自新增的市場中性策略
-- 新增的 `pair_btc_eth` 與現有策略的平均相關性僅 **0.025**，`funding_reversal_eth` 也接近零
-  （注意：低相關性為**歷史觀察**結果；市場 regime 切換時相關性可能上升，尤其趨勢策略集中於同向趨勢時 — 見 §15 限制 3）
-- 此值使用 daily-resampled equity curves 計算，統一了 4h/1d 不同頻率
-- 低相關對數從 113→130，多出的 17 對主要由 pair_btc_eth 和 funding_reversal 貢獻
+| 模型 | Final | Sharpe | MaxDD |
+|------|-------|--------|-------|
+| 原始路徑 | 3.5365x | 1.984 | -15.5% |
+| i.i.d. 模擬平均 | 3.7473x | 1.964 | -16.8% |
+| i.i.d. P5 | 1.8474x | 1.041 | -10.1%* |
+| i.i.d. P95 | 6.5894x | 2.898 | n/a |
+| block bootstrap（5d）P5 / P95 Sharpe | n/a | 1.223 / 2.780 | n/a |
+| block bootstrap（5d）Final P5 / P95 | 2.068x / 6.322x | n/a | n/a |
+| block bootstrap（5d）MaxDD P5 | n/a | n/a | **-22.94%** |
 
----
+\* i.i.d. 欄位中 console 顯示的是 `MaxDD(P95)`，不是 worst-tail 下界；更值得參考的是 block bootstrap 的 `MaxDD P5 = -22.94%`。
 
-## 10. 策略健康度與衰退偵測
-
-### 健康度報告
-
-> ⚠️ 以下使用 daily-resampled equity curves 計算，30d/90d 為實際天數。
-> 低交易次數策略在近期窗口可能顯示 NaN。
-
-| 策略 | 30d Sharpe | 90d Sharpe | 當前 DD | 狀態 |
-|------|-----------|-----------|---------|------|
-| **pair_btc_eth** 🆕 | **4.43** | **3.58** | -2.1% | ✅ 優秀（V7.3 新增） |
-| **funding_reversal ETH** 🆕 | **2.45** | **1.68** | -4.3% | ✅ 優秀（V7.3 新增） |
-| momentum_ranking ETH | 2.06 | 2.61 | -5.3% | ✅ 優秀 |
-| grid_trend_bias SOL | 3.39 | -0.51 | -6.6% | ✅ 短期強 |
-| grid_trend_bias ETH | 1.05 | 1.71 | -6.6% | ✅ 優秀 |
-| tail_risk_hedge SOL | -0.10 | 1.43 | -17.5% | ✅ 正常（90d 穩定）|
-| momentum_ranking BNB | -0.38 | 2.22 | -8.0% | ✅ 正常（90d 穩定）|
-| trend_donchian_mtf XRP | NaN | 1.30 | -10.1% | ✅ 正常（低交易頻率）|
-| trend_donchian_mtf BNB | NaN | 1.18 | -3.4% | ✅ 正常 |
-| trend_donchian_adx_slope_btc | -0.38 | 0.77 | -15.2% | ⚡ 觀察 |
-| trend_donchian_adx_slope_eth | -2.55 | 0.42 | -12.7% | ⚡ 觀察 |
-| momentum_ranking SOL | -4.39 | 0.19 | -28.0% | ⚡ 觀察（新增，長線策略正常波動）|
-| grid_trend_bias BTC | NaN | 0.49 | -4.5% | ⚡ 觀察 |
-| tail_risk_hedge BNB | NaN | 0.62 | -5.9% | ⚡ 觀察 |
-| grid_trend_bias XRP | NaN | -0.81 | -9.9% | ⚡ 觀察 |
-| tail_risk_hedge BTC | NaN | **-1.30** | -12.8% | ⚠️ DECAY |
-| trend_donchian_mtf BTC | NaN | NaN | -2.6% | 📊 數據不足 |
-
-### 已處理的衰退策略
-
-| 策略 | 之前狀態 | V7.3 處理 |
-|------|----------|----------|
-| dual_channel_breakout ETH | 30d=-3.22, 90d=-3.52 | ❌ **V7.2 已移除** |
-| breakout_squeeze BTC | fragile, 16 trades | ❌ **V7.3 已移除**（低交易數，統計信心不足） |
-| breakout_squeeze SOL | 90d=-3.59 | ❌ V7 已移除 |
-| tail_risk_hedge BTC | 90d=-1.08 | ⬇️ 降至 3%（最低配置）|
-
----
-
-## 11. 市場環境分析
-
-### BTC 4h 市場環境分布
-
-| 環境 | 佔比 | 最長連續 |
-|------|------|---------|
-| 盤整 (ranging) | **42.9%** | 120 bars |
-| 波動 (volatile) | **22.1%** | 82 bars |
-| 上升趨勢 (trending_up) | **18.7%** | 97 bars |
-| 下降趨勢 (trending_down) | **16.3%** | 73 bars |
-
-### 策略×環境適配
-
-| 市場環境 | 主要獲利策略 | 配置佔比 |
-|---------|------------|---------|
-| 趨勢期 (35%) | trend_donchian + momentum | **61%** |
-| 盤整期 (43%) | grid_trend_bias + pair_btc_eth | **24%** |
-| 高波動期 (22%) | tail_risk_hedge + funding_reversal | **15%** |
-
-**設計理念**: 
-- 趨勢期佔 35% 時間但分配 61% 資金 → 趨勢是主要獲利來源
-- 盤整期佔 43% 時間但有 24% 策略覆蓋 → 配對交易填補空窗期
-- 高波動期有 15% 防禦策略 → funding_reversal 在恐慌時逆向抄底
-- 🆕 **V7.3 改進**: 新增市場中性層（8%）使盤整期和高波動期的覆蓋更完善
-
----
-
-## 12. 手續費敏感度分析
+### 6.7 手續費敏感度
 
 | 指標 | 數值 |
 |------|------|
-| 總交易次數 | ~670 筆 |
-| 預設手續費 | 6 bps (maker+taker 均攤) |
-| 損益平衡手續費 | **22.7 bps** |
-| 安全倍數 | **3.79x** |
-| 評估 | ✅ SAFE |
-
-**解讀**: 即使手續費達到 22.7 bps（約當前 3.8 倍），策略仍能保持盈利。
-Binance VIP0 taker fee = 4 bps，maker = 2 bps，安全餘量充足。
-
-> ⚠️ V7.3 安全倍數從 4.32x 降至 3.79x，主因新增的配對交易策略雙腿手續費（每筆配對交易 = 2 筆實際交易），
-> 仍在安全範圍但較 V7.2 略減。
+| 總交易次數 | **620** |
+| Breakeven Fee | **26.5 bps** |
+| Safety Margin | **4.41x** |
+| Assessment | **SAFE** |
 
 ---
 
-## 13. 小資金部署建議
+## 7. 與 V7.3 歷史基準比較
 
-### $150 USDT 部署注意事項
+| 指標 | V7.3 歷史報告 | V7.4 目前版 | 變化 |
+|------|---------------|-------------|------|
+| 最終價值 | $505 | **$530** | +$25 |
+| 累計報酬 | +236.7% | **+253.7%** | 改善 |
+| 年化報酬 | 44.3% | **46.6%** | 改善 |
+| Sharpe | **2.437** | 1.984 | 惡化 |
+| Sortino | **3.625** | 2.960 | 惡化 |
+| MaxDD | **-9.1%** | -15.5% | 惡化 |
+| Calmar | **4.87** | 3.01 | 惡化 |
+| 平均相關性 | **0.041** | 0.0643 | 略惡化 |
+| 手續費安全倍數 | 3.79x | **4.41x** | 改善 |
+| 策略位 | 17 | **16** | -1 |
 
-1. **最小下單量**: Binance Futures 最小名義值為 $5，部分策略配置接近下限
-   - `trend_donchian_mtf BNB` ($3.0 × 2x = $6.0) ← 接近下限
-   - `funding_reversal ETH` ($4.5 × 1x = $4.5) ← 接近下限
-   
-2. **四捨五入影響**: $150 分配到 17 個策略，部分精度會損失
+### 7.1 正確解讀這個差異
 
-3. **建議入金**: $200+ 可確保所有策略位超過最小下單門檻
+V7.4 並不是 V7.3 的單純上位版。它同時包含：
 
-4. **進階規模**: $500+ 可考慮降低集中度、增加更多幣種
+- 與 live wiring 對齊的實際 baseline
+- 槓桿語義校正
+- 不同的策略配置與權重結構
 
-### 策略優先級（資金不足時的精簡版）
-
-如果只有 $100，建議優先保留：
-1. `trend_donchian_mtf BTC` (20%) — 最穩健
-2. `momentum_ranking ETH` (15%) — 最高風險調整收益
-3. `momentum_ranking BNB` (10%) — 強收益
-4. `grid_trend_bias ETH` (10%) — 高交易頻率
-5. `trend_donchian_adx_slope ETH` (12%) — 穩健+高交易量
-6. `pair_btc_eth` (8%) — 市場中性，降低相關性
-7. 其餘分配到 tail_risk/grid (25%)
-
----
-
-## 14. 風險警示
-
-### ⚠️ 重要風險聲明
-
-1. **過去績效不代表未來表現**: 回測基於歷史數據，實際交易可能面臨不同市場環境
-
-2. **參數失效風險**: 即使經過 7,605 組參數驗證，市場結構性變化可能導致參數失效
-   - **緩解措施**: 四層架構，脆弱層僅 7%（V7.2 的 12%→7%），穩健層佔 40%
-
-3. **流動性風險**: $150 規模的滑點影響較小，但極端行情下仍需注意
-   - **緩解措施**: 主要交易 BTC/ETH 高流動性幣種 (60% 配置)
-
-4. **槓桿風險**: 最高 2x 槓桿，異常行情可能放大虧損
-   - **緩解措施**: 防禦層 (12%) + 市場中性層 (8%) 使用 1x 槓桿
-
-5. **API 延遲風險**: 信號到成交之間的延遲可能影響短線策略
-   - **緩解措施**: 4h/1d 時間框架，對延遲不敏感
-
-6. **策略衰退風險**: 已識別並移除 3 個衰退策略（DCB ETH, breakout SOL, breakout BTC），未來可能出現新的衰退
-   - **緩解措施**: 定期（每月）運行健康度檢測
-
-7. **單一交易所風險**: 僅使用 Binance Futures
-   - **緩解措施**: 不要將所有資金投入
-
-8. **配對交易特有風險**: G5 pair_btc_eth 依賴 BTC/ETH 共整合關係持續存在
-   - **緩解措施**: 使用 Rolling OLS 動態調整 hedge ratio；若共整合破裂（β 漂移超出閾值），應暫停策略
-
-### 🔄 建議監控週期
-
-| 頻率 | 檢查項目 |
-|------|---------|
-| 每日 | 組合 PnL、各策略持倉狀態 |
-| 每週 | 策略健康度 (30d Sharpe)、DD 監控 |
-| 每月 | 完整回測 + Walk-Forward、衰退偵測 |
-| 每季 | 參數穩定性重掃、是否需要版本升級 |
+因此 V7.3 仍然是歷史上更漂亮的風險調整後報酬樣貌；但若要討論 **現在 repo 裡可直接接到 live / paper 的正式控制組**，應以本文件的 V7.4 為準。
 
 ---
 
-## 📎 附錄
+## 8. 本輪弱勢策略優化與後續方向
 
-### A. 完整技術指標
+### 8.1 這次真的有效的修正
 
-| 指標 | 數值 |
-|------|------|
-| Sharpe Ratio | 2.437 |
-| Sortino Ratio | 3.625 |
-| Calmar Ratio | 4.87 |
-| Max Drawdown | -9.1% |
-| Ann Return | 44.3% |
-| Total Return | 236.7% |
-| Total Trades | ~670 |
-| Mean Correlation | 0.041 |
-| Fee Breakeven | 22.7 bps |
-| Fee Safety | 3.79x |
-| WF OOS Sharpe (post-selection) | 2.103 |
-| WF OOS Sharpe (nested, equal-weight) | **2.762** |
-| WF OOS Sharpe (nested, Sharpe-weighted) | **2.273** |
-| WF Positive (all 3 methods) | 89% |
-| WF Efficiency | 0.838 |
-| MC i.i.d. — P5 / P95 Sharpe | 1.480 / 3.350 |
-| MC i.i.d. — P5 / P25 / P75 / P95 Final | 2.010x / 2.700x / 4.080x / 5.580x |
-| MC i.i.d. — P5 / P95 MaxDD | -18.5% / -6.8% |
-| MC block(5d) — P5 / P25 / P75 / P95 Final | 2.170x / 2.800x / 4.080x / 5.220x |
-| MC block(5d) — P5 / P95 Sharpe | 1.650 / 3.210 |
-| MC block(5d) — P5 / P95 MaxDD | -15.2% / -6.5% |
+| 項目 | 動作 | 結果 |
+|------|------|------|
+| breakout 接線 | 修正 `V74_CONFIG` 使用錯的 `kc_ema_period` / `kc_atr_period` key，改成策略實作實際吃的 `kc_ema` / `kc_atr` | breakout 單體從舊配置的 27.9% / 0.793 / -16.7% 變成 **30.9% / 0.732 / -16.8%**；整體組合影響有限 |
+| ETH ADX | 補跑 ETH 專掃後，把 `trend_donchian_adx_slope_eth` 換成 `entry=15, exit=5, adx_threshold=20, adx_slope_bars=3, leverage=1` | ETH ADX 單體從 **0.934 / -66.7%** 改善到 **1.142 / -30.5%**；組合層提升到 **Sharpe 1.984 / MaxDD -15.5%** |
 
-### B. Git 版本歷史
+### 8.2 目前最大的剩餘問題
 
-| Commit | 版本 | 說明 |
+1. **BTC ADX 仍然過弱**  
+   已掃描過 BTC 版本，最佳也只有 **Sharpe 0.581 / MaxDD -34.49%**，遠不足以支撐目前的 2x + 8% 配置。
+
+2. **breakout 不是當前最值得深挖的 alpha**  
+   接線修好後可保留，但它不是組合改善的主要來源。
+
+3. **低交易數策略仍在**  
+   `trend_donchian_mtf_btc`、`trend_donchian_mtf_xrp`、`momentum_ranking_bnb` 仍有統計信心不足問題。
+
+### 8.3 優先優化順序
+
+| 優先級 | 對象 | 建議 |
 |--------|------|------|
-| `488db04` | Rescan | Phase 1-2 rescan results (7,605 combos) |
-| `26227ae` | V7 | V7 portfolio (Sharpe 2.392) |
-| `9362387` | V7.1 | Robustness-weighted (Sharpe 2.414, MaxDD -11.9%) |
-| `6f76b0e` | V7.2 | Phase B/C optimized (Sharpe 2.355, MaxDD -10.6%) |
-| `a924c48` | G4 | FundingReversalVBT long-only dip buying strategy |
-| `8b12837` | G5 | BTC-ETH pair trading via rolling OLS cointegration |
-| `5020259` | V7.3 | G4+G5 integrated portfolio (Sharpe 2.437, MaxDD -9.1%) |
+| P1 | `trend_donchian_adx_slope_btc` | 先做 **1x / 降權重 / allocation-only** 路線，不建議再維持 2x 高曝險 |
+| P2 | `tail_risk_hedge_btc` | 因唯一明確 decay flag，建議改成 **volatile-only / drawdown-only** 啟用 |
+| P2 | Fragile tier | `grid_trend_bias_eth` + `breakout_squeeze_btc` 合計 12%，可考慮先壓到 9% |
+| P3 | `momentum_ranking_bnb` | 表現強但交易數少，先延長樣本 / 做 cross-asset 驗證，再決定是否加碼 |
 
-### C. 策略參數完整表
+### 8.4 對應 repo 內現成工具
 
-#### trend_donchian_mtf
-| 幣種 | entry | exit | adx_th | htf | leverage |
-|------|-------|------|--------|-----|---------|
-| BTC | 10 | 10 | 15 | 150 | 2 |
-| XRP | 10 | 5 | 15 | 100 | 2 |
-| BNB | 10 | 7 | 15 | 150 | 2 |
+- `python -m backtest_tool.scripts.optimize_phase12 --phase 1 --task 1d`
+- `python -m backtest_tool.scripts.optimize_phase12 --phase 2 --task 2b`
+- `python -m backtest_tool.scripts.v74_leverage_optimization`
 
-#### trend_donchian_adx_slope
-| 幣種 | entry | exit | slope_bars | slope_min | leverage |
-|------|-------|------|-----------|-----------|---------|
-| ETH | 20 | 5 | 5 | 0.2 | 2 |
-| BTC | 30 | 7 | 3 | 0.2 | 2 |
+### 8.5 最終結論
 
-#### momentum_ranking
-| 幣種 | roc | lookback | upper | lower | leverage |
-|------|-----|----------|-------|-------|---------|
-| ETH | 60 | 240 | 70 | 30 | 1.5 |
-| BNB | 90 | 120 | 70 | 30 | 1.5 |
-| SOL | 20 | 240 | 70 | 30 | 1.5 |
+V7.4 在 **live-aligned、槓桿語義已修正、ETH ADX 已切換到更健康的 1x 候選** 後，仍然達成：
 
-#### grid_trend_bias
-| 幣種 | bb | std | ema | leverage |
-|------|-----|-----|-----|---------|
-| ETH | 20 | 2.0 | 100 | 2 |
-| XRP | 15 | 2.0 | 50 | 2 |
-| BTC | 30 | 3.0 | 200 | 1 |
-| SOL | 15 | 2.0 | 100 | 1 |
+- 年化報酬 > 25%
+- MaxDD < 20%
+- Walk-Forward 通過
+- 手續費安全
 
-#### tail_risk_hedge
-| 幣種 | consec_up | consec_down | exit_bars | leverage |
-|------|-----------|------------|-----------|---------|
-| BNB | 10 | 5 | 15 | 1 |
-| SOL | 10 | 3 | 10 | 1 |
-| BTC | 10 | 5 | 10 | 1 |
+因此目前結論是：
 
-#### breakout_squeeze (V7.3 已移除)
-| 幣種 | bb | std | kc_ema | kc_atr | kc_mult | leverage |
-|------|-----|-----|--------|--------|---------|---------|
-| BTC | 30 | 3.0 | 10 | 7 | 2.0 | 2 |
-
-#### pair_btc_eth (V7.3 新增)
-| 參數 | 數值 | 說明 |
-|------|------|------|
-| ols_window | 480 | Rolling OLS 回歸視窗（bars） |
-| zscore_period | 90 | Z-score 計算視窗 |
-| entry_z | 2.5 | 進場 z-score 閾值 |
-| exit_z | 0.0 | 出場 z-score 閾值 |
-| stop_z | 4.0 | 止損 z-score 閾值 |
-| leverage | 1 | 槓桿倍數 |
-
-#### funding_reversal (V7.3 新增)
-| 參數 | 數值 | 說明 |
-|------|------|------|
-| entry_rate_long | -4 | 極負 funding rate 進場閾值（bps） |
-| hold_bars | 12 | 固定持倉時間（bars） |
-| leverage | 1 | 槓桿倍數 |
-
----
-
-*報告生成日期: 2026-04-20*  
-*回測引擎: VectorBT Pro + Cry2 Strategy Framework*  
-*數據來源: Binance Futures Historical Klines*
-
----
-
-## 15. 已知限制與注意事項
-
-> 以下為第三方 code review (GPT-5.4) 指出的問題，已修復或記錄。
-
-### 已修復的問題
-
-| # | 問題 | 修復方式 |
-|---|------|---------|
-| MC 年化不一致 | Monte Carlo 使用 252，portfolio 使用 365 | MC 改為接受 `annualization_factor` 參數，統一使用 365 |
-| MC 方法 vs 名稱不符 | 報告寫 bootstrap，實作為 `rng.permutation` (shuffle) → final value/Sharpe 為不變量，四欄相同 | 改為真正 bootstrap (`rng.choice(..., replace=True)`)，保留 `method` 參數，重跑後更新 §7 表格 |
-| 相關性頻率混合 | 相關性計算混合 4h/1d 原始頻率 | 改用 daily-resampled equity curves 計算 |
-| Health report 窗口 | 30/90 是 bars 不是 days (4h=5天/15天) | 改用 daily-resampled curves，窗口即為實際天數 |
-| 三層 tier 門檻自相矛盾 | 寫 ">50%" / "<15%" 但表格含 18.5%、13.9%、16.7% | §3 各層加上實際分層準則（族群 + viable% + 配置上限的綜合規則）；同步 `full_portfolio_backtest.py` / `bridge.py` 註解 |
-| 穩健層標籤 | 聲稱 ">50% viable" 但含 BTC adx_slope 18.5%、BNB mtf 13.9% | 修正描述為策略族群穩健性，明確標註例外 |
-| Walk-forward 口氣過強 | 寫「持續有效」/「overfitting 風險可控」，但 WF 只切已選組合的路徑 | §6 加上 post-selection 警語；另實作 `walk_forward_nested_analysis`，每窗口重新用 IS Sharpe 配權重後算 OOS（equal=2.76、sharpe_pos=2.27） |
-| MC 只有 i.i.d. 假設 | 單一 bootstrap 假設日報酬獨立，忽略波動聚集 | 新增 `block_bootstrap_simulation`，跑 block_size=5d 並在 §7 對照 i.i.d. 與 block 的 P5/P95 |
-| 低交易數統計信心 | <10 trades 的策略（BTC/XRP mtf、BNB momentum）Sharpe 誤差大但報告未警示 | §3 三層表加 ⚠️ 符號標記低交易數策略，並在標題說明 |
-| 目錄缺 §14 | TOC 只列到 13 但 §14「已知限制」確實存在 | TOC 加入 §14 條目 |
-
-### 設計限制 (known trade-offs)
-
-**1. Walk-Forward 非真正 per-window 重選參數**（已部分補強）
-- post-selection WF 在已選好的參數+權重上切窗
-- 已新增 nested WF（每窗口重新用 IS Sharpe 配權重），結果 sharpe_pos OOS=2.27 vs post-selection 2.00
-- **仍不足**：nested WF 只重配權重，**沒有每窗口重跑參數掃描**。要做到嚴格 nested 需要每個 IS 窗口 re-run 7,605 組合參數掃，工程量很大
-- **緩解**: §6 viable% 在參數維度提供獨立證據；§7 nested WF 在權重維度提供獨立證據；兩者合起來逼近嚴格 nested 的一部分
-
-**2. 部分策略交易次數過少**（已標記）
-- trend_donchian_mtf BTC: 7 trades ⚠️
-- trend_donchian_mtf XRP: 5 trades ⚠️
-- momentum_ranking BNB: 8 trades ⚠️
-- **影響**: 低交易次數導致 win rate、Sharpe 的統計信心較低；使用 Bernoulli 估算，5 筆交易的勝率 95% CI 寬達 ±35%
-- **緩解**: §3 表格已加 ⚠️ 標記；viable% 分析考慮了多種參數，這些策略在更長回測期間仍保持正 Sharpe
-
-**3. Regime 曝險偏重趨勢+動量**
-- 趨勢型 (trend_donchian + momentum) 佔 61% 配置（V7.2 的 63% 已略降）
-- 在非趨勢 regime，實際策略間相關性可能高於報告顯示的 0.041
-- **影響**: 若市場長期盤整/震盪，組合可能承受集中虧損
-- **緩解**: Grid (19%) + Tail Risk Hedge (12%) + Market Neutral (8%) 提供盤整/高波動覆蓋；MaxDD -9.1% 已含歷史各 regime
-
-**4. Monte Carlo 假設 i.i.d.**（已部分補強）
-- i.i.d. bootstrap 改善了 shuffle 的不變量問題，但仍假設每日報酬獨立
-- 已新增 block bootstrap (block_size=5d)，保留短期自相關；§8 並列比較兩方法
-- **仍不足**：兩方法都只對「歷史資料同分布」下的路徑變異建模，**對 regime 切換無法外推**
-- **緩解**: §8 備註強調「兩方法 P5 為歷史分布下的路徑下界，真正牛熊切換時肥尾可能更胖」
-
-**5. 綜合可信度與部署建議**
-- 上述限制 (1)-(4) 都不否定 V7.3 在歷史回測的表現，但**確實限制了我們能從回測結論推到未來的強度**
-- 部署前建議：
-  - 先用 paper trading 跑至少 1 個月，驗證實時執行行為
-  - 監控實盤相關性 vs 回測 0.041 的差異（尤其盤整 regime）
-  - 每季重跑參數掃描，確認 viable% 沒有大幅下降
-  - 監控 BTC/ETH 共整合關係是否持續（pair_btc_eth 特有風險）
-- **目前階段的合適用語**：這是一個「在歷史資料上表現優異、但尚未以嚴格 nested OOS 驗證」的候選組合
-
-**6. 配對交易 OLS 計算成本**（V7.3 新增）
-- Rolling OLS 計算複雜度為 O(n²)，7,226 bars × ols_window=480 約需 60 秒
-- Live trading 中每根 bar 只需增量計算一次 OLS，延遲可忽略
-- 回測時若需大規模參數掃描，建議先快取 OLS 殘差序列
+> **V7.4 可以作為 Cry2 的正式 baseline 回測報告與部署控制組。**  
+> 現階段最值得繼續優化的不是 breakout，也不是 ETH ADX，而是 **BTC ADX 的風險處理與整體 allocation 微調**。
