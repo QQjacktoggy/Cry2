@@ -279,6 +279,35 @@ class BinanceRestClient:
         except Exception as e:
             raise ExchangeError(f"Get account trades failed: {e}") from e
 
+    def get_listen_key(self) -> str:
+        """Create a new user data stream listen key (futures).
+
+        Returns:
+            The listen key string used to authenticate the user data WebSocket.
+        """
+        self.rate_limiter.acquire(weight=1)
+        if self._client is None:
+            return ""
+        try:
+            resp = self._client.futures_stream_get_listen_key()
+            return resp.get("listenKey", "")
+        except Exception as e:
+            raise ExchangeError(f"Get listen key failed: {e}") from e
+
+    def keep_alive_listen_key(self, listen_key: str) -> None:
+        """Ping/extend a futures listen key (must be called every ~30 min).
+
+        Args:
+            listen_key: The listen key to keep alive.
+        """
+        self.rate_limiter.acquire(weight=1)
+        if self._client is None:
+            return
+        try:
+            self._client.futures_stream_keepalive(listenKey=listen_key)
+        except Exception as e:
+            raise ExchangeError(f"Keep-alive listen key failed: {e}") from e
+
     def ping(self) -> float:
         """Ping the API and return latency in ms."""
         start = time.time()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -45,6 +46,10 @@ class LiveFeed(DataFeed):
         self._reconnect_delay = 1.0
         self._rest_client = rest_client
         self._funding_poll_interval = funding_poll_interval
+        self.on_reconnect: Callable[[], None] | None = None
+        self.on_status_change: Callable[[bool], None] | None = None
+        self.periodic_sync_fn: Callable[[], None] | None = None
+        self.periodic_sync_interval: int = 3600
 
     def _build_stream_url(self) -> str:
         """Build combined WebSocket stream URL."""
@@ -56,7 +61,6 @@ class LiveFeed(DataFeed):
 
     def _parse_kline_message(self, data: dict[str, Any]) -> MarketEvent | None:
         """Parse WebSocket kline message into MarketEvent."""
-        stream = data.get("stream", "")
         kline_data = data.get("data", {}).get("k", {})
 
         if not kline_data:
@@ -100,10 +104,16 @@ class LiveFeed(DataFeed):
 
         while self._running:
             try:
+                is_reconnect = self._reconnect_attempts > 0
                 async with websockets.connect(url, ping_interval=20) as ws:
                     self._ws = ws
                     self._reconnect_attempts = 0
                     logger.info("ws_connected", symbols=self.symbols)
+                    self._notify_status_change(True)
+                    if is_reconnect and self.on_reconnect is not None:
+                        await asyncio.get_event_loop().run_in_executor(
+                            None, self.on_reconnect
+                        )
 
                     async for raw_message in ws:
                         if not self._running:
@@ -117,6 +127,7 @@ class LiveFeed(DataFeed):
                             logger.warning("ws_invalid_json")
 
             except Exception as e:
+                self._notify_status_change(False)
                 self._reconnect_attempts += 1
                 if self._reconnect_attempts > self._max_reconnect_attempts:
                     logger.error("ws_max_reconnect_exceeded")
@@ -168,17 +179,29 @@ class LiveFeed(DataFeed):
                     logger.warning("funding_poll_error", symbol=symbol, error=str(e))
             await asyncio.sleep(self._funding_poll_interval)
 
+    async def _periodic_sync(self) -> None:
+        """Run periodic_sync_fn every periodic_sync_interval seconds."""
+        while self._running:
+            await asyncio.sleep(self.periodic_sync_interval)
+            if not self._running or self.periodic_sync_fn is None:
+                break
+            await asyncio.get_event_loop().run_in_executor(None, self.periodic_sync_fn)
+            logger.info("periodic_sync_completed")
+
     async def start_async(self) -> None:
         """Start the WebSocket connection and funding rate poller."""
         self._running = True
         tasks = [asyncio.create_task(self._connect_and_listen())]
         if self._rest_client is not None:
             tasks.append(asyncio.create_task(self._poll_funding_rates()))
+        if self.periodic_sync_fn is not None:
+            tasks.append(asyncio.create_task(self._periodic_sync()))
         await asyncio.gather(*tasks)
 
     def stop(self) -> None:
         """Stop the live feed."""
         self._running = False
+        self._notify_status_change(False)
         logger.info("live_feed_stopped")
 
     def has_next(self) -> bool:
@@ -188,3 +211,7 @@ class LiveFeed(DataFeed):
     def next(self) -> None:
         """Live feed uses push model via event bus."""
         return None
+
+    def _notify_status_change(self, connected: bool) -> None:
+        if self.on_status_change is not None:
+            self.on_status_change(connected)

@@ -155,6 +155,7 @@ class BaseStrategy(ABC):
         stop_price: float = 0.0,
         reduce_only: bool = False,
         reason: str = "",
+        metadata: dict[str, Any] | None = None,
     ) -> SignalEvent:
         """Helper to create a SignalEvent."""
         return SignalEvent(
@@ -168,5 +169,6 @@ class BaseStrategy(ABC):
             stop_price=stop_price,
             reduce_only=reduce_only,
             reason=reason,
+            metadata=metadata or {},
             source=self.name,
         )
