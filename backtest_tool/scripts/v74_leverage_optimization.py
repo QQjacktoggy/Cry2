@@ -1,18 +1,17 @@
-"""V7.4 Portfolio Optimization — 2x leverage with MaxDD < -15%.
+# ruff: noqa: E402
+"""V7.4 Portfolio Optimization — simulated 2x leverage with MaxDD < -15%.
 
 Strategy:
-  1. Run all 17 strategies individually, capture equity curves
+  1. Run all current V7.4 strategies individually, capture equity curves
   2. Analyze per-strategy MaxDD contribution during portfolio DD periods
   3. Sweep allocation adjustments to find optimal weights
   4. Verify at 2x leverage that MaxDD stays under -15%
 
-Target: 2x leverage, MaxDD ≤ -15%, Sharpe ≥ 2.0, maximize returns
+Target: simulated 2x leverage, MaxDD ≤ -15%, Sharpe ≥ 2.0, maximize returns
 """
 
 from __future__ import annotations
 
-import copy
-import itertools
 import sys
 from pathlib import Path
 
@@ -22,13 +21,12 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
+from backtest_tool.engine.runner import BacktestRunner
 from backtest_tool.scripts.full_portfolio_backtest import (
     INITIAL_CAPITAL,
     PORTFOLIO,
-    load_data,
     run_single_strategy,
 )
-from backtest_tool.engine.runner import BacktestRunner
 
 TARGET_LEVERAGE = 2.0
 MAX_DD_LIMIT = -15.0  # at 2x leverage
@@ -189,7 +187,7 @@ def optimize_allocations(results: dict, base_allocations: dict) -> dict:
     med_dd = [n for n, v in sorted_by_dd if -30 <= v["maxdd"] < -15]
     low_dd = [n for n, v in sorted_by_dd if v["maxdd"] >= -15]
 
-    print(f"\n  Strategy DD Categories:")
+    print("\n  Strategy DD Categories:")
     print(f"    High DD (>{30}%): {high_dd}")
     print(f"    Med DD (15-30%): {med_dd}")
     print(f"    Low DD (<15%):   {low_dd}")
@@ -253,7 +251,6 @@ def optimize_allocations(results: dict, base_allocations: dict) -> dict:
     # Candidate 5: Max diversification — cap everything at 10%
     c5 = dict(base_allocations)
     over = 0
-    under_count = 0
     for name in c5:
         if c5[name] > 0.10:
             over += c5[name] - 0.10
@@ -314,22 +311,22 @@ def optimize_allocations(results: dict, base_allocations: dict) -> dict:
 
 def main():
     print("=" * 80)
-    print("🔬 V7.4 OPTIMIZATION — 2x Leverage with MaxDD ≤ -15%")
+    print("🔬 V7.4 OPTIMIZATION — simulated 2x leverage with MaxDD ≤ -15%")
     print("=" * 80)
-    print(f"  Target: 2.0x leverage, MaxDD ≤ -15%, Sharpe ≥ 2.0")
-    print(f"  Requires base MaxDD ≤ -7.5% (currently -9.2%)")
+    print("  Target: 2.0x leverage, MaxDD ≤ -15%, Sharpe ≥ 2.0")
+    print("  Requires base MaxDD ≤ -7.5% (currently -9.2%)")
 
     # Step 1: Run all strategies
-    print(f"\n📊 Step 1: Running all 17 strategies...")
+    print(f"\n📊 Step 1: Running all {len(PORTFOLIO)} strategies...")
     results = run_all_strategies()
     print(f"  ✅ {len(results)} strategies loaded")
 
     # Step 2: Analyze DD contribution
     base_alloc = {name: cfg["allocation"] for name, cfg in PORTFOLIO.items()}
-    print(f"\n📊 Step 2: Analyzing drawdown contributions...")
+    print("\n📊 Step 2: Analyzing drawdown contributions...")
     dd_df = analyze_dd_contribution(results, base_alloc)
     if len(dd_df) > 0:
-        print(f"\n  Strategy DD Contribution (during worst portfolio DD):")
+        print("\n  Strategy DD Contribution (during worst portfolio DD):")
         print(f"  {'Name':<35} {'Alloc%':>7} {'StratDD%':>10} {'WeightDD%':>10} {'Sharpe':>8}")
         print("  " + "-" * 72)
         for _, row in dd_df.iterrows():
@@ -392,7 +389,7 @@ def main():
               f"Return {best_passing['return_1x'] * 2:.0f}%+, "
               f"MaxDD {best_passing['maxdd_2x']}%, "
               f"$150 → ${best_passing['final_2x']:.0f}")
-        print(f"\n   V7.4 Allocation Changes:")
+        print("\n   V7.4 Allocation Changes:")
         base = {name: cfg["allocation"] for name, cfg in PORTFOLIO.items()}
         for name in sorted(best_passing["allocations"].keys()):
             old = base.get(name, 0) * 100

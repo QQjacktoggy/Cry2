@@ -574,6 +574,71 @@ docker compose -f docker-compose.prod.yml up -d
 docker compose logs -f bot --tail=50
 ```
 
+### 7.2A Testnet 資料回流閉環（V7.4 優先）
+
+在 GCP VM 接上 Binance Testnet 後，**目標不是只讓 bot 跑起來，而是讓每次 paper run 都能自然回流成下一輪優化資料**。最低要求如下：
+
+| 類別 | 必收資料 | 用途 |
+|------|----------|------|
+| 交易資料 | fills、paired trades、commission、realized PnL | 還原真實成交與策略績效 |
+| 決策資料 | `signal_generated`、`signal_rejected`、reject reason、requested leverage | 分析策略是不是常被風控卡掉或訊號品質不佳 |
+| 運行資料 | WS disconnect/reconnect、API latency、reconcile 次數與差異、risk halt、kill switch | 分析 runtime 問題是不是拖累策略 |
+| 狀態資料 | equity snapshot、position snapshot、health snapshot | 做 rolling review 與異常定位 |
+| 版本資料 | `run_id`、`config_fingerprint`、`git_sha`/image tag、version、environment | 確保回看資料時知道是「哪一版策略」產生的 |
+
+**建議 bundle 結構：**
+
+```text
+/data/review_bundles/{run_id}/
+  paper_trades.db
+  health.json
+  logs.jsonl
+  config.snapshot.yaml
+  deploy_meta.json
+  account_snapshot.json
+```
+
+**建議流程：**
+
+1. 每次 deploy 或 restart 產生新的 `run_id`
+2. Runtime 持續寫 journal / health / structured logs
+3. 每日或每次停止時輸出 review bundle
+4. 自動同步到 GCS，供本機或分析腳本拉回
+5. 用 analyzer 腳本生成 per-strategy PnL、rolling Sharpe、reject summary、reconcile anomalies、runtime incident report
+
+**關鍵原則：**
+- 只存 trade journal 不夠；沒有 signal / reject / runtime 事件，就很難知道策略差還是工程差
+- review bundle 必須是**版本可追溯**的，否則回頭優化時無法對應到實際 deploy 狀態
+
+### 7.2B 策略更新 / 發布 / 回滾流程（避免把 GCP VM 弄壞）
+
+**不要直接 SSH 到 VM 手改 code 或 YAML。** 正確做法是讓 VM 永遠只吃「版本化產物」。
+
+**推薦流程：**
+
+1. 本機：修改策略 / config
+2. 本機：跑 `--dry-run`、pytest、必要 backtest / regression
+3. 建 image + config bundle，寫入 `git_sha` / image tag / config fingerprint
+4. 部署到 **testnet VM**
+5. 驗證 health gate：Secret Manager、WS、user data stream、reconcile、journal、health probe 全部正常
+6. 觀察一段時間並匯出 review bundle
+7. 判讀結果後決定保留、繼續觀察或 rollback
+
+**Rollback 最低要求：**
+
+- deploy 前自動備份當前 `paper_trades.db`、health snapshot、config snapshot
+- 保留前一版 image tag 與 config bundle
+- 提供固定 rollback 指令或腳本，不靠人工即席操作
+- 如果 schema 改動可能破壞舊資料，先做 migration / backward compatibility 設計；不接受直接覆蓋 VM 上現有資料
+
+**推薦 promotion gate（testnet 階段）**：
+
+- 啟動 smoke / health 全綠
+- journal 持續寫入正常
+- reconcile 無異常膨脹
+- signal reject rate / runtime incidents 在可接受範圍
+- review bundle 可成功回拉並分析
+
 ### 7.3 緊急停止
 
 ```bash

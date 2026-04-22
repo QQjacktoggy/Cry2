@@ -1,6 +1,6 @@
 # 📊 Cry2 量化交易系統 — 完整回測分析報告
 
-**版本**: V7.3 (G4+G5 Market Neutral Integration) | **日期**: 2026-04-20  
+**版本**: V7.3 主報告 + V7.4 更新附註 | **日期**: 2026-04-22  
 **初始資金**: 150 USDT  
 **回測期間**: 2023-01-01 ~ 2026-04-20（約 3.3 年）  
 **資料來源**: Binance Futures 4h/1d K線（BTC/ETH/BNB/SOL/XRP）  
@@ -78,6 +78,18 @@
 | 最終價值 | $514 | **$505** | -$9（DD 改善抵消） |
 
 **V7.3 核心改進**: 新增 G4 Funding Rate 反向策略 + G5 BTC-ETH OLS 配對交易，引入市場中性維度，大幅降低 MaxDD 與策略間相關性。
+
+### 🆕 V7.4 執行鏈與槓桿模型更新（2026-04-22）
+
+| 項目 | 結果 |
+|------|------|
+| `python scripts/run_live.py --dry-run --version v74` | ✅ 通過；16 個策略位、5 幣種、1d/4h 混合時間框架、總配置 100%，可寫出 health snapshot |
+| `python scripts/run_paper.py --dry-run --version v74` | ✅ 通過；摘要與 live dry-run 一致，確認 paper/runtime wiring 無衝突 |
+| runtime smoke regression | ✅ `tests/unit/test_runtime_smoke.py` 通過 |
+| `python -m backtest_tool.scripts.full_portfolio_backtest` | ✅ 已重跑（對齊 live V7.4 配置）；Final **$543**、Total Return **+261.7%**、Ann Return **+47.6%**、Sharpe **1.763**、MaxDD **-17.7%**、Verdict **DEPLOYABLE (5/5)** |
+| leverage semantics | ✅ 已收斂：raw `vectorbt` `size_type="percent"` 在 `size > 1` 時不會形成真實 >1x 曝險，因此 `full_portfolio_backtest.py` 改為顯式 **return-amplification leverage model**，`v74_leverage_optimization.py` 明確標示為 simulated 2x leverage |
+
+> 註：本文件其餘績效表仍以 **V7.3 歷史回測結果** 為主；上表已補上 **2026-04-22 的 V7.4 重測摘要**。若要把整份報告升級成正式 V7.4 版，仍需把正文各章節表格與分析敘述整體改寫。
 
 ---
 
@@ -846,6 +858,8 @@ Binance VIP0 taker fee = 4 bps，maker = 2 bps，安全餘量充足。
 | hold_bars | 12 | 固定持倉時間（bars） |
 | leverage | 1 | 槓桿倍數 |
 
+> 註：backtest 腳本中的 `leverage` 參數，現在統一解讀為**顯式 return-amplification 槓桿模型**；live 交易中的 `leverage` 則對應交易所實際槓桿設定。不要再把 raw `vectorbt` percent sizing 視為可直接產生 broker-style 2x 持倉。
+
 ---
 
 *報告生成日期: 2026-04-20*  
@@ -898,6 +912,12 @@ Binance VIP0 taker fee = 4 bps，maker = 2 bps，安全餘量充足。
 - i.i.d. bootstrap 改善了 shuffle 的不變量問題，但仍假設每日報酬獨立
 - 已新增 block bootstrap (block_size=5d)，保留短期自相關；§8 並列比較兩方法
 - **仍不足**：兩方法都只對「歷史資料同分布」下的路徑變異建模，**對 regime 切換無法外推**
+
+**5. V7.4 槓桿語義已修正，且已完成 live-aligned 完整重測**
+- 這次已確認 raw `vectorbt` `size_type="percent"` 在 `size > 1` 時會裁切在 100%，不能直接代表 broker-style 2x 槓桿
+- `full_portfolio_backtest.py` 已改為顯式 return-amplification leverage model，且其配置來源已直接對齊 live `create_v74_strategies()`；`v74_leverage_optimization.py` 也同步標示為 simulated 2x
+- **重測結果**：2026-04-22 的 live-aligned V7.4 full backtest 為 Sharpe 1.763、MaxDD -17.7%、Final $543，已回到 5/5 checks passed
+- **影響**：本報告正文的 V7.3 指標仍可作為歷史基準，但附錄參數表中的 `leverage` 欄位，請解讀為「策略目標槓桿設定」，不是 raw VBT 下自動成立的保證
 - **緩解**: §8 備註強調「兩方法 P5 為歷史分布下的路徑下界，真正牛熊切換時肥尾可能更胖」
 
 **5. 綜合可信度與部署建議**

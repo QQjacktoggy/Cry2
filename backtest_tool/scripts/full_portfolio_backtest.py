@@ -1,8 +1,10 @@
+# ruff: noqa: E402
 """Full portfolio backtest + Walk-Forward validation with real Binance data.
 
-Runs all 17 strategies from the V7.4 optimized allocation (2x leverage,
-boost-defensive config), combines equity curves, and performs robustness
-checks (walk-forward, Monte Carlo, stress test).
+Runs all 17 strategies from the V7.4 optimized allocation, applies the
+explicit leverage model chosen in leverage_analysis.py, combines equity
+curves, and performs robustness checks (walk-forward, Monte Carlo, stress
+test).
 
 Supports optional risk controls (Phase D):
     --risk   Enable Phase D risk controls (3D consecutive loss + 3E max hold)
@@ -30,12 +32,16 @@ from backtest_tool.engine.analytics import (
     compute_strategy_health_report,
     find_low_correlation_pairs,
 )
+from backtest_tool.engine.leverage import (
+    annualization_factor_for_timeframe,
+    apply_leverage_to_equity,
+    summarize_equity_curve,
+)
 from backtest_tool.engine.regime import MarketRegimeDetector, RegimeConfig
 from backtest_tool.engine.risk_manager import RiskManager
 from backtest_tool.engine.robustness import (
     block_bootstrap_simulation,
     fee_sensitivity_analysis,
-    generate_robustness_report,
     monte_carlo_simulation,
     walk_forward_analysis,
     walk_forward_nested_analysis,
@@ -43,6 +49,7 @@ from backtest_tool.engine.robustness import (
 from backtest_tool.engine.runner import BacktestRunner
 from backtest_tool.strategies import STRATEGY_MAP
 from backtest_tool.strategies.base_vbt import FREQ_MAP
+from bot.strategy.bridge import V74_CONFIG
 
 DATA_DIR = ROOT / "backtest_tool" / "data" / "klines"
 OUTPUT_DIR = ROOT / "backtest_tool" / "reports" / "output"
@@ -67,151 +74,22 @@ RISK_MANAGER = RiskManager(
 
 # ─── Strategy + Allocation Config ───────────────────────────────────────────
 
-PORTFOLIO = {
-    # ═══════════════════════════════════════════════════════════
-    # V7.4 ALLOCATION — 2x Leverage + Boost Defensive
-    # Philosophy: 2x uniform leverage with MaxDD ≤ -15% safety gate
-    # Changes from V7.3:
-    #   - 🔧 Fixed leverage to actually apply via VBT size/size_type
-    #   - 🔧 Uniform 2x leverage across all strategies
-    #   - ↓ momentum_ranking ETH 10→9%, BNB 8→7% (high-DD reduction)
-    #   - ↑ tail_risk_hedge BNB 5→6%, SOL 4→5%, BTC 3→4% (defensive boost)
-    # Tier structure:
-    #   - ⭐ Robust tier (40%)  — trend_donchian family
-    #   - 🔵 Moderate tier (44%) — momentum / tail_risk / mid-grid
-    #   - ⚠️ Fragile tier (7%) — grid_trend_bias ETH
-    #   - 🟣 Market Neutral + Gap (8%) — pair trading + funding reversal
-    #   - 🛡️ Net: 1% moved from momentum → tail_risk per coin
-    # Result: 17 positions, 5 coins, 2x leverage, MaxDD ≤ -15%
-    # ═══════════════════════════════════════════════════════════
+def _build_live_aligned_v74_portfolio() -> dict[str, dict]:
+    """Build the backtest V7.4 portfolio from the live bridge source of truth."""
+    portfolio: dict[str, dict] = {}
+    for strategy_name, symbol, timeframe, allocation, params in V74_CONFIG:
+        key = f"{strategy_name}_{symbol.replace('USDT', '').lower()}"
+        portfolio[key] = {
+            "strategy_name": strategy_name,
+            "allocation": allocation,
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "params": dict(params),
+        }
+    return portfolio
 
-    # ── ⭐ ROBUST TIER — 40% (trend_donchian family; mixed viable%) ──────
-    "trend_donchian_mtf_btc": {
-        "strategy_name": "trend_donchian_mtf",
-        "allocation": 0.16,
-        "symbol": "BTCUSDT",
-        "timeframe": "4h",
-        "params": {"entry_period": 10, "exit_period": 10, "adx_threshold": 15, "htf_period": 150, "leverage": 2},
-    },
-    "trend_donchian_adx_slope_eth": {
-        "strategy_name": "trend_donchian_adx_slope",
-        "allocation": 0.10,
-        "symbol": "ETHUSDT",
-        "timeframe": "4h",
-        "params": {"entry_period": 20, "exit_period": 5, "adx_slope_bars": 5, "adx_slope_min": 0.2, "leverage": 2},
-    },
-    "trend_donchian_adx_slope_btc": {
-        "strategy_name": "trend_donchian_adx_slope",
-        "allocation": 0.08,
-        "symbol": "BTCUSDT",
-        "timeframe": "4h",
-        "params": {"entry_period": 30, "exit_period": 7, "adx_slope_bars": 3, "adx_slope_min": 0.2, "leverage": 2},
-    },
-    "trend_donchian_mtf_xrp": {
-        "strategy_name": "trend_donchian_mtf",
-        "allocation": 0.04,
-        "symbol": "XRPUSDT",
-        "timeframe": "4h",
-        "params": {"entry_period": 10, "exit_period": 5, "adx_threshold": 15, "htf_period": 100, "leverage": 2},
-    },
-    "trend_donchian_mtf_bnb": {
-        "strategy_name": "trend_donchian_mtf",
-        "allocation": 0.02,
-        "symbol": "BNBUSDT",
-        "timeframe": "4h",
-        "params": {"entry_period": 10, "exit_period": 7, "adx_threshold": 15, "htf_period": 150, "leverage": 2},
-    },
 
-    # ── 🔵 MODERATE TIER — 44% (V7.4: mom↓ tail↑; momentum/tail_risk/mid-grid) ─
-    "momentum_ranking_eth": {
-        "strategy_name": "momentum_ranking",
-        "allocation": 0.09,  # V7.4: 10→9% (reduce high-DD)
-        "symbol": "ETHUSDT",
-        "timeframe": "1d",
-        "params": {"roc_period": 60, "lookback": 240, "upper_threshold": 70, "lower_threshold": 30, "leverage": 2},
-    },
-    "momentum_ranking_bnb": {
-        "strategy_name": "momentum_ranking",
-        "allocation": 0.07,  # V7.4: 8→7% (reduce high-DD)
-        "symbol": "BNBUSDT",
-        "timeframe": "1d",
-        "params": {"roc_period": 90, "lookback": 120, "upper_threshold": 70, "lower_threshold": 30, "leverage": 2},
-    },
-    "momentum_ranking_sol": {
-        "strategy_name": "momentum_ranking",
-        "allocation": 0.03,
-        "symbol": "SOLUSDT",
-        "timeframe": "1d",
-        "params": {"roc_period": 20, "lookback": 240, "upper_threshold": 70, "lower_threshold": 30, "leverage": 2},
-    },
-    "grid_trend_bias_xrp": {
-        "strategy_name": "grid_trend_bias",
-        "allocation": 0.06,
-        "symbol": "XRPUSDT",
-        "timeframe": "4h",
-        "params": {"bb_period": 15, "bb_std": 2.0, "ema_period": 50, "leverage": 2},
-    },
-    "tail_risk_hedge_bnb": {
-        "strategy_name": "tail_risk_hedge",
-        "allocation": 0.06,  # V7.4: 5→6% (boost defensive)
-        "symbol": "BNBUSDT",
-        "timeframe": "1d",
-        "params": {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 15, "leverage": 2},
-    },
-    "tail_risk_hedge_sol": {
-        "strategy_name": "tail_risk_hedge",
-        "allocation": 0.05,  # V7.4: 4→5% (boost defensive)
-        "symbol": "SOLUSDT",
-        "timeframe": "1d",
-        "params": {"consec_up_threshold": 10, "consec_down_threshold": 3, "exit_bars": 10, "leverage": 2},
-    },
-    "grid_trend_bias_btc": {
-        "strategy_name": "grid_trend_bias",
-        "allocation": 0.03,
-        "symbol": "BTCUSDT",
-        "timeframe": "4h",
-        "params": {"bb_period": 30, "bb_std": 3.0, "ema_period": 200, "leverage": 2},
-    },
-    "grid_trend_bias_sol": {
-        "strategy_name": "grid_trend_bias",
-        "allocation": 0.03,
-        "symbol": "SOLUSDT",
-        "timeframe": "4h",
-        "params": {"bb_period": 15, "bb_std": 2.0, "ema_period": 100, "leverage": 2},
-    },
-    "tail_risk_hedge_btc": {
-        "strategy_name": "tail_risk_hedge",
-        "allocation": 0.04,  # V7.4: 3→4% (boost defensive)
-        "symbol": "BTCUSDT",
-        "timeframe": "1d",
-        "params": {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 2},
-    },
-
-    # ── ⚠️ FRAGILE TIER — 7% (very low viable% OR weak stat confidence; capped ≤7%) ─
-    "grid_trend_bias_eth": {
-        "strategy_name": "grid_trend_bias",
-        "allocation": 0.07,
-        "symbol": "ETHUSDT",
-        "timeframe": "4h",
-        "params": {"bb_period": 20, "bb_std": 2.0, "ema_period": 100, "leverage": 2},
-    },
-
-    # ── 🟣 MARKET NEUTRAL + GAP FILLER — 8% (G4+G5; near-zero corr) ─
-    "pair_btc_eth": {
-        "strategy_name": "pair_btc_eth",
-        "allocation": 0.05,
-        "symbol": "BTCUSDT",
-        "timeframe": "4h",
-        "params": {"ols_window": 480, "zscore_period": 90, "entry_z": 2.5, "exit_z": 0.0, "stop_z": 4.0, "leverage": 2},
-    },
-    "funding_reversal_eth": {
-        "strategy_name": "funding_reversal",
-        "allocation": 0.03,
-        "symbol": "ETHUSDT",
-        "timeframe": "4h",
-        "params": {"entry_rate_long": -4, "hold_bars": 12, "entry_rate_short": 999, "leverage": 2},
-    },
-}
+PORTFOLIO = _build_live_aligned_v74_portfolio()
 
 
 def load_data(symbol: str, timeframe: str) -> pd.DataFrame:
@@ -257,6 +135,7 @@ def run_single_strategy(
     cfg: dict,
     runner: BacktestRunner,
     risk_manager: RiskManager | None = None,
+    apply_leverage_model: bool = False,
 ) -> dict | None:
     """Run a single strategy and return result dict.
 
@@ -268,6 +147,8 @@ def run_single_strategy(
             signal-level controls (3D, 3E) are applied before VBT
             portfolio creation.  Pair trading and funding strategies
             are skipped (they have built-in stop mechanisms).
+        apply_leverage_model: When True, apply the explicit return-amplification
+            leverage model to the resulting equity curve.
     """
     # Support strategy_name override for multi-symbol entries
     strat_key = cfg.get("strategy_name", name)
@@ -334,18 +215,16 @@ def run_single_strategy(
             import vectorbt as vbt
             portfolio = vbt.Portfolio.from_signals(**kwargs)
             equity = portfolio.value()
-            total_return = portfolio.total_return() * 100
+            leverage = cfg["params"].get("leverage", 1.0)
+            if apply_leverage_model:
+                equity = apply_leverage_to_equity(equity, leverage, initial_capital=capital)
+
             total_trades = portfolio.trades.count()
             win_rate = portfolio.trades.win_rate() * 100 if total_trades > 0 else 0
-            max_dd = portfolio.max_drawdown() * 100
-            final_val = float(equity.iloc[-1]) if len(equity) > 0 else capital
-
-            returns = equity.pct_change().dropna()
-            ann = 365 * 6 if strategy.required_timeframe == "4h" else (365 if strategy.required_timeframe == "1d" else 365 * 24)
-            sharpe = returns.mean() / returns.std() * np.sqrt(ann) if returns.std() > 0 else 0
-            sortino_dn = returns[returns < 0].std()
-            sortino = returns.mean() / sortino_dn * np.sqrt(ann) if sortino_dn > 0 else 0
-            calmar = (total_return / abs(max_dd)) if max_dd != 0 else 0
+            summary = summarize_equity_curve(
+                equity,
+                annualization_factor=annualization_factor_for_timeframe(strategy.required_timeframe),
+            )
 
             return {
                 "name": name,
@@ -353,12 +232,12 @@ def run_single_strategy(
                 "tf": cfg["timeframe"],
                 "alloc": cfg["allocation"],
                 "capital": capital,
-                "final": final_val,
-                "return%": total_return,
-                "sharpe": sharpe,
-                "sortino": sortino,
-                "maxdd%": max_dd,
-                "calmar": calmar,
+                "final": summary["final_value"],
+                "return%": summary["total_return"],
+                "sharpe": summary["sharpe_ratio"],
+                "sortino": summary["sortino_ratio"],
+                "maxdd%": summary["max_drawdown"],
+                "calmar": summary["calmar_ratio"],
                 "trades": total_trades,
                 "win%": win_rate,
                 "equity": equity,
@@ -379,6 +258,29 @@ def run_single_strategy(
         print(f"  ❌ {name} failed: {e}")
         return None
 
+    equity = result.equity_curve
+    leverage = cfg["params"].get("leverage", 1.0)
+    if apply_leverage_model:
+        equity = apply_leverage_to_equity(equity, leverage, initial_capital=capital)
+        summary = summarize_equity_curve(
+            equity,
+            annualization_factor=annualization_factor_for_timeframe(cfg["timeframe"]),
+        )
+        final_value = summary["final_value"]
+        total_return = summary["total_return"]
+        sharpe = summary["sharpe_ratio"]
+        sortino = summary["sortino_ratio"]
+        max_drawdown = summary["max_drawdown"]
+        calmar = summary["calmar_ratio"]
+    else:
+        m = result.metrics
+        final_value = m.get("final_value", capital)
+        total_return = m.get("total_return", 0)
+        sharpe = m.get("sharpe_ratio", 0)
+        sortino = m.get("sortino_ratio", 0)
+        max_drawdown = m.get("max_drawdown", 0)
+        calmar = m.get("calmar_ratio", 0)
+
     m = result.metrics
     return {
         "name": name,
@@ -386,15 +288,15 @@ def run_single_strategy(
         "tf": cfg["timeframe"],
         "alloc": cfg["allocation"],
         "capital": capital,
-        "final": m.get("final_value", capital),
-        "return%": m.get("total_return", 0),
-        "sharpe": m.get("sharpe_ratio", 0),
-        "sortino": m.get("sortino_ratio", 0),
-        "maxdd%": m.get("max_drawdown", 0),
-        "calmar": m.get("calmar_ratio", 0),
+        "final": final_value,
+        "return%": total_return,
+        "sharpe": sharpe,
+        "sortino": sortino,
+        "maxdd%": max_drawdown,
+        "calmar": calmar,
         "trades": m.get("total_trades", 0),
         "win%": m.get("win_rate", 0),
-        "equity": result.equity_curve,
+        "equity": equity,
     }
 
 
@@ -418,7 +320,13 @@ def main() -> None:
 
     for name, cfg in PORTFOLIO.items():
         print(f"  ▶ {name} ({cfg['symbol']} {cfg['timeframe']} alloc={cfg['allocation']:.0%})")
-        r = run_single_strategy(name, cfg, runner, risk_manager=rm)
+        r = run_single_strategy(
+            name,
+            cfg,
+            runner,
+            risk_manager=rm,
+            apply_leverage_model=True,
+        )
         if r is not None:
             results[name] = r
             equity_curves[name] = r["equity"]

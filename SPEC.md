@@ -1,8 +1,8 @@
 # 幣安合約量化交易系統 — 開發規格書
 
 **專案代號**: `binance-futures-bot`
-**版本**: v1.0 (Spec Freeze)
-**日期**: 2026-04-17
+**版本**: v1.2 (V8 Planning Draft)
+**日期**: 2026-04-22
 **作者**: Jack
 **文件性質**: 目標規格(Target Spec)— 後續開發以此為準,規格異動需版本化。
 
@@ -29,6 +29,18 @@
 | G4 | 多策略並行,資金分配可配置 | 至少 4 種策略可同時運行,互不干擾 |
 | G5 | 可觀測性 | 所有交易有結構化日誌,Telegram 即時推送,Dashboard 可視化 |
 
+### 1.1A V8 績效升級目標 (Planning Baseline)
+
+| ID | 目標 | 量化指標 |
+|----|------|----------|
+| VG1 | 在不犧牲 deployability 下提升獲利 | 組合年化報酬 55-65% |
+| VG2 | 提升風險調整後報酬 | Portfolio Sharpe ≥ 2.2, Calmar ≥ 3.0 |
+| VG3 | 控制風險上限 | Backtest MaxDD ≤ 18%, hard ceiling = 20% |
+| VG4 | 提升分散化品質 | 至少 2 個低相關 sleeve 進入候選組合,與 core 的 30d PnL correlation < 0.5 |
+| VG5 | 升級需可驗證 | 至少 3 組 V8 候選組合完成 backtest / walk-forward / paper gate 比較 |
+
+**註**：V7.4 繼續作為 control baseline；V8 在指標被證明前，一律維持 opt-in 候選狀態。
+
 ### 1.2 非目標 (Non-Goals)
 
 - ❌ **不保證獲利**。本系統為交易執行與研究框架,績效取決於策略設計與市場狀況。
@@ -47,6 +59,14 @@
 4. Telegram 推送、Dashboard、日誌三者資訊一致。
 5. 回測引擎與實盤引擎通過 Parity Test(詳見 §10.4)。
 6. 小額實盤(< 100 USDT 倉位)運行 7 天,結果與預期一致。
+
+### 1.3A V8 候選升級判準
+
+1. V7.4 baseline 與 V8-A / V8-B / V8-C 必須使用相同資料區間、成本模型與 leverage semantics 比較。
+2. V8 Phase 1 僅允許納入 `lab_stat_arb_pairs`、`lab_stat_arb_pairs_bnb_btc`、`lab_liquidation_hunter`；其餘 lab 策略需先完成資料/執行基建。
+3. 任一 V8 candidate 若未同時達成年化 55-65%、Sharpe ≥ 2.2、MaxDD ≤ 18%，不得 promotion 到 paper。
+4. Paper 30 天 promotion gate：lab sleeves trade 數 > 20、30d Sharpe > 0.5、單 sleeve MaxDD < 5%、lab vs core correlation < 0.5、0 次風控違規。
+5. V8 live promotion 必須在 GCP deployment hardening 項完成後才可進行。
 
 ---
 
@@ -76,6 +96,15 @@
 | FR-S-06 | 策略參數集中於 YAML,不硬編碼 | MUST |
 | FR-S-07 | 多策略並行,各自獨立倉位與資金池 | MUST |
 | FR-S-08 | 策略可熱啟停(不需重啟整個程式) | SHOULD |
+
+### 2.2.1 V8 策略擴充範圍
+
+- **Phase 1（立即可驗證）**：`lab_stat_arb_pairs`、`lab_stat_arb_pairs_bnb_btc`、`lab_liquidation_hunter`
+- **Phase 2（基建前置）**：`lab_perp_spot_basis`、`lab_cross_exchange_funding`、`lab_btc_dominance_rotation`
+- **整合守則**：
+  - Lab 一律 opt-in，不得改寫主線 default registry/config
+  - Lab 與主線共用同一個 `RiskManager`，但 Lab 使用更嚴的風控閾值
+  - 若某個 lab sleeve 與主線相關性過高或 paper gate 未過，維持候選狀態，不進主線
 
 ### 2.3 執行
 
@@ -116,6 +145,8 @@
 | FR-B-09 | Walk-Forward 分析(訓練 6 個月 / 測試 1 個月,滾動) | MUST |
 | FR-B-10 | 蒙地卡羅模擬(交易順序隨機打亂 ≥ 1000 次) | SHOULD |
 | FR-B-11 | 參數優化:Grid Search + Optuna(貝葉斯) | SHOULD |
+| FR-B-12 | V8 候選組合比較矩陣（V7.4 / V8-A / V8-B / V8-C） | MUST |
+| FR-B-13 | Low-correlation sleeves 必須輸出 correlation report 與 promotion gates 結果 | MUST |
 
 ### 2.6 監控與通知
 
@@ -741,6 +772,7 @@ config/
 |------|------|------|------|
 | v1.0 | 2026-04-17 | 初版規格凍結 | Jack |
 | v1.1 | 2026-04-17 | 部署環境鎖定 GCP;新增 §2.7.1、§11.2、§13.1、cloud/ 模組、deploy/ 目錄 | Jack |
+| v1.2 | 2026-04-22 | 新增 V8 planning targets、候選升級判準、V8 策略 phase split 與回測比較矩陣要求 | Jack |
 
 ---
 

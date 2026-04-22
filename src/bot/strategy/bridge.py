@@ -36,6 +36,28 @@ from bot.strategy.base import BaseStrategy
 
 logger = structlog.get_logger(__name__)
 
+V74_CONFIG = [
+    # ⭐ ROBUST TIER — trend_donchian: stable, keep 2x
+    ("trend_donchian_mtf", "BTCUSDT", "4h", 0.16, {"entry_period": 10, "exit_period": 10, "adx_threshold": 15, "htf_period": 150, "leverage": 2}),
+    ("trend_donchian_adx_slope", "ETHUSDT", "4h", 0.10, {"entry_period": 20, "exit_period": 5, "adx_slope_bars": 5, "adx_slope_min": 0.2, "leverage": 2}),
+    ("trend_donchian_adx_slope", "BTCUSDT", "4h", 0.08, {"entry_period": 30, "exit_period": 7, "adx_slope_bars": 3, "adx_slope_min": 0.2, "leverage": 2}),
+    ("trend_donchian_mtf", "XRPUSDT", "4h", 0.04, {"entry_period": 10, "exit_period": 5, "adx_threshold": 15, "htf_period": 100, "leverage": 2}),
+    ("trend_donchian_mtf", "BNBUSDT", "4h", 0.02, {"entry_period": 10, "exit_period": 7, "adx_threshold": 15, "htf_period": 150, "leverage": 2}),
+    # 🔵 MODERATE / DEFENSIVE — high-DD families reduced to 1x
+    ("momentum_ranking", "ETHUSDT", "1d", 0.12, {"roc_period": 60, "lookback": 240, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1}),
+    ("momentum_ranking", "BNBUSDT", "1d", 0.08, {"roc_period": 90, "lookback": 120, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1}),
+    ("momentum_ranking", "SOLUSDT", "1d", 0.03, {"roc_period": 20, "lookback": 240, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1}),
+    ("grid_trend_bias", "XRPUSDT", "4h", 0.06, {"bb_period": 15, "bb_std": 2.0, "ema_period": 50, "leverage": 1}),
+    ("tail_risk_hedge", "BNBUSDT", "1d", 0.05, {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 15, "leverage": 1}),
+    ("tail_risk_hedge", "SOLUSDT", "1d", 0.04, {"consec_up_threshold": 10, "consec_down_threshold": 3, "exit_bars": 10, "leverage": 1}),
+    ("grid_trend_bias", "BTCUSDT", "4h", 0.04, {"bb_period": 30, "bb_std": 3.0, "ema_period": 200, "leverage": 1}),
+    ("grid_trend_bias", "SOLUSDT", "4h", 0.03, {"bb_period": 15, "bb_std": 2.0, "ema_period": 100, "leverage": 1}),
+    ("tail_risk_hedge", "BTCUSDT", "1d", 0.03, {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 1}),
+    # ⚠️ FRAGILE TIER — keep weights but cap leverage at 1x
+    ("grid_trend_bias", "ETHUSDT", "4h", 0.09, {"bb_period": 20, "bb_std": 2.0, "ema_period": 100, "leverage": 1}),
+    ("breakout_squeeze", "BTCUSDT", "4h", 0.03, {"bb_period": 30, "bb_std": 3.0, "kc_ema_period": 10, "kc_atr_period": 7, "kc_mult": 2.0, "leverage": 1}),
+]
+
 # Import backtest strategy registry
 try:
     from backtest_tool.strategies import STRATEGY_MAP as VBT_STRATEGY_MAP
@@ -319,34 +341,8 @@ def create_v74_strategies(initial_capital: float = 150.0) -> list[VBTBridgeStrat
 
     Expected: Sharpe ~2.0, MaxDD < -12%, more conservative equity curve.
     """
-    v74_config = [
-        # ⭐ ROBUST TIER — trend_donchian: stable, keep 2x
-        ("trend_donchian_mtf",      "BTCUSDT", "4h", 0.16, {"entry_period": 10, "exit_period": 10, "adx_threshold": 15, "htf_period": 150, "leverage": 2}),
-        ("trend_donchian_adx_slope","ETHUSDT", "4h", 0.10, {"entry_period": 20, "exit_period": 5,  "adx_slope_bars": 5, "adx_slope_min": 0.2, "leverage": 2}),
-        ("trend_donchian_adx_slope","BTCUSDT", "4h", 0.08, {"entry_period": 30, "exit_period": 7,  "adx_slope_bars": 3, "adx_slope_min": 0.2, "leverage": 2}),
-        ("trend_donchian_mtf",      "XRPUSDT", "4h", 0.04, {"entry_period": 10, "exit_period": 5,  "adx_threshold": 15, "htf_period": 100, "leverage": 2}),
-        ("trend_donchian_mtf",      "BNBUSDT", "4h", 0.02, {"entry_period": 10, "exit_period": 7,  "adx_threshold": 15, "htf_period": 150, "leverage": 2}),
-        # 🔵 MODERATE TIER — momentum: high-DD → reduced to 1x
-        ("momentum_ranking",        "ETHUSDT", "1d", 0.12, {"roc_period": 60, "lookback": 240, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1}),
-        ("momentum_ranking",        "BNBUSDT", "1d", 0.08, {"roc_period": 90, "lookback": 120, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1}),
-        ("momentum_ranking",        "SOLUSDT", "1d", 0.03, {"roc_period": 20, "lookback": 240, "upper_threshold": 70, "lower_threshold": 30, "leverage": 1}),
-        # grid_xrp moderate DD → 1.5x
-        ("grid_trend_bias",         "XRPUSDT", "4h", 0.06, {"bb_period": 15, "bb_std": 2.0, "ema_period": 50,  "leverage": 1}),
-        # tail_risk_hedge: stable → 1.5x
-        ("tail_risk_hedge",         "BNBUSDT", "1d", 0.05, {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 15, "leverage": 1}),
-        ("tail_risk_hedge",         "SOLUSDT", "1d", 0.04, {"consec_up_threshold": 10, "consec_down_threshold": 3, "exit_bars": 10, "leverage": 1}),
-        # grid_btc: moderate DD → 1x
-        ("grid_trend_bias",         "BTCUSDT", "4h", 0.04, {"bb_period": 30, "bb_std": 3.0, "ema_period": 200, "leverage": 1}),
-        # grid_sol: high-DD -62% → 1x
-        ("grid_trend_bias",         "SOLUSDT", "4h", 0.03, {"bb_period": 15, "bb_std": 2.0, "ema_period": 100, "leverage": 1}),
-        ("tail_risk_hedge",         "BTCUSDT", "1d", 0.03, {"consec_up_threshold": 10, "consec_down_threshold": 5, "exit_bars": 10, "leverage": 1}),
-        # ⚠️ FRAGILE TIER — keep as-is but reduce leverage
-        ("grid_trend_bias",         "ETHUSDT", "4h", 0.09, {"bb_period": 20, "bb_std": 2.0, "ema_period": 100, "leverage": 1}),
-        ("breakout_squeeze",        "BTCUSDT", "4h", 0.03, {"bb_period": 30, "bb_std": 3.0, "kc_ema_period": 10, "kc_atr_period": 7, "kc_mult": 2.0, "leverage": 1}),
-    ]
-
     strategies = []
-    for strat_name, symbol, tf, alloc, params in v74_config:
+    for strat_name, symbol, tf, alloc, params in V74_CONFIG:
         alloc_usd = initial_capital * alloc
         strategy = create_bridged_strategy(
             strategy_name=strat_name,
