@@ -12,10 +12,10 @@ Usage:
 
 import argparse
 import asyncio
-from datetime import UTC, datetime
 import signal
 import sys
 from contextlib import suppress
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))

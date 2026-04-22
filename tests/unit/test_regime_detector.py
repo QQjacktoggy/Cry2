@@ -10,7 +10,6 @@ from bot.core.event_bus import EventBus
 from bot.risk.regime_detector import Regime, RegimeDetector
 from bot.risk.risk_manager import RiskManager
 
-
 # ── RegimeDetector unit tests ────────────────────────────────────────────────
 
 
@@ -178,8 +177,8 @@ class TestAtrAdaptiveLeverage:
         # Should remain unchanged since adaptive is off
         assert rm.effective_max_leverage == 3.0
 
-    def test_atr_zero_skipped(self):
-        """ATR=0 bars should not be added to history."""
+    def test_zero_atr_falls_back_to_bar_range(self):
+        """ATR=0 falls back to runtime OHLC-derived volatility input."""
         rm = self._rm(
             atr_adaptive_leverage=True,
             atr_window=10,
@@ -187,8 +186,7 @@ class TestAtrAdaptiveLeverage:
         )
         for _ in range(30):
             rm.update_market_data(101.0, 99.0, 100.0, atr=0.0)
-        # Window should be empty → leverage unchanged
-        assert rm.effective_max_leverage == 2.0
+        assert rm.effective_max_leverage == 3.0
 
 
 # ── D2 integration: regime blocking in RiskManager ──────────────────────────

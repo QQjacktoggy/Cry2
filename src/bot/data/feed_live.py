@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, Callable
+from typing import Any
 
 import structlog
 
@@ -60,7 +61,6 @@ class LiveFeed(DataFeed):
 
     def _parse_kline_message(self, data: dict[str, Any]) -> MarketEvent | None:
         """Parse WebSocket kline message into MarketEvent."""
-        stream = data.get("stream", "")
         kline_data = data.get("data", {}).get("k", {})
 
         if not kline_data:
