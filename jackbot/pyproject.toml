@@ -1,0 +1,9 @@
+[project]
+name = "jackbot"
+version = "1.0.0"
+description = "Jackbot_V1 — Binance Futures Grid Day-Trading Bot"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

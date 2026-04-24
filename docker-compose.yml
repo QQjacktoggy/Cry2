@@ -12,8 +12,8 @@ services:
       - bot-logs:/app/logs
       - ./config:/app/config:ro
     environment:
-      - PYTHONPATH=/app/src
-    command: python scripts/run_paper.py
+      - PYTHONPATH=/app/src:/app
+    command: python scripts/run_paper.py --version v74
     networks:
       - bot-network
 
@@ -39,6 +39,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
+      - DOCKER_API_VERSION=1.41
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_POLL_INTERVAL=3600
     networks:

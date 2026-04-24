@@ -2,7 +2,7 @@ exchange:
   name: binance
   mode: testnet
   base_url: https://demo-fapi.binance.com
-  ws_url: wss://fstream.binance.com
+  ws_url: wss://fstream.binancefuture.com
   api_key_env: BINANCE_TESTNET_API_KEY
   api_secret_env: BINANCE_TESTNET_API_SECRET
 

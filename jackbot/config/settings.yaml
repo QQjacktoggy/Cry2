@@ -1,0 +1,54 @@
+# ============================================================
+# Jackbot_V1 — 幣安合約網格日內交易機器人
+# ============================================================
+
+exchange:
+  name: binance
+  mode: testnet
+  base_url: https://testnet.binancefuture.com
+  ws_url: wss://fstream.binancefuture.com
+  api_key_env: BINANCE_TESTNET_API_KEY
+  api_secret_env: BINANCE_TESTNET_API_SECRET
+
+trading:
+  symbols: [BTCUSDC, ETHUSDC]
+  timeframe: 5m
+  total_capital_usd: 150
+  per_symbol_alloc_pct: 50       # 每幣種 75 USDT
+  compound_pct: 50.0             # 每日利潤的 50% 滾入本金
+
+grid:
+  default_grid_count: 10
+  max_leverage: 20               # 逐倉最高 20x
+  min_leverage: 5                # 逐倉最低 5x
+  warmup_bars: 50                # 50 x 5m = ~4h 預熱
+
+targets:
+  daily_profit_target_usd: 10    # 日標 10 USDT
+  daily_loss_limit_pct: 10.0     # 日虧上限: 總本金的 10%
+  grid_stop_loss_pct: 3.0        # 單網格止損: 浮虧 > 投入的 3% 就平倉
+
+review:
+  hourly_review_interval_bars: 12  # 12 x 5m = 每小時 review 一次
+
+conservative:
+  conservative_size_factor: 0.25
+  conservative_grid_spacing_mult: 2.0
+  conservative_leverage: 3
+
+risk:
+  max_concurrent_grids: 2
+  max_daily_resets: 10
+
+market_assessor:
+  adx_period: 14
+  trending_threshold: 25.0
+  ranging_threshold: 20.0
+  bb_period: 20
+  bb_std: 2.0
+  atr_period: 14
+
+telegram:
+  enabled: true
+  bot_token_env: TELEGRAM_BOT_TOKEN
+  chat_id_env: TELEGRAM_CHAT_ID

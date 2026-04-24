@@ -103,6 +103,13 @@ class TestMarketOrderFill:
 
         assert received[0].order_id == "12345"
 
+    def test_runtime_strategy_resolution_uses_order_ids(self, executor):
+        client_order_id = executor.submit_order(
+            _make_order(strategy="bridge_tail_risk_hedge_sol")
+        )
+
+        assert executor.resolve_strategy("12345", client_order_id) == "bridge_tail_risk_hedge_sol"
+
 
 class TestOrderFailure:
     def test_exchange_error_publishes_reject_event(self, executor, event_bus, mock_client):

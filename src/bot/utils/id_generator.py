@@ -6,6 +6,9 @@ import time
 import uuid
 
 
+_MAX_STRATEGY_PART_LEN = 12
+
+
 def generate_client_order_id(strategy_name: str = "", prefix: str = "bot") -> str:
     """Generate a unique client order ID.
 
@@ -14,7 +17,7 @@ def generate_client_order_id(strategy_name: str = "", prefix: str = "bot") -> st
     """
     ts = int(time.time() * 1000) % 10_000_000_000  # last 10 digits
     short_id = uuid.uuid4().hex[:6]
-    strategy_part = strategy_name[:8] if strategy_name else "gen"
+    strategy_part = strategy_name[:_MAX_STRATEGY_PART_LEN] if strategy_name else "gen"
     order_id = f"{prefix}_{strategy_part}_{ts}_{short_id}"
     return order_id[:36]
 
@@ -46,10 +49,9 @@ def extract_strategy_from_client_oid(
     if not known_strategies:
         return prefix
 
-    # Best match: strategy whose first-8-chars matches the prefix
-    for name in known_strategies:
-        if name[:8] == prefix[:8]:
-            return name
+    matches = [name for name in known_strategies if name.startswith(prefix)]
+    if len(matches) == 1:
+        return matches[0]
 
     return prefix
 

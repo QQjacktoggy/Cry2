@@ -107,6 +107,11 @@ class VBTBridgeStrategy(BaseStrategy):
         # VBT strategy instance (lazy init)
         self._vbt_strategy = None
 
+    def restore_position_state(self, position_state: str) -> None:
+        """Restore runtime position state after a restart or reconciliation."""
+        if position_state in {"long", "short", "flat"}:
+            self._in_position = position_state
+
     def _init_vbt_strategy(self) -> None:
         """Lazily initialize the VBT strategy."""
         if self._vbt_strategy is None:

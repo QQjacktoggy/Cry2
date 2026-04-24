@@ -15,7 +15,12 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import vectorbt as vbt
+try:
+    import vectorbt as vbt
+    _VBT_AVAILABLE = True
+except ImportError:
+    vbt = None
+    _VBT_AVAILABLE = False
 
 from backtest_tool.strategies.base_vbt import FREQ_MAP, BaseVBTStrategy
 
