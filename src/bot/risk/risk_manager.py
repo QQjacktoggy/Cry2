@@ -18,7 +18,7 @@ import structlog
 from bot.core.clock import BaseClock, RealClock
 from bot.core.constants import EventType
 from bot.core.event_bus import EventBus
-from bot.core.events import FillEvent, OrderEvent, RejectEvent, SignalEvent
+from bot.core.events import DailyTargetHitEvent, FillEvent, OrderEvent, RejectEvent, SignalEvent
 from bot.risk.regime_detector import Regime, RegimeDetector
 
 logger = structlog.get_logger(__name__)
@@ -52,6 +52,8 @@ class RiskManager:
         atr_low_pct: float = 20.0,
         atr_high_leverage: float = 1.0,
         atr_low_leverage: float = 3.0,
+        # Daily profit target gate
+        daily_profit_target_usd: float = 0.0,
         clock: BaseClock | None = None,
     ) -> None:
         self.event_bus = event_bus
@@ -66,6 +68,10 @@ class RiskManager:
         self.max_consecutive_losses = max_consecutive_losses
         self.loss_cooldown_bars = loss_cooldown_bars
         self._clock = clock or RealClock()
+
+        # Daily profit target gate
+        self._daily_profit_target_usd = daily_profit_target_usd
+        self.conservative_mode: bool = False
 
         # State tracking
         self._daily_pnl: float = 0.0
@@ -175,6 +181,7 @@ class RiskManager:
             self._daily_pnl = 0.0
             self._daily_trade_count = 0
             self._daily_halted = False
+            self.conservative_mode = False
             self._last_daily_reset = now
             logger.info("daily_risk_reset")
 
@@ -286,6 +293,12 @@ class RiskManager:
             return
 
         # Convert signal to order
+        req_lev_raw = event.metadata.get("requested_leverage", 0)
+        try:
+            req_lev = int(float(req_lev_raw)) if req_lev_raw else 0
+        except (TypeError, ValueError):
+            req_lev = 0
+
         order = OrderEvent(
             timestamp=event.timestamp,
             strategy_name=event.strategy_name,
@@ -298,6 +311,7 @@ class RiskManager:
             reduce_only=event.reduce_only,
             post_only=event.post_only,
             client_order_id="",
+            requested_leverage=req_lev,
             source="risk_manager",
         )
         self.event_bus.publish(order)
@@ -307,6 +321,25 @@ class RiskManager:
         self._daily_pnl += event.realized_pnl
         self._weekly_pnl += event.realized_pnl
         self._daily_trade_count += 1
+
+        # Daily profit target gate — flip to conservative mode once hit
+        if (
+            self._daily_profit_target_usd > 0
+            and self._daily_pnl >= self._daily_profit_target_usd
+            and not self.conservative_mode
+        ):
+            self.conservative_mode = True
+            logger.info(
+                "daily_target_hit",
+                daily_pnl=round(self._daily_pnl, 4),
+                target_usd=self._daily_profit_target_usd,
+            )
+            self.event_bus.publish(DailyTargetHitEvent(
+                timestamp=self._clock.now(),
+                daily_pnl=self._daily_pnl,
+                target_usd=self._daily_profit_target_usd,
+                source="risk_manager",
+            ))
 
         # Track consecutive losses per strategy
         strat_name = getattr(event, "strategy_name", "")
@@ -410,6 +443,8 @@ class RiskManager:
             "consecutive_losses": dict(self._consecutive_losses),
             "strategy_cooldowns": dict(self._strategy_cooldown),
             "is_halted": self.is_halted,
+            "conservative_mode": self.conservative_mode,
+            "daily_profit_target_usd": self._daily_profit_target_usd,
         }
 
     def get_regime_status(self) -> dict[str, Any]:

@@ -45,8 +45,8 @@ class ExchangeConfig(BaseModel):
 
     name: str = "binance"
     mode: str = "testnet"
-    base_url: str = "https://testnet.binancefuture.com"
-    ws_url: str = "wss://stream.binancefuture.com"
+    base_url: str = "https://demo-fapi.binance.com"
+    ws_url: str = "wss://fstream.binancefuture.com"
     api_key_env: str = "BINANCE_TESTNET_API_KEY"
     api_secret_env: str = "BINANCE_TESTNET_API_SECRET"
 
@@ -97,6 +97,27 @@ class RiskLimitsConfig(BaseModel):
     ws_kill_switch_timeout_sec: int = 300
     margin_reduce_threshold_pct: float = 50.0
     margin_reduce_amount_pct: float = 30.0
+    # Daily profit target gate (0 = disabled)
+    daily_profit_target_usd: float = 0.0
+    max_sl_pct: float = 1.5
+
+
+class RegimeCompositeStrategyConfig(BaseModel):
+    """Configuration for the regime-aware composite futures strategy."""
+
+    enabled: bool = True
+    symbols: list[str] = Field(default_factory=lambda: ["BTCUSDT", "ETHUSDT"])
+    timeframe: str = "15m"
+    daily_profit_target_usd: float = 20.0
+    conservative_size_factor: float = 0.25
+    conservative_leverage: int = 1
+    aggressive_leverage_trending: int = 7
+    aggressive_leverage_ranging: int = 3
+    aggressive_leverage_neutral: int = 2
+    skip_entries_in_volatile: bool = True
+    max_sl_pct: float = 1.5
+    allocation_usd: float = 110.0
+    warmup: int = 200
 
 
 class SafetyConfig(BaseModel):
