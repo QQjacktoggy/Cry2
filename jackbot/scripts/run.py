@@ -59,6 +59,7 @@ class JackbotRunner:
 
         # Event bus
         self._bus = EventBus()
+        self._stop_event = asyncio.Event()
 
         # Exchange client
         exchange = config.get("exchange", {})
@@ -219,8 +220,19 @@ class JackbotRunner:
                 f"日標: ${self._trader._cfg.daily_profit_target_usd}"
             )
 
-            # Start WebSocket feed
-            await self._feed.start()
+            # Start WebSocket feed and Commander concurrently
+            from jackbot.notify.commander import JackbotCommander
+            commander = JackbotCommander(
+                bot=self._telegram,
+                trader=self._trader,
+                portfolio=self._portfolio,
+                stop_event=self._stop_event
+            )
+            
+            await asyncio.gather(
+                self._feed.start(),
+                commander.run()
+            )
         else:
             logger.info("dry_run_mode — simulating with historical data")
             for symbol in self._trader._cfg.symbols:
@@ -263,6 +275,7 @@ class JackbotRunner:
         close_signals = self._trader.close_all(reason="shutdown")
         for s in close_signals:
             self._execute_signal(s)
+        self._stop_event.set()
         self._client.close()
         self._telegram.send("🛑 <b>Jackbot_V1 已停止</b>")
         logger.info("jackbot_shutdown_complete")
