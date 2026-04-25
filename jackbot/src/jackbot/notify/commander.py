@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
+import httpx
 import structlog
 
 if TYPE_CHECKING:
@@ -29,6 +30,7 @@ class JackbotCommander:
         self._stop_event = stop_event
         self._offset: int = 0
         self._authorized_chat_id = str(bot._chat_id)
+        self._client = httpx.AsyncClient(timeout=10.0)
 
     async def run(self) -> None:
         if not self._bot or not self._bot._enabled:
@@ -41,21 +43,30 @@ class JackbotCommander:
                 logger.warning("commander_poll_error", error=str(exc))
             await asyncio.sleep(_POLL_INTERVAL)
         logger.info("commander_stopped")
+        await self._client.aclose()
 
     async def _poll_once(self) -> None:
-        updates = await self._bot._bot.get_updates(
-            offset=self._offset,
-            timeout=_POLL_TIMEOUT,
-            allowed_updates=["message"],
-        )
+        url = f"https://api.telegram.org/bot{self._bot._token}/getUpdates"
+        params = {"offset": self._offset, "timeout": _POLL_TIMEOUT, "allowed_updates": ["message"]}
+        try:
+            resp = await self._client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            if not data.get("ok"): return
+            updates = data.get("result", [])
+        except httpx.ReadTimeout:
+            return
+            
         for update in updates:
-            self._offset = update.update_id + 1
-            msg = getattr(update, "message", None)
-            if msg is None: continue
-            chat_id = str(msg.chat_id)
+            self._offset = update["update_id"] + 1
+            msg = update.get("message")
+            if not msg: continue
+            
+            chat_id = str(msg.get("chat", {}).get("id", ""))
             if self._authorized_chat_id and chat_id != self._authorized_chat_id:
                 continue
-            text = (msg.text or "").strip()
+                
+            text = (msg.get("text") or "").strip()
             if text.startswith("/"):
                 await self._dispatch(text, chat_id)
 
@@ -73,9 +84,9 @@ class JackbotCommander:
         handler = handlers.get(cmd)
         if handler:
             reply = await handler()
-            await self._bot.send_message(reply)
+            self._bot.send(reply)
         elif cmd:
-            await self._bot.send_message("❓ 未知指令。輸入 /help 查看可用指令。")
+            self._bot.send("❓ 未知指令。輸入 /help 查看可用指令。")
 
     async def _cmd_help(self) -> str:
         return (
