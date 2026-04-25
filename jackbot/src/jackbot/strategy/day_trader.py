@@ -41,7 +41,7 @@ class DayTraderConfig:
 
     # Grid defaults (overridden by MarketAssessor suggestions)
     default_grid_count: int = 10
-    max_leverage: int = 20
+    max_leverage: int = 10
     min_leverage: int = 5
 
     # Daily target
@@ -73,6 +73,12 @@ class DayTraderConfig:
     atr_period: int = 14
 
     warmup_bars: int = 50
+
+    def __post_init__(self) -> None:
+        # Phase A risk decision: max_leverage hard-capped at 10 across all entry points.
+        assert self.max_leverage <= 10, (
+            f"max_leverage 上限為 10 (Phase A 風控決議), 收到 {self.max_leverage}"
+        )
 
     @classmethod
     def from_dict(cls, d: dict) -> "DayTraderConfig":
