@@ -465,6 +465,17 @@ class GridEngine:
             filled = sum(1 for l in g.levels
                          if l.state in (GridLevelState.FILLED_BUY, GridLevelState.FILLED_SELL))
             age_min = (datetime.now(UTC) - g.created_at).total_seconds() / 60
+            
+            level_details = [
+                {
+                    "price": l.price,
+                    "state": l.state.value,
+                    "buy_order": l.buy_order_id,
+                    "sell_order": l.sell_order_id,
+                }
+                for l in g.levels
+            ]
+
             result.append({
                 "grid_id": g.grid_id,
                 "symbol": g.symbol,
@@ -479,6 +490,7 @@ class GridEngine:
                 "leverage": g.leverage,
                 "range": f"{g.lower_price}~{g.upper_price}",
                 "age_minutes": round(age_min, 1),
+                "level_details": level_details,
             })
         return result
 

@@ -111,6 +111,15 @@ class JackbotCommander:
             lines.append(f"  - 槓桿: {g['leverage']}x")
             lines.append(f"  - 浮盈: ${g['unrealized_pnl']:.2f}")
             
+            level_details = g.get("level_details", [])
+            if level_details:
+                lines.append("  - 網格價位:")
+                for i, l in enumerate(level_details):
+                    state = l["state"]
+                    icon = "⏳" if "pending" in state else ("✅" if "filled" in state else "💰")
+                    side = "買" if "buy" in state else ("賣" if "sell" in state else "")
+                    lines.append(f"    {icon} {side} @ {l['price']:.2f}")
+            
         return "\n".join(lines)
 
     async def _cmd_balance(self) -> str:
