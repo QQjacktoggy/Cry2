@@ -53,7 +53,7 @@ class TestDayTraderLifecycle:
 
     def test_creates_grid_after_warmup(self):
         bus = EventBus()
-        config = DayTraderConfig(warmup_bars=50)
+        config = DayTraderConfig(warmup_bars=50, symbols=["BTCUSDT"])
         trader = DayTrader(config=config, event_bus=bus)
 
         _warmup(trader, "BTCUSDT", 95000.0)
@@ -91,7 +91,7 @@ class TestDayTraderLifecycle:
 
     def test_halts_on_loss_limit(self):
         bus = EventBus()
-        config = DayTraderConfig(daily_loss_limit_usd=5.0, warmup_bars=50)
+        config = DayTraderConfig(daily_loss_limit_pct=10.0, total_capital_usd=50.0, warmup_bars=50) # 10% of 50 = 5.0
         trader = DayTrader(config=config, event_bus=bus)
 
         _warmup(trader, "BTCUSDT", 95000.0)
@@ -172,7 +172,7 @@ class TestHourlyReview:
 
     def test_review_triggered_at_interval(self):
         bus = EventBus()
-        config = DayTraderConfig(warmup_bars=50, hourly_review_interval_bars=12)
+        config = DayTraderConfig(warmup_bars=50, hourly_review_interval_bars=12, symbols=["BTCUSDT"])
         trader = DayTrader(config=config, event_bus=bus)
 
         _warmup(trader, "BTCUSDT", 95000.0)

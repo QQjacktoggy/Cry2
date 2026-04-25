@@ -76,9 +76,15 @@ def download_klines(
             if end_ts > 0:
                 params["endTime"] = end_ts
 
-            resp = client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
+            try:
+                resp = client.get(url, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as e:
+                import time
+                print(f"Error downloading klines: {e}. Retrying in 5 seconds...")
+                time.sleep(5)
+                continue
 
             if not data:
                 break
@@ -97,6 +103,10 @@ def download_klines(
             last_ts = int(data[-1][0])
             if last_ts >= end_ts and end_ts > 0:
                 break
+            # Add 1 minute (or appropriate interval) so we don't fetch the exact same last_ts again if pagination gets stuck
+            # For 1m interval, adding 60,000 ms = 1 minute is fine.
+            # `last_ts + 1` works but can be slow if it just returns 1 kline.
+            # In Binance, `startTime` is inclusive. So `last_ts + 1` skips the last fetched kline.
             current_start = last_ts + 1
 
             if len(data) < limit:
@@ -260,7 +270,19 @@ class BacktestEngine:
                     self._snapshot_daily(self._current_date)
                 self._current_date = date_str
 
-            # 1. Process bar through DayTrader (creates grids, handles reviews, etc.)
+            # 1. Simulate fills for active grids FIRST (using current bar's H/L)
+            # This ensures grids created on the PREVIOUS bar are filled by THIS bar.
+            # (Avoids lookahead bias of filling grids with the same bar that created them using Close)
+            active_grids = self._trader._engine.active_grids
+            fills = self._sim.check_fills(active_grids, bar)
+
+            for fill in fills:
+                self._total_fills += 1
+                self._total_commission += fill.commission
+                # Process fill through DayTrader
+                self._trader.on_fill(fill)
+
+            # 2. Process bar through DayTrader (creates new grids using Close, handles reviews, etc.)
             signals = self._trader.on_bar(bar)
 
             # Track stop-losses and breakouts
@@ -277,16 +299,6 @@ class BacktestEngine:
                     if not hasattr(grid, "_counted"):
                         self._reviews_closed += 1
                         grid._counted = True
-
-            # 2. Simulate fills for active grids
-            active_grids = self._trader._engine.active_grids
-            fills = self._sim.check_fills(active_grids, bar)
-
-            for fill in fills:
-                self._total_fills += 1
-                self._total_commission += fill.commission
-                # Process fill through DayTrader
-                self._trader.on_fill(fill)
 
             # 3. Track mode switches
             if self._trader.mode != prev_mode:
@@ -502,25 +514,48 @@ def main():
     start_ts = int(start_dt.timestamp() * 1000)
     end_ts = int(end_dt.timestamp() * 1000)
 
-    symbols = ["BTCUSDC", "ETHUSDC"]
+    symbols = ["BTCUSDC"]
     p(f"\n🔄 下載歷史 K 線...")
     p(f"   期間: {start_dt.strftime('%Y-%m-%d')} → {end_dt.strftime('%Y-%m-%d')}")
     p(f"   幣種: {', '.join(symbols)}")
 
     # Download klines
     klines_by_symbol: dict[str, list[dict]] = {}
+    import os
+    import json
     for symbol in symbols:
         p(f"   📥 {symbol}...", end=" ", flush=True)
-        klines = download_klines(symbol, "5m", start_ts, end_ts)
+        cache_file = f"{symbol.lower()}_1y.json"
+
+        # We already downloaded BTCUSDC to btcusdc_1y.json in download_year.py
+        if os.path.exists(cache_file):
+            p(f" (from cache {cache_file})", end=" ", flush=True)
+            with open(cache_file, "r") as f:
+                raw_data = json.load(f)
+
+            klines = []
+            for row in raw_data:
+                klines.append({
+                    "timestamp": int(row[0]),
+                    "open": float(row[1]),
+                    "high": float(row[2]),
+                    "low": float(row[3]),
+                    "close": float(row[4]),
+                    "volume": float(row[5]),
+                })
+            # Filter by timeframe if needed (since we only need the exact days requested)
+            klines = [k for k in klines if k["timestamp"] >= start_ts and k["timestamp"] <= end_ts]
+        else:
+            klines = download_klines(symbol, "1m", start_ts, end_ts)
         klines_by_symbol[symbol] = klines
         p(f"{len(klines):,} 根")
 
     # Configure
     config = DayTraderConfig(
         symbols=symbols,
-        timeframe="5m",
+        timeframe="1m",
         total_capital_usd=args.capital,
-        per_symbol_alloc_pct=50.0,
+        per_symbol_alloc_pct=100.0,
         compound_pct=args.compound,
         default_grid_count=args.grid_count,
         max_leverage=args.max_leverage,
@@ -533,7 +568,7 @@ def main():
         conservative_leverage=3,
         max_concurrent_grids=2,
         max_daily_resets=10,
-        hourly_review_interval_bars=12,
+        hourly_review_interval_bars=60, # 60 * 1m = 1 hour
         warmup_bars=50,
     )
 

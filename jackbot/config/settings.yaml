@@ -11,10 +11,10 @@ exchange:
   api_secret_env: BINANCE_TESTNET_API_SECRET
 
 trading:
-  symbols: [BTCUSDC, ETHUSDC]
-  timeframe: 5m
+  symbols: [BTCUSDC]
+  timeframe: 1m
   total_capital_usd: 150
-  per_symbol_alloc_pct: 50       # 每幣種 75 USDT
+  per_symbol_alloc_pct: 100      # 每幣種全額
   compound_pct: 50.0             # 每日利潤的 50% 滾入本金
 
 grid:
@@ -29,7 +29,7 @@ targets:
   grid_stop_loss_pct: 3.0        # 單網格止損: 浮虧 > 投入的 3% 就平倉
 
 review:
-  hourly_review_interval_bars: 12  # 12 x 5m = 每小時 review 一次
+  hourly_review_interval_bars: 60  # 60 x 1m = 每小時 review 一次
 
 conservative:
   conservative_size_factor: 0.25
