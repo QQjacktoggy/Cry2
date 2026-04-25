@@ -79,7 +79,7 @@ class JackbotRunner:
         trader_params.update(config.get("risk", {}))
         trader_params.update(config.get("market_assessor", {}))
         trader_params.update(config.get("leverage", {
-            "max_leverage": 20,
+            "max_leverage": 10,
             "min_leverage": 5,
         }))
         trader_params["total_capital_usd"] = self._capital
