@@ -123,8 +123,8 @@ class JackbotCommander:
         return "\n".join(lines)
 
     async def _cmd_balance(self) -> str:
-        equity = self._portfolio.total_equity
-        profit = self._portfolio.total_profit
+        equity = self._portfolio.available_capital
+        profit = self._portfolio.total_pnl
         return (
             "💰 <b>帳戶餘額資訊</b>\n\n"
             f"• 當前權益: ${equity:.2f} USDT\n"
