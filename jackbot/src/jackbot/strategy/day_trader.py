@@ -57,6 +57,9 @@ class DayTraderConfig:
     max_concurrent_grids: int = 2      # one per symbol
     max_daily_resets: int = 10         # avoid infinite grid resets
     daily_loss_limit_pct: float = 10.0 # halt everything if lost > 10% of total capital
+    max_total_notional_multiplier: float = 2.0  # total active notional ≤ capital × this
+    margin_rate_threshold: float = 1.10         # A4: force close if margin rate < 110%
+    maintenance_margin_rate: float = 0.005      # A4: Binance typical 0.5% mmr
 
     # Hourly review
     hourly_review_interval_bars: int = 12  # 12 x 5m = 1 hour
@@ -169,7 +172,24 @@ class DayTrader:
         # Update unrealized PnL for active grids
         self._engine.update_unrealized_pnl(symbol, event.close)
 
-        # Check stop-losses on active grids
+        # A4: Margin rate check — fires BEFORE 3% SL to catch gap-down scenarios
+        margin_critical_ids = self._engine.check_margin_rate(
+            symbol, self._cfg.margin_rate_threshold, self._cfg.maintenance_margin_rate
+        )
+        for grid_id in margin_critical_ids:
+            grid = self._engine.get_grid(grid_id)
+            if grid:
+                self._daily_loss += abs(grid.unrealized_pnl)
+                logger.warning(
+                    "grid_margin_liquidation_prevented",
+                    grid_id=grid_id,
+                    unrealized_pnl=grid.unrealized_pnl,
+                )
+            close_signals = self._engine.close_grid(grid_id, reason="margin_rate")
+            signals.extend(close_signals)
+            self._daily_resets = min(self._daily_resets + 1, self._cfg.max_daily_resets)
+
+        # Check stop-losses on active grids (grids already closed above are skipped)
         stopped_ids = self._engine.check_stop_loss(symbol, self._cfg.grid_stop_loss_pct)
         for grid_id in stopped_ids:
             grid = self._engine.get_grid(grid_id)
@@ -183,14 +203,14 @@ class DayTrader:
                 )
             close_signals = self._engine.close_grid(grid_id, reason="stop_loss")
             signals.extend(close_signals)
-            self._daily_resets += 1
+            self._daily_resets = min(self._daily_resets + 1, self._cfg.max_daily_resets)
 
         # Check breakouts on active grids for this symbol
         breakout_ids = self._engine.check_breakout(symbol, event.close)
         for grid_id in breakout_ids:
             close_signals = self._engine.close_grid(grid_id, reason="breakout")
             signals.extend(close_signals)
-            self._daily_resets += 1
+            self._daily_resets = min(self._daily_resets + 1, self._cfg.max_daily_resets)
 
         # Hourly review: re-assess and close mismatched grids
         review_signals = self._hourly_review(symbol, event.close)
@@ -253,7 +273,25 @@ class DayTrader:
 
     def _try_create_grid(self, symbol: str, current_price: float) -> list[GridSignalEvent]:
         """Assess market and create a grid if conditions are met."""
+        # A5: Hard daily reset cap — redundant safety net regardless of caller
+        if self._daily_resets >= self._cfg.max_daily_resets:
+            return []
+
         if len(self._engine.active_grids) >= self._cfg.max_concurrent_grids:
+            return []
+
+        # A3b: Total exposure cap — limit total invested margin across all active grids.
+        # Uses margin (total_investment), not leveraged notional, so normal 2-grid
+        # operation (75+75=150 USDT) stays well within cap (150 × 2.0 = 300 USDT).
+        total_invested = sum(g.total_investment for g in self._engine.active_grids)
+        investment_limit = self._cfg.total_capital_usd * self._cfg.max_total_notional_multiplier
+        if total_invested >= investment_limit:
+            logger.debug(
+                "exposure_cap_skip",
+                symbol=symbol,
+                total_invested=round(total_invested, 2),
+                limit=round(investment_limit, 2),
+            )
             return []
 
         assessment = self._assessor.assess(symbol)
@@ -385,7 +423,7 @@ class DayTrader:
                 )
                 close_signals = self._engine.close_grid(grid.grid_id, reason=f"review:{reason}")
                 signals.extend(close_signals)
-                self._daily_resets += 1
+                self._daily_resets = min(self._daily_resets + 1, self._cfg.max_daily_resets)
             else:
                 logger.info(
                     "hourly_review_ok",

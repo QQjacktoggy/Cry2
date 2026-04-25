@@ -13,7 +13,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import random
 import sys
+from collections import deque
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -111,22 +113,63 @@ def download_klines(
 class FillSimulator:
     """Simulates limit order fills based on bar high/low.
 
-    For each active grid:
-      - Check if any PENDING_BUY level's price is within [bar.low, bar.high]
-      - Check if any PENDING_SELL level's price is within [bar.low, bar.high]
-      - If so, generate a FillEvent
+    Grid limit orders are treated as maker fills (zero fee on Binance).
+    SL/breakout/review market closes are taker fills (0.04% + ATR slippage).
+    Partial fills: 50–100% random fill rate per level.
     """
 
-    def __init__(self, commission_rate: float = 0.0002) -> None:
+    _ATR_PERIOD = 14
+
+    def __init__(self, maker_rate: float = 0.0, taker_rate: float = 0.0004) -> None:
         self._fill_count = 0
-        self._commission_rate = commission_rate
+        self._maker_rate = maker_rate
+        self._taker_rate = taker_rate
+        self._atr_buffers: dict[str, deque] = {}
+        self._atr_values: dict[str, float] = {}
+
+    def update_atr(self, bar: MarketEvent) -> None:
+        """Update the rolling ATR for a symbol using this bar's true range."""
+        sym = bar.symbol
+        if sym not in self._atr_buffers:
+            self._atr_buffers[sym] = deque(maxlen=self._ATR_PERIOD)
+        self._atr_buffers[sym].append(bar.high - bar.low)
+        if len(self._atr_buffers[sym]) == self._ATR_PERIOD:
+            self._atr_values[sym] = sum(self._atr_buffers[sym]) / self._ATR_PERIOD
+
+    def compute_taker_close(self, grid: GridInstance, bar: MarketEvent) -> float:
+        """Return taker fee + slippage for SL market close.
+
+        Uses actual open position reconstructed from level fill history:
+        - buy_fill_price > 0, sell_fill_price == 0 → unmatched long (needs market sell)
+        - sell_fill_price > 0, buy_fill_price == 0 → unmatched short (needs market buy)
+        Breakout/review closes use limit orders (maker = 0%), so this is only for SL.
+        """
+        open_notional = sum(
+            lvl.quantity * lvl.buy_fill_price
+            for lvl in grid.levels
+            if lvl.buy_fill_price > 0 and lvl.sell_fill_price == 0
+        ) + sum(
+            lvl.quantity * lvl.sell_fill_price
+            for lvl in grid.levels
+            if lvl.sell_fill_price > 0 and lvl.buy_fill_price == 0
+        )
+        if open_notional == 0:
+            return 0.0
+        commission = open_notional * self._taker_rate
+        atr = self._atr_values.get(bar.symbol, 0.0)
+        slippage = open_notional * (atr / bar.close) * 0.02 if bar.close > 0 else 0.0
+        return commission + slippage
 
     def check_fills(
         self,
         grids: list[GridInstance],
         bar: MarketEvent,
     ) -> list[FillEvent]:
-        """Check all active grids for fills based on this bar's price range."""
+        """Check all active grids for fills based on this bar's price range.
+
+        All grid-level fills are passive limit orders (maker, zero fee).
+        Applies a 50–100% random partial fill rate per level.
+        """
         fills: list[FillEvent] = []
 
         for grid in grids:
@@ -141,13 +184,14 @@ class FillSimulator:
                     and level.price <= bar.high
                 ):
                     self._fill_count += 1
+                    qty = level.quantity * random.uniform(0.5, 1.0)
                     fills.append(FillEvent(
                         timestamp=bar.timestamp,
                         symbol=bar.symbol,
                         side="BUY",
-                        quantity=level.quantity,
+                        quantity=qty,
                         price=level.price,
-                        commission=level.price * level.quantity * self._commission_rate,
+                        commission=level.price * qty * self._maker_rate,
                         order_id=f"sim_{self._fill_count}",
                         grid_id=grid.grid_id,
                         level_index=level.index,
@@ -160,13 +204,14 @@ class FillSimulator:
                     and level.price <= bar.high
                 ):
                     self._fill_count += 1
+                    qty = level.quantity * random.uniform(0.5, 1.0)
                     fills.append(FillEvent(
                         timestamp=bar.timestamp,
                         symbol=bar.symbol,
                         side="SELL",
-                        quantity=level.quantity,
+                        quantity=qty,
                         price=level.price,
-                        commission=level.price * level.quantity * self._commission_rate,
+                        commission=level.price * qty * self._maker_rate,
                         order_id=f"sim_{self._fill_count}",
                         grid_id=grid.grid_id,
                         level_index=level.index,
@@ -181,12 +226,17 @@ class FillSimulator:
 class BacktestEngine:
     """Runs the DayTrader strategy on historical data."""
 
-    def __init__(self, config: DayTraderConfig, commission_rate: float = 0.0002) -> None:
+    def __init__(
+        self,
+        config: DayTraderConfig,
+        maker_rate: float = 0.0,
+        taker_rate: float = 0.0004,
+    ) -> None:
         self._cfg = config
         self._bus = EventBus()
         self._clock = BacktestClock()
         self._trader = DayTrader(config=config, event_bus=self._bus, clock=self._clock)
-        self._sim = FillSimulator(commission_rate)
+        self._sim = FillSimulator(maker_rate, taker_rate)
 
         # Tracking
         self._daily_results: dict[str, dict] = {}  # date → {profit, trades, ...}
@@ -278,7 +328,17 @@ class BacktestEngine:
                         self._reviews_closed += 1
                         grid._counted = True
 
-            # 2. Simulate fills for active grids
+            # 1.5 Charge close costs for newly-closed grids:
+            #   SL  → market order (taker fee + ATR slippage)
+            #   breakout / review → limit order at current price (maker = 0%)
+            for grid in self._trader._engine._grids.values():
+                if grid.closed and not hasattr(grid, "_fee_charged"):
+                    if grid.close_reason == "stop_loss":
+                        self._total_commission += self._sim.compute_taker_close(grid, bar)
+                    grid._fee_charged = True
+
+            # 2. Update ATR then simulate fills for active grids
+            self._sim.update_atr(bar)
             active_grids = self._trader._engine.active_grids
             fills = self._sim.check_fills(active_grids, bar)
 
@@ -479,12 +539,13 @@ def main():
     parser.add_argument("--start", type=str, default="", help="Start date (YYYY-MM-DD)")
     parser.add_argument("--capital", type=float, default=150.0, help="Initial capital (USDT)")
     parser.add_argument("--target", type=float, default=10.0, help="Daily target (USDT)")
-    parser.add_argument("--max-leverage", type=int, default=20, help="Max leverage")
+    parser.add_argument("--max-leverage", type=int, default=10, help="Max leverage")
     parser.add_argument("--min-leverage", type=int, default=5, help="Min leverage")
     parser.add_argument("--stop-loss", type=float, default=2.0, help="Grid stop-loss %")
     parser.add_argument("--grid-count", type=int, default=10, help="Default grid count")
     parser.add_argument("--compound", type=float, default=0.0, help="Compound profit % (e.g. 50.0)")
-    parser.add_argument("--commission", type=float, default=0.0002, help="Commission rate (e.g. 0.0 for 0-fee)")
+    parser.add_argument("--maker-fee", type=float, default=0.0, help="Maker fee rate (grid limit orders, default 0.0)")
+    parser.add_argument("--taker-fee", type=float, default=0.0004, help="Taker fee rate (SL/breakout/review, default 0.0004)")
     parser.add_argument("--out", type=str, default="", help="Output JSON file path")
     args = parser.parse_args()
 
@@ -539,7 +600,7 @@ def main():
 
     # Run backtest
     p(f"\n⚙️  回測中...")
-    engine = BacktestEngine(config, commission_rate=args.commission)
+    engine = BacktestEngine(config, maker_rate=args.maker_fee, taker_rate=args.taker_fee)
     results = engine.run(klines_by_symbol)
 
     # Print report

@@ -19,9 +19,12 @@ trading:
 
 grid:
   default_grid_count: 10
-  max_leverage: 20               # 逐倉最高 20x
+  max_leverage: 10               # 逐倉最高 10x (A3a: 從 20x 降低以減少 taker 費用衝擊)
   min_leverage: 5                # 逐倉最低 5x
   warmup_bars: 50                # 50 x 5m = ~4h 預熱
+
+exposure:
+  max_total_notional_multiplier: 2.0  # 所有活躍 grid 總 notional ≤ 本金 × 2
 
 targets:
   daily_profit_target_usd: 10    # 日標 10 USDT
@@ -39,6 +42,10 @@ conservative:
 risk:
   max_concurrent_grids: 2
   max_daily_resets: 10
+
+fees:
+  maker: 0.0        # Grid 限價單被動成交 (Binance Regular maker rebate)
+  taker: 0.0004     # SL / breakout / review 平倉市價單 (0.04%)
 
 market_assessor:
   adx_period: 14

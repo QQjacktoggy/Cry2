@@ -313,6 +313,43 @@ class GridEngine:
                     pnl += (level.sell_fill_price - current_price) * level.quantity
             grid.unrealized_pnl = round(pnl, 4)
 
+    def check_margin_rate(
+        self,
+        symbol: str,
+        margin_rate_threshold: float = 1.10,
+        maintenance_margin_rate: float = 0.005,
+    ) -> list[str]:
+        """Close grids whose remaining margin is dangerously close to liquidation.
+
+        Fires before the unrealized-% stop-loss to handle gap-down scenarios
+        where the 3% SL might not trigger in time.
+
+        margin_rate = remaining_margin / maintenance_margin
+        remaining_margin = total_investment + unrealized_pnl
+        maintenance_margin = notional × maintenance_margin_rate
+        """
+        at_risk: list[str] = []
+        for grid in self.active_grids:
+            if grid.symbol != symbol:
+                continue
+            notional = grid.total_investment * grid.leverage
+            maintenance_margin = notional * maintenance_margin_rate
+            if maintenance_margin <= 0:
+                continue
+            remaining_margin = grid.total_investment + grid.unrealized_pnl
+            margin_rate = remaining_margin / maintenance_margin
+            if margin_rate < margin_rate_threshold:
+                at_risk.append(grid.grid_id)
+                logger.warning(
+                    "margin_rate_critical",
+                    grid_id=grid.grid_id,
+                    remaining_margin=round(remaining_margin, 4),
+                    maintenance_margin=round(maintenance_margin, 4),
+                    margin_rate=round(margin_rate, 3),
+                    threshold=margin_rate_threshold,
+                )
+        return at_risk
+
     def check_stop_loss(self, symbol: str, stop_loss_pct: float) -> list[str]:
         """Check if any grid's unrealized loss exceeds stop-loss threshold.
 

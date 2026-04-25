@@ -13,6 +13,8 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import yaml
+
 # Fix Windows console encoding for Chinese + emoji
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -43,7 +45,13 @@ def split_data(klines_by_symbol: dict[str, list[dict]], split_ts: int):
 
 
 def run_optimization():
-    # Parameters to test (Zero-fee allows very dense grids)
+    cfg_path = ROOT / "config" / "settings.yaml"
+    with open(cfg_path, encoding="utf-8") as f:
+        settings = yaml.safe_load(f)
+    maker_fee = settings["fees"]["maker"]
+    taker_fee = settings["fees"]["taker"]
+
+    # Parameters to test
     grid_counts = [10, 15, 20, 30]
     stop_losses = [2.0, 3.0, 4.0]
 
@@ -88,7 +96,7 @@ def run_optimization():
             per_symbol_alloc_pct=50.0,
             default_grid_count=gc,
             grid_stop_loss_pct=sl,
-            max_leverage=20,
+            max_leverage=10,
             min_leverage=5,
             daily_profit_target_usd=10.0,
             daily_loss_limit_pct=10.0,
@@ -101,7 +109,7 @@ def run_optimization():
             warmup_bars=50,
         )
         
-        engine = BacktestEngine(config, commission_rate=0.0)
+        engine = BacktestEngine(config, maker_rate=maker_fee, taker_rate=taker_fee)
         res = engine.run(m1_data)
         net_profit = res["pnl"]["net_profit"]
         
@@ -125,7 +133,7 @@ def run_optimization():
         per_symbol_alloc_pct=50.0,
         default_grid_count=best_params["grid_count"],
         grid_stop_loss_pct=best_params["stop_loss"],
-        max_leverage=20,
+        max_leverage=10,
         min_leverage=5,
         daily_profit_target_usd=10.0,
         daily_loss_limit_pct=10.0,
@@ -137,7 +145,7 @@ def run_optimization():
         hourly_review_interval_bars=12,
         warmup_bars=50,
     )
-    engine_m2 = BacktestEngine(config_m2, commission_rate=0.0)
+    engine_m2 = BacktestEngine(config_m2, maker_rate=maker_fee, taker_rate=taker_fee)
     m2_results = engine_m2.run(m2_data)
 
     m2_net_profit = m2_results["pnl"]["net_profit"]
