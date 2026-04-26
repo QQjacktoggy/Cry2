@@ -1,10 +1,12 @@
 """Unit tests for DayTrader."""
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
-from jackbot.core.constants import TradingMode
+from jackbot.core.constants import GridDirection, Regime, TradingMode
 from jackbot.core.event_bus import EventBus
 from jackbot.core.events import FillEvent, MarketEvent
+from jackbot.strategy.market_assessor import MarketAssessment
 from jackbot.strategy.day_trader import DayTrader, DayTraderConfig
 
 
@@ -228,4 +230,89 @@ class TestStopLoss:
             # Grid should have been closed due to stop-loss
             assert grid.closed
             assert "stop_loss" in grid.close_reason
+
+
+class TestAdaptiveSizing:
+    def test_trending_high_confidence_allocates_more_than_ranging_low_confidence(self):
+        bus = EventBus()
+        config = DayTraderConfig(warmup_bars=1)
+        trader = DayTrader(config=config, event_bus=bus)
+
+        captured: list[dict] = []
+
+        def fake_create_grid(**kwargs):
+            captured.append(kwargs)
+            return SimpleNamespace(grid_id=f"g{len(captured)}"), []
+
+        trader._engine.create_grid = fake_create_grid  # type: ignore[method-assign]
+
+        high = MarketAssessment(
+            symbol="BTCUSDT",
+            direction=GridDirection.LONG,
+            regime=Regime.TRENDING,
+            upper_price=101000.0,
+            lower_price=99000.0,
+            current_price=100000.0,
+            adx=35.0,
+            atr=600.0,
+            confidence=0.92,
+            suggested_grid_count=10,
+            suggested_leverage=10,
+        )
+        low = MarketAssessment(
+            symbol="BTCUSDT",
+            direction=GridDirection.NEUTRAL,
+            regime=Regime.RANGING,
+            upper_price=100800.0,
+            lower_price=99200.0,
+            current_price=100000.0,
+            adx=18.0,
+            atr=500.0,
+            confidence=0.35,
+            suggested_grid_count=10,
+            suggested_leverage=10,
+        )
+
+        trader._assessor.assess = lambda _symbol: high  # type: ignore[method-assign]
+        trader._try_create_grid("BTCUSDT", 100000.0)
+
+        trader._assessor.assess = lambda _symbol: low  # type: ignore[method-assign]
+        trader._try_create_grid("BTCUSDT", 100000.0)
+
+        assert len(captured) == 2
+        assert captured[0]["total_investment"] > captured[1]["total_investment"]
+        assert captured[0]["leverage"] >= captured[1]["leverage"]
+
+    def test_adaptive_leverage_is_clamped_to_config_bounds(self):
+        bus = EventBus()
+        config = DayTraderConfig(warmup_bars=1, min_leverage=5, max_leverage=10)
+        trader = DayTrader(config=config, event_bus=bus)
+
+        captured: list[dict] = []
+
+        def fake_create_grid(**kwargs):
+            captured.append(kwargs)
+            return SimpleNamespace(grid_id="g1"), []
+
+        trader._engine.create_grid = fake_create_grid  # type: ignore[method-assign]
+
+        assessment = MarketAssessment(
+            symbol="ETHUSDT",
+            direction=GridDirection.LONG,
+            regime=Regime.TRENDING,
+            upper_price=2500.0,
+            lower_price=2300.0,
+            current_price=2400.0,
+            adx=40.0,
+            atr=30.0,
+            confidence=1.0,
+            suggested_grid_count=8,
+            suggested_leverage=10,
+        )
+
+        trader._assessor.assess = lambda _symbol: assessment  # type: ignore[method-assign]
+        trader._try_create_grid("ETHUSDT", 2400.0)
+
+        assert len(captured) == 1
+        assert config.min_leverage <= captured[0]["leverage"] <= config.max_leverage
 

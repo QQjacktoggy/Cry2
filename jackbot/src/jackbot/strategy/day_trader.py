@@ -18,7 +18,7 @@ from typing import Any
 import structlog
 
 from jackbot.core.clock import Clock
-from jackbot.core.constants import GridDirection, TradingMode
+from jackbot.core.constants import GridDirection, Regime, TradingMode
 from jackbot.core.event_bus import EventBus
 from jackbot.core.events import FillEvent, GridProfitEvent, GridSignalEvent, MarketEvent
 from jackbot.strategy.grid_engine import GridEngine
@@ -51,6 +51,12 @@ class DayTraderConfig:
     conservative_size_factor: float = 0.25      # shrink qty to 25%
     conservative_grid_spacing_mult: float = 2.0  # wider grid spacing
     conservative_leverage: int = 3
+
+    # Adaptive sizing (profit optimization): scale exposure by confidence/regime.
+    min_confidence_investment_scale: float = 0.65
+    confidence_investment_boost_max: float = 0.35
+    min_confidence_leverage_scale: float = 0.85
+    confidence_leverage_boost_max: float = 0.20
 
     # Risk limits
     grid_stop_loss_pct: float = 2.0    # stop grid if unrealized loss > 2%
@@ -322,6 +328,15 @@ class DayTrader:
         upper = assessment.upper_price
         lower = assessment.lower_price
 
+        # Profit optimization: increase exposure when confidence/regime are favorable,
+        # and reduce exposure when edge is weaker.
+        investment, leverage, adaptive_meta = self._apply_adaptive_sizing(
+            investment=investment,
+            leverage=leverage,
+            confidence=assessment.confidence,
+            regime=assessment.regime,
+        )
+
         if self._mode == TradingMode.CONSERVATIVE:
             leverage = min(leverage, self._cfg.conservative_leverage)
             investment *= self._cfg.conservative_size_factor
@@ -352,9 +367,56 @@ class DayTrader:
             leverage=leverage,
             investment=round(investment, 2),
             mode=self._mode.value,
+            confidence=assessment.confidence,
+            investment_scale=adaptive_meta["investment_scale"],
+            leverage_scale=adaptive_meta["leverage_scale"],
         )
 
         return signals
+
+    def _apply_adaptive_sizing(
+        self,
+        investment: float,
+        leverage: int,
+        confidence: float,
+        regime: Regime,
+    ) -> tuple[float, int, dict[str, float]]:
+        """Scale investment/leverage based on confidence and market regime.
+
+        - confidence near threshold -> smaller exposure
+        - high confidence + trending regime -> larger exposure
+        - ranging regime -> conservative exposure
+        """
+        conf = max(0.0, min(1.0, confidence))
+        # Strategy only trades above 0.3 confidence; normalize from that floor.
+        conf_norm = 0.0 if conf <= 0.3 else min(1.0, (conf - 0.3) / 0.7)
+
+        inv_min = max(0.4, self._cfg.min_confidence_investment_scale)
+        inv_max = min(2.0, 1.0 + self._cfg.confidence_investment_boost_max)
+        lev_min = max(0.5, self._cfg.min_confidence_leverage_scale)
+        lev_max = min(2.0, 1.0 + self._cfg.confidence_leverage_boost_max)
+
+        investment_scale = inv_min + conf_norm * (inv_max - inv_min)
+        leverage_scale = lev_min + conf_norm * (lev_max - lev_min)
+
+        if regime == Regime.TRENDING:
+            investment_scale *= 1.08
+            leverage_scale *= 1.05
+        elif regime == Regime.RANGING:
+            investment_scale *= 0.90
+            leverage_scale *= 0.92
+
+        investment_scale = max(0.4, min(2.2, investment_scale))
+        leverage_scale = max(0.5, min(1.6, leverage_scale))
+
+        scaled_investment = investment * investment_scale
+        scaled_leverage = int(round(leverage * leverage_scale))
+        scaled_leverage = max(self._cfg.min_leverage, min(self._cfg.max_leverage, scaled_leverage))
+
+        return scaled_investment, scaled_leverage, {
+            "investment_scale": round(investment_scale, 3),
+            "leverage_scale": round(leverage_scale, 3),
+        }
 
     # ── Hourly review ─────────────────────────────────────────────
 
