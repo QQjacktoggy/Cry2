@@ -69,3 +69,28 @@ class Portfolio:
             "total_trades": len(self._trades),
             "today_pnl": round(self.get_daily_pnl(), 4),
         }
+
+    def get_recent_trades(self, limit: int = 10) -> list[dict]:
+        """Return recent matched trades in descending time order."""
+        limit = max(1, limit)
+        recent = self._trades[-limit:]
+        result: list[dict] = []
+        for t in reversed(recent):
+            result.append({
+                "timestamp": t.timestamp.isoformat(),
+                "symbol": t.symbol,
+                "grid_id": t.grid_id,
+                "buy_price": t.buy_price,
+                "sell_price": t.sell_price,
+                "quantity": t.quantity,
+                "profit_usd": t.profit_usd,
+                "leverage": t.leverage,
+            })
+        return result
+
+    def get_symbol_pnl(self) -> dict[str, float]:
+        """Aggregate realized PnL by symbol."""
+        by_symbol: dict[str, float] = {}
+        for t in self._trades:
+            by_symbol[t.symbol] = by_symbol.get(t.symbol, 0.0) + t.profit_usd
+        return {k: round(v, 4) for k, v in by_symbol.items()}
