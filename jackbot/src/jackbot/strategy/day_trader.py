@@ -130,6 +130,7 @@ class DayTrader:
         self._daily_loss: float = 0.0
         self._halted: bool = False
         self._last_reset_date: str = ""
+        self._warming_up: bool = True
 
         # Bar counter per symbol (for warmup & hourly review)
         self._bar_counts: dict[str, int] = {}
@@ -141,6 +142,11 @@ class DayTrader:
     @property
     def mode(self) -> TradingMode:
         return self._mode
+
+    def mark_warmup_complete(self) -> None:
+        """Signal that historical warmup is done; grid creation is now allowed."""
+        self._warming_up = False
+        logger.info("warmup_mode_off")
 
     @property
     def daily_profit(self) -> float:
@@ -234,7 +240,7 @@ class DayTrader:
             g for g in self._engine.active_grids if g.symbol == symbol
         ]
 
-        if not active_for_symbol and self._daily_resets < self._cfg.max_daily_resets:
+        if not active_for_symbol and not self._warming_up and self._daily_resets < self._cfg.max_daily_resets:
             create_signals = self._try_create_grid(symbol, event.close)
             signals.extend(create_signals)
 

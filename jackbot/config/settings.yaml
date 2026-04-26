@@ -11,7 +11,7 @@ exchange:
   api_secret_env: BINANCE_TESTNET_API_SECRET
 
 trading:
-  symbols: [BTCUSDC, ETHUSDC]
+  symbols: [BTCUSDT, ETHUSDT]
   timeframe: 5m
   total_capital_usd: 150
   per_symbol_alloc_pct: 50       # 每幣種 75 USDT

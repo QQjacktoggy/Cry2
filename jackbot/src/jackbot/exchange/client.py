@@ -44,6 +44,9 @@ class BinanceClient:
             timeout=10.0,
             headers={"X-MBX-APIKEY": self._api_key},
         )
+        # symbol → (qty_precision, price_precision); populated by load_symbol_info()
+        self._qty_precision: dict[str, int] = {}
+        self._price_precision: dict[str, int] = {}
 
     def close(self) -> None:
         self._client.close()
@@ -85,6 +88,22 @@ class BinanceClient:
         resp = self._client.get("/fapi/v1/ticker/price", params={"symbol": symbol})
         resp.raise_for_status()
         return float(resp.json()["price"])
+
+    def load_symbol_info(self, symbols: list[str]) -> None:
+        """Fetch and cache qty/price precision for each symbol from exchange info."""
+        resp = self._client.get("/fapi/v1/exchangeInfo")
+        resp.raise_for_status()
+        for sym_info in resp.json().get("symbols", []):
+            if sym_info["symbol"] in symbols:
+                self._qty_precision[sym_info["symbol"]] = sym_info["quantityPrecision"]
+                self._price_precision[sym_info["symbol"]] = sym_info["pricePrecision"]
+                logger.info(
+                    "symbol_info_loaded",
+                    symbol=sym_info["symbol"],
+                    qty_precision=sym_info["quantityPrecision"],
+                    price_precision=sym_info["pricePrecision"],
+                    margin_asset=sym_info.get("marginAsset"),
+                )
 
     def ping(self) -> float:
         """Test connectivity and measure latency (ms)."""
@@ -146,12 +165,14 @@ class BinanceClient:
         client_order_id: str = "",
     ) -> dict:
         """Place a limit order."""
+        qty_prec = self._qty_precision.get(symbol, 3)
+        price_prec = self._price_precision.get(symbol, 2)
         params: dict[str, Any] = {
             "symbol": symbol,
             "side": side,
             "type": "LIMIT",
-            "price": f"{price:.2f}",
-            "quantity": f"{quantity:.6f}",
+            "price": f"{price:.{price_prec}f}",
+            "quantity": f"{quantity:.{qty_prec}f}",
             "timeInForce": "GTC",
         }
         if reduce_only:
@@ -178,11 +199,12 @@ class BinanceClient:
         reduce_only: bool = False,
     ) -> dict:
         """Place a market order."""
+        qty_prec = self._qty_precision.get(symbol, 3)
         params: dict[str, Any] = {
             "symbol": symbol,
             "side": side,
             "type": "MARKET",
-            "quantity": f"{quantity:.6f}",
+            "quantity": f"{quantity:.{qty_prec}f}",
         }
         if reduce_only:
             params["reduceOnly"] = "true"

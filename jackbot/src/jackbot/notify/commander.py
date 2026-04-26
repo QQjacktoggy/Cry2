@@ -99,11 +99,17 @@ class JackbotCommander:
     async def _cmd_status(self) -> str:
         status = self._trader.get_status()
         active = status.get("active_grids", [])
-        
+
         lines = [f"📊 <b>Jackbot 狀態回報</b>"]
         lines.append(f"• 獲利: ${status.get('total_profit', 0):.2f} USDT")
         lines.append(f"• 今日目標: ${status.get('daily_target', 0)} USDT")
         lines.append(f"• 活躍網格: {len(active)} 個")
+
+        bar_counts = status.get("bar_counts", {})
+        if bar_counts:
+            warmup_needed = 50
+            progress = ", ".join(f"{sym}: {cnt}/{warmup_needed}" for sym, cnt in bar_counts.items())
+            lines.append(f"• 預熱進度: {progress}")
         
         for g in active:
             lines.append(f"\n🏷 <b>{g['symbol']} ({g['direction']})</b>")
@@ -129,5 +135,5 @@ class JackbotCommander:
             "💰 <b>帳戶餘額資訊</b>\n\n"
             f"• 當前權益: ${equity:.2f} USDT\n"
             f"• 累計盈虧: ${profit:.2f} USDT\n"
-            f"• 策略模式: {self._trader._config.mode}"
+            f"• 策略模式: {self._trader._cfg.mode.value}"
         )

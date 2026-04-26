@@ -208,9 +208,13 @@ class JackbotRunner:
                 logger.error("exchange_connection_failed", error=str(e))
                 return
 
-            # Warmup: fetch historical klines
+            # Load symbol precision info (qty/price decimal places)
+            self._client.load_symbol_info(self._trader._cfg.symbols)
+
+            # Warmup: fetch historical klines (indicators only, no order placement)
             for symbol in self._trader._cfg.symbols:
                 await self._warmup_symbol(symbol)
+            self._trader.mark_warmup_complete()
 
             # Notify start
             self._telegram.send(
