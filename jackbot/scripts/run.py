@@ -199,13 +199,31 @@ class JackbotRunner:
         logger.info("jackbot_starting")
 
         if not self._dry_run:
+            # Diagnostic: check environment first
+            api_key = os.getenv(self._cfg["exchange"].get("api_key_env", ""), "")
+            api_secret = os.getenv(self._cfg["exchange"].get("api_secret_env", ""), "")
+
+            if not api_key or not api_secret:
+                logger.error(
+                    "missing_api_credentials",
+                    api_key_env=self._cfg["exchange"].get("api_key_env", ""),
+                    api_secret_env=self._cfg["exchange"].get("api_secret_env", ""),
+                    api_key_present=bool(api_key),
+                    api_secret_present=bool(api_secret),
+                )
+                logger.error("startup_blocked_missing_credentials")
+                self._telegram.send("❌ <b>啟動失敗</b>：缺少 API Key/Secret\n檢查 GCP Secret Manager 或 .env 設定")
+                return
+
             # Test connectivity
             try:
                 latency = self._client.ping()
                 balance = self._client.get_balance()
                 logger.info("exchange_connected", latency_ms=latency, balance=balance)
             except Exception as e:
-                logger.error("exchange_connection_failed", error=str(e))
+                logger.error("exchange_connection_failed", error=str(e),
+                            base_url=self._cfg["exchange"].get("base_url", ""))
+                self._telegram.send(f"❌ <b>交易所連線失敗</b>：{str(e)}")
                 return
 
             # Load symbol precision info (qty/price decimal places)
@@ -291,10 +309,53 @@ def main():
     parser.add_argument("--capital", type=float, default=0, help="Override capital (USDT)")
     parser.add_argument("--status", action="store_true", help="Print status and exit")
     parser.add_argument("--config", default="config/settings.yaml", help="Config path")
+    parser.add_argument("--diagnose", action="store_true", help="Run startup diagnostics and exit")
     args = parser.parse_args()
 
     load_dotenv(ROOT / ".env")
     config = load_config(args.config)
+
+    if args.diagnose:
+        # Diagnostic mode: check all prerequisites
+        import json
+        diagnostics = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "config_loaded": bool(config),
+            "exchange_config": config.get("exchange", {}),
+            "trading_config": config.get("trading", {}),
+            "environment_variables": {
+                "BINANCE_TESTNET_API_KEY": "✓ SET" if os.getenv("BINANCE_TESTNET_API_KEY") else "✗ MISSING",
+                "BINANCE_TESTNET_API_SECRET": "✓ SET" if os.getenv("BINANCE_TESTNET_API_SECRET") else "✗ MISSING",
+                "TELEGRAM_BOT_TOKEN": "✓ SET" if os.getenv("TELEGRAM_BOT_TOKEN") else "✗ MISSING",
+                "TELEGRAM_CHAT_ID": "✓ SET" if os.getenv("TELEGRAM_CHAT_ID") else "✗ MISSING",
+            }
+        }
+
+        # Try to connect to exchange
+        try:
+            exchange = config.get("exchange", {})
+            test_client = BinanceClient(
+                api_key=os.getenv(exchange.get("api_key_env", ""), ""),
+                api_secret=os.getenv(exchange.get("api_secret_env", ""), ""),
+                testnet=exchange.get("mode", "testnet") == "testnet",
+                base_url=exchange.get("base_url", ""),
+            )
+            latency = test_client.ping()
+            balance = test_client.get_balance()
+            diagnostics["exchange_connection"] = {
+                "status": "✓ CONNECTED",
+                "latency_ms": latency,
+                "balance_usd": balance,
+            }
+            test_client.close()
+        except Exception as e:
+            diagnostics["exchange_connection"] = {
+                "status": "✗ FAILED",
+                "error": str(e),
+            }
+
+        print(json.dumps(diagnostics, indent=2, ensure_ascii=False))
+        return
 
     runner = JackbotRunner(
         config=config,
