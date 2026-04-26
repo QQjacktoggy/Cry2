@@ -17,6 +17,26 @@ services:
     networks:
       - bot-network
 
+  dashboard:
+    build: .
+    container_name: jackbot-dashboard
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data:ro
+      - ./logs:/app/logs:ro
+      - ./config:/app/config:ro
+    environment:
+      - PYTHONPATH=/app/src:/app
+      - DASHBOARD_SYMBOLS=BTCUSDT,ETHUSDT
+      - DASHBOARD_INTERVAL=3
+    ports:
+      - "8080:8080"
+    command: uvicorn jackbot.dashboard.app:app --host 0.0.0.0 --port 8080 --log-level info
+    networks:
+      - bot-network
+
 networks:
   bot-network:
     driver: bridge

@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jackbot V1 — Trading Dashboard</title>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #0b0e11;
+  --panel:    #161a1e;
+  --panel2:   #1e2329;
+  --border:   #2b3139;
+  --text:     #eaecef;
+  --muted:    #848e9c;
+  --green:    #0ecb81;
+  --red:      #f6465d;
+  --yellow:   #f0b90b;
+  --blue:     #1890ff;
+  --font:     'Roboto Mono', 'Consolas', monospace;
+}
+
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 12px; }
+
+/* ─── HEADER ─────────────────────────────────────────────── */
+#header {
+  height: 50px;
+  background: var(--panel2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 20px;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.logo {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--yellow);
+  letter-spacing: 1.5px;
+  white-space: nowrap;
+}
+
+.sym-btn {
+  background: var(--border);
+  border: 1px solid transparent;
+  color: var(--muted);
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.sym-btn.active, .sym-btn:hover {
+  background: #2b3139;
+  border-color: var(--yellow);
+  color: var(--text);
+}
+
+.price-display { display: flex; align-items: baseline; gap: 8px; }
+#hPrice {
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: color .4s;
+  color: var(--text);
+}
+#hChange {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.header-stat { display: flex; flex-direction: column; gap: 1px; }
+.header-stat .lbl { font-size: 10px; color: var(--muted); }
+.header-stat .val { font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.h-spacer { flex: 1; }
+
+.conn-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--border);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.conn-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.conn-dot.off { background: var(--red); }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+.conn-dot:not(.off) { animation: blink 2s infinite; }
+
+/* ─── LAYOUT ─────────────────────────────────────────────── */
+#layout {
+  display: grid;
+  grid-template-columns: 200px 1fr 260px;
+  grid-template-rows: 1fr 200px;
+  height: calc(100vh - 50px);
+  gap: 1px;
+  background: var(--border);
+}
+
+.pane {
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.pane-hd {
+  padding: 6px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: var(--muted);
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.pane-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+}
+.pane-body.no-pad { padding: 0; }
+
+/* scrollbar */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ─── ACCOUNT PANE ───────────────────────────────────────── */
+.kv { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.kv:last-child { border: none; }
+.kv .k { color: var(--muted); font-size: 11px; }
+.kv .v { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.section-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  margin: 12px 0 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.pos-card {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+.pos-card-hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.pos-sym { font-size: 13px; font-weight: 700; }
+.pos-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+.pos-badge.long  { background: rgba(14,203,129,.15); color: var(--green); }
+.pos-badge.short { background: rgba(246,70,93,.15);  color: var(--red);   }
+
+/* ─── CHART PANE ─────────────────────────────────────────── */
+#chartWrap { flex: 1; position: relative; min-height: 0; }
+#chart { position: absolute; inset: 0; }
+
+/* ─── ORDERS PANE ────────────────────────────────────────── */
+.ob-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.ob-sells, .ob-buys { flex: 1; overflow-y: auto; }
+.ob-mid {
+  padding: 4px 12px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.ob-mid-price { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ob-mid-lbl   { font-size: 10px; color: var(--muted); }
+
+table.ob { width: 100%; border-collapse: collapse; font-size: 11px; }
+table.ob thead th {
+  padding: 4px 10px;
+  color: var(--muted);
+  font-weight: 500;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0;
+  background: var(--panel);
+}
+table.ob thead th:first-child { text-align: left; }
+table.ob tbody td {
+  padding: 4px 10px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid rgba(43,49,57,.4);
+}
+table.ob tbody td:first-child { text-align: left; }
+table.ob tbody tr:hover td { background: var(--panel2); }
+
+.bar-cell { position: relative; }
+.bar-fill {
+  position: absolute;
+  top: 0; bottom: 0; right: 0;
+  opacity: .12;
+  pointer-events: none;
+}
+.sell .bar-fill { background: var(--red);   }
+.buy  .bar-fill { background: var(--green); }
+
+.tag {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  background: var(--border);
+  color: var(--muted);
+}
+
+/* ─── FILLS PANE ─────────────────────────────────────────── */
+.fills-pane { grid-column: 1 / -1; }
+
+table.fills { width: 100%; border-collapse: collapse; font-size: 11px; }
+table.fills thead th {
+  padding: 5px 10px;
+  color: var(--muted);
+  font-weight: 500;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0;
+  background: var(--panel);
+  white-space: nowrap;
+}
+table.fills thead th:first-child,
+table.fills thead th:nth-child(2) { text-align: left; }
+table.fills tbody td {
+  padding: 4px 10px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid rgba(43,49,57,.35);
+  white-space: nowrap;
+}
+table.fills tbody td:first-child,
+table.fills tbody td:nth-child(2) { text-align: left; }
+table.fills tbody tr:hover td { background: var(--panel2); }
+
+/* utilities */
+.green { color: var(--green); }
+.red   { color: var(--red);   }
+.muted { color: var(--muted); }
+.bold  { font-weight: 700; }
+.empty { color: var(--muted); text-align: center; padding: 20px; font-size: 11px; }
+</style>
+</head>
+<body>
+
+<!-- ─── HEADER ────────────────────────────────────────────── -->
+<div id="header">
+  <span class="logo">⚡ JACKBOT V1</span>
+
+  <div id="symBtns" style="display:flex;gap:6px">
+    <button class="sym-btn active" onclick="setSym('BTCUSDT')">BTCUSDT</button>
+    <button class="sym-btn"       onclick="setSym('ETHUSDT')">ETHUSDT</button>
+  </div>
+
+  <div class="price-display">
+    <span id="hPrice">—</span>
+    <span id="hChange">—</span>
+  </div>
+
+  <div class="header-stat">
+    <span class="lbl">24h 高</span>
+    <span class="val green" id="hHigh">—</span>
+  </div>
+  <div class="header-stat">
+    <span class="lbl">24h 低</span>
+    <span class="val red" id="hLow">—</span>
+  </div>
+  <div class="header-stat">
+    <span class="lbl">可用 USDT</span>
+    <span class="val" id="hBalance">—</span>
+  </div>
+
+  <div class="h-spacer"></div>
+
+  <div class="conn-pill">
+    <div class="conn-dot off" id="connDot"></div>
+    <span id="latLbl">— ms</span>
+    <span id="tsLbl" style="margin-left:6px">—</span>
+  </div>
+</div>
+
+<!-- ─── LAYOUT ────────────────────────────────────────────── -->
+<div id="layout">
+
+  <!-- LEFT: Account + Position -->
+  <div class="pane">
+    <div class="pane-hd">帳戶 / 持倉</div>
+    <div class="pane-body">
+      <div class="kv"><span class="k">可用</span><span class="v" id="accBalance">—</span></div>
+      <div class="kv"><span class="k">浮動盈虧</span><span class="v" id="accUpnl">—</span></div>
+      <div class="kv"><span class="k">延遲</span><span class="v muted" id="accLat">—</span></div>
+
+      <div class="section-lbl">持倉</div>
+      <div id="posPanel"><p class="empty">無持倉</p></div>
+    </div>
+  </div>
+
+  <!-- CENTER: K線圖 -->
+  <div class="pane">
+    <div class="pane-hd" id="chartHd">K 線圖 — BTCUSDT (5m)</div>
+    <div id="chartWrap">
+      <div id="chart"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: 掛單 (order-book style) -->
+  <div class="pane">
+    <div class="pane-hd">掛單</div>
+    <div class="pane-body no-pad" style="display:flex;flex-direction:column">
+      <div class="ob-wrap">
+        <!-- SELL orders (top, high→low) -->
+        <div class="ob-sells">
+          <table class="ob">
+            <thead><tr>
+              <th>賣出價</th>
+              <th>數量</th>
+              <th>類型</th>
+            </tr></thead>
+            <tbody id="sellBody">
+              <tr><td colspan="3" class="empty">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Mid: current price -->
+        <div class="ob-mid">
+          <div>
+            <div class="ob-mid-price" id="obPrice">—</div>
+            <div class="ob-mid-lbl">現價</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:11px" id="obOrderCount">— 筆掛單</div>
+            <div class="ob-mid-lbl" id="obSpread">—</div>
+          </div>
+        </div>
+
+        <!-- BUY orders (bottom, high→low) -->
+        <div class="ob-buys">
+          <table class="ob">
+            <thead><tr>
+              <th>買入價</th>
+              <th>數量</th>
+              <th>類型</th>
+            </tr></thead>
+            <tbody id="buyBody">
+              <tr><td colspan="3" class="empty">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM: 近期成交 (spans all 3 cols) -->
+  <div class="pane fills-pane">
+    <div class="pane-hd">近期成交</div>
+    <div class="pane-body no-pad">
+      <table class="fills">
+        <thead><tr>
+          <th>時間</th>
+          <th>交易對</th>
+          <th>方向</th>
+          <th>成交價</th>
+          <th>數量</th>
+          <th>實現盈虧</th>
+          <th>手續費</th>
+          <th>身份</th>
+        </tr></thead>
+        <tbody id="fillsBody">
+          <tr><td colspan="8" class="empty">無成交記錄</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /#layout -->
+
+<script>
+// ─── Chart setup ────────────────────────────────────────────
+const chartEl  = document.getElementById('chart');
+const chartWrap = document.getElementById('chartWrap');
+
+const chart = LightweightCharts.createChart(chartEl, {
+  layout:  { background: { color: '#0b0e11' }, textColor: '#848e9c', fontSize: 11 },
+  grid:    { vertLines: { color: '#161a1e' }, horzLines: { color: '#161a1e' } },
+  crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+  rightPriceScale: { borderColor: '#2b3139' },
+  timeScale: { borderColor: '#2b3139', timeVisible: true, secondsVisible: false },
+  width:  chartWrap.clientWidth,
+  height: chartWrap.clientHeight,
+});
+
+const candles = chart.addCandlestickSeries({
+  upColor:        '#0ecb81', downColor:        '#f6465d',
+  borderUpColor:  '#0ecb81', borderDownColor:  '#f6465d',
+  wickUpColor:    '#0ecb81', wickDownColor:    '#f6465d',
+});
+
+new ResizeObserver(() => {
+  chart.applyOptions({ width: chartWrap.clientWidth, height: chartWrap.clientHeight });
+}).observe(chartWrap);
+
+// Price lines (orders + position)
+const _lines = {};
+function clearLines() {
+  for (const id in _lines) { candles.removePriceLine(_lines[id]); }
+  Object.keys(_lines).forEach(k => delete _lines[k]);
+}
+function addLine(id, price, color, title, width = 1, style = LightweightCharts.LineStyle.Dashed) {
+  _lines[id] = candles.createPriceLine({ price, color, lineWidth: width, lineStyle: style, axisLabelVisible: true, title });
+}
+
+// ─── State ──────────────────────────────────────────────────
+let state   = null;
+let curSym  = 'BTCUSDT';
+let prevPx  = 0;
+
+function setSym(sym) {
+  curSym = sym;
+  document.querySelectorAll('.sym-btn').forEach(b => b.classList.toggle('active', b.textContent === sym));
+  document.getElementById('chartHd').textContent = `K 線圖 — ${sym} (5m)`;
+  if (state) render(state);
+}
+
+// ─── Helpers ────────────────────────────────────────────────
+const PD  = { BTCUSDT: 1, ETHUSDT: 2 };
+function pd(sym) { return PD[sym] ?? 2; }
+
+function fmt(n, d = 2) {
+  if (n == null || n === '') return '—';
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+function fmtT(ms) {
+  return new Date(ms).toLocaleTimeString('zh-TW', { hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+function cls(v) { return v > 0.0001 ? 'green' : v < -0.0001 ? 'red' : 'muted'; }
+
+// ─── Render ─────────────────────────────────────────────────
+function render(data) {
+  state = data;
+  const sym  = data.symbols[curSym] || {};
+  const price = sym.price || 0;
+  const dec   = pd(curSym);
+
+  // ── Header
+  const priceEl = document.getElementById('hPrice');
+  if (prevPx && prevPx !== price) {
+    priceEl.style.color = price > prevPx ? '#0ecb81' : '#f6465d';
+    setTimeout(() => { priceEl.style.color = ''; }, 500);
+  }
+  prevPx = price;
+  priceEl.textContent = '$' + fmt(price, dec);
+  document.getElementById('obPrice').textContent = '$' + fmt(price, dec);
+  document.getElementById('obPrice').className = 'ob-mid-price ' + (price > prevPx ? 'green' : 'red');
+
+  const kls = sym.klines || [];
+  if (kls.length) {
+    const open0 = kls[0].open;
+    const chg   = ((price - open0) / open0) * 100;
+    const el    = document.getElementById('hChange');
+    el.textContent = (chg >= 0 ? '▲+' : '▼') + chg.toFixed(2) + '%';
+    el.className   = 'price-change ' + (chg >= 0 ? 'green' : 'red');
+
+    const highs = kls.map(k => k.high);
+    const lows  = kls.map(k => k.low);
+    document.getElementById('hHigh').textContent = '$' + fmt(Math.max(...highs), dec);
+    document.getElementById('hLow').textContent  = '$' + fmt(Math.min(...lows),  dec);
+  }
+
+  document.getElementById('hBalance').textContent  = '$' + fmt(data.balance, 2);
+  document.getElementById('accBalance').textContent = '$' + fmt(data.balance, 4) + ' USDT';
+  document.getElementById('latLbl').textContent     = data.latency_ms >= 0 ? data.latency_ms + ' ms' : '—';
+  document.getElementById('accLat').textContent     = data.latency_ms >= 0 ? data.latency_ms + ' ms' : '—';
+  document.getElementById('tsLbl').textContent      =
+    new Date(data.ts).toLocaleTimeString('zh-TW', { hour12: false });
+
+  // Total upnl
+  let upnl = 0;
+  for (const s in data.symbols) {
+    const p = data.symbols[s].position;
+    if (p && p.side !== 'FLAT') upnl += p.upnl;
+  }
+  const upnlEl = document.getElementById('accUpnl');
+  upnlEl.textContent = (upnl >= 0 ? '+' : '') + '$' + fmt(upnl, 4);
+  upnlEl.className   = 'v ' + cls(upnl);
+
+  // ── Chart klines
+  if (kls.length) {
+    candles.setData(kls.map(k => ({
+      time:  Math.floor(k.timestamp / 1000),
+      open:  k.open, high: k.high, low: k.low, close: k.close,
+    })));
+  }
+
+  // ── Price lines (orders + position)
+  clearLines();
+  const orders = sym.orders || [];
+  for (const o of orders) {
+    if (!o.price) continue;
+    const isBuy = o.side === 'BUY';
+    addLine('ord_' + o.id, o.price,
+      isBuy ? '#0ecb81' : '#f6465d',
+      (isBuy ? '買' : '賣') + ' ' + fmt(o.qty, 4),
+    );
+  }
+  const pos = sym.position;
+  if (pos && pos.side !== 'FLAT' && pos.qty > 0) {
+    addLine('entry', pos.entry, '#f0b90b', `進場 ${pos.side}`, 2, LightweightCharts.LineStyle.Solid);
+    if (pos.liq_price > 0) {
+      addLine('liq', pos.liq_price, '#f6465d88', '強平', 1, LightweightCharts.LineStyle.Dotted);
+    }
+  }
+
+  // ── Position cards
+  renderPositions(data.symbols);
+
+  // ── Order book panels
+  renderOrders(orders, price, dec);
+
+  // ── Fills
+  const allFills = [];
+  for (const s in data.symbols) {
+    for (const f of (data.symbols[s].fills || [])) allFills.push({ ...f, sym: s });
+  }
+  allFills.sort((a, b) => b.time - a.time);
+  renderFills(allFills.slice(0, 40));
+}
+
+// ── Position cards
+function renderPositions(symbols) {
+  const el = document.getElementById('posPanel');
+  const cards = [];
+  for (const sym in symbols) {
+    const pos = symbols[sym].position;
+    if (!pos || pos.side === 'FLAT' || pos.qty === 0) continue;
+    const dec  = pd(sym);
+    const isLong = pos.side === 'LONG';
+    cards.push(`
+      <div class="pos-card">
+        <div class="pos-card-hd">
+          <span class="pos-sym">${sym}</span>
+          <span class="pos-badge ${isLong ? 'long' : 'short'}">${isLong ? 'LONG' : 'SHORT'}</span>
+        </div>
+        <div class="kv"><span class="k">數量</span><span class="v">${fmt(pos.qty, 4)}</span></div>
+        <div class="kv"><span class="k">進場價</span><span class="v">${fmt(pos.entry, dec)}</span></div>
+        <div class="kv"><span class="k">強平價</span><span class="v red">${fmt(pos.liq_price, dec)}</span></div>
+        <div class="kv"><span class="k">槓桿</span><span class="v">${pos.leverage}x</span></div>
+        <div class="kv" style="border:none">
+          <span class="k">浮動盈虧</span>
+          <span class="v ${cls(pos.upnl)}">${pos.upnl >= 0 ? '+' : ''}$${fmt(pos.upnl, 4)}</span>
+        </div>
+      </div>`);
+  }
+  el.innerHTML = cards.length ? cards.join('') : '<p class="empty">無持倉</p>';
+}
+
+// ── Order book panels
+function renderOrders(orders, price, dec) {
+  const sells = orders.filter(o => o.side === 'SELL').sort((a, b) => b.price - a.price);
+  const buys  = orders.filter(o => o.side === 'BUY').sort((a, b) => b.price - a.price);
+
+  const maxQty = Math.max(...orders.map(o => o.qty), 1);
+
+  function rows(arr, cls2) {
+    if (!arr.length) return `<tr><td colspan="3" class="empty">—</td></tr>`;
+    return arr.map(o => {
+      const pct = Math.round((o.qty / maxQty) * 100);
+      return `<tr class="${cls2}">
+        <td class="${cls2 === 'sell' ? 'red bold' : 'green bold'} bar-cell">
+          <div class="bar-fill" style="width:${pct}%"></div>
+          ${fmt(o.price, dec)}
+        </td>
+        <td>${fmt(o.qty, 4)}</td>
+        <td><span class="tag">${o.type}</span></td>
+      </tr>`;
+    }).join('');
+  }
+
+  document.getElementById('sellBody').innerHTML = rows(sells, 'sell');
+  document.getElementById('buyBody').innerHTML  = rows(buys,  'buy');
+
+  const total = orders.length;
+  document.getElementById('obOrderCount').textContent = total + ' 筆掛單';
+
+  if (sells.length && buys.length) {
+    const bestSell = Math.min(...sells.map(o => o.price));
+    const bestBuy  = Math.max(...buys.map(o => o.price));
+    const spread   = bestSell - bestBuy;
+    document.getElementById('obSpread').textContent = `spread ${fmt(spread, dec)}`;
+  } else {
+    document.getElementById('obSpread').textContent = '';
+  }
+}
+
+// ── Fills table
+function renderFills(fills) {
+  const el = document.getElementById('fillsBody');
+  if (!fills.length) {
+    el.innerHTML = '<tr><td colspan="8" class="empty">無成交記錄</td></tr>';
+    return;
+  }
+  el.innerHTML = fills.map(f => {
+    const dec   = pd(f.sym);
+    const isBuy = f.side === 'BUY';
+    const pnlLabel = f.pnl !== 0
+      ? `<span class="${cls(f.pnl)}">${f.pnl > 0 ? '+' : ''}$${fmt(Math.abs(f.pnl), 4)}</span>`
+      : '<span class="muted">—</span>';
+    return `<tr>
+      <td>${fmtT(f.time)}</td>
+      <td>${f.sym}</td>
+      <td class="${isBuy ? 'green' : 'red'} bold">${isBuy ? '買入' : '賣出'}</td>
+      <td>${fmt(f.price, dec)}</td>
+      <td>${fmt(f.qty, 4)}</td>
+      <td>${pnlLabel}</td>
+      <td class="muted">$${fmt(f.commission, 6)}</td>
+      <td><span class="tag">${f.maker ? 'Maker' : 'Taker'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── WebSocket ───────────────────────────────────────────────
+const dot = document.getElementById('connDot');
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws    = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onopen  = () => dot.classList.remove('off');
+  ws.onclose = () => { dot.classList.add('off'); setTimeout(connect, 3000); };
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = e => {
+    try { render(JSON.parse(e.data)); } catch {}
+  };
+}
+
+connect();
+</script>
+</body>
+</html>
