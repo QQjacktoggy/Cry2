@@ -9,6 +9,7 @@ Supports both testnet and mainnet. Designed for grid trading:
 
 from __future__ import annotations
 
+from decimal import ROUND_DOWN, Decimal
 import hashlib
 import hmac
 import os
@@ -47,6 +48,9 @@ class BinanceClient:
         # symbol → (qty_precision, price_precision); populated by load_symbol_info()
         self._qty_precision: dict[str, int] = {}
         self._price_precision: dict[str, int] = {}
+        # symbol -> trading increments from exchange filters
+        self._qty_step_size: dict[str, float] = {}
+        self._price_tick_size: dict[str, float] = {}
 
     def close(self) -> None:
         self._client.close()
@@ -95,13 +99,24 @@ class BinanceClient:
         resp.raise_for_status()
         for sym_info in resp.json().get("symbols", []):
             if sym_info["symbol"] in symbols:
-                self._qty_precision[sym_info["symbol"]] = sym_info["quantityPrecision"]
-                self._price_precision[sym_info["symbol"]] = sym_info["pricePrecision"]
+                symbol = sym_info["symbol"]
+                self._qty_precision[symbol] = sym_info["quantityPrecision"]
+                self._price_precision[symbol] = sym_info["pricePrecision"]
+
+                # Prefer exchange filters for order validity (tick/step constraints).
+                for f in sym_info.get("filters", []):
+                    if f.get("filterType") == "LOT_SIZE":
+                        self._qty_step_size[symbol] = float(f.get("stepSize", 0.0))
+                    elif f.get("filterType") == "PRICE_FILTER":
+                        self._price_tick_size[symbol] = float(f.get("tickSize", 0.0))
+
                 logger.info(
                     "symbol_info_loaded",
-                    symbol=sym_info["symbol"],
+                    symbol=symbol,
                     qty_precision=sym_info["quantityPrecision"],
                     price_precision=sym_info["pricePrecision"],
+                    qty_step=self._qty_step_size.get(symbol),
+                    price_tick=self._price_tick_size.get(symbol),
                     margin_asset=sym_info.get("marginAsset"),
                 )
 
@@ -148,10 +163,15 @@ class BinanceClient:
                 "marginType": margin_type,
             })
             logger.info("margin_type_set", symbol=symbol, margin_type=margin_type)
+        except httpx.HTTPStatusError as e:
+            # Binance returns 400 for no-op margin updates; avoid noisy warnings.
+            msg = e.response.text if e.response is not None else str(e)
+            if "-4046" in msg or "No need to change margin type" in msg:
+                logger.debug("margin_type_unchanged", symbol=symbol, margin_type=margin_type)
+                return
+            logger.warning("margin_type_failed", symbol=symbol, error=str(e))
         except Exception as e:
-            # Ignore "No need to change margin type" error
-            if "-4046" not in str(e):
-                logger.warning("margin_type_failed", symbol=symbol, error=str(e))
+            logger.warning("margin_type_failed", symbol=symbol, error=str(e))
 
     # ── Orders ────────────────────────────────────────────────────────
 
@@ -165,8 +185,23 @@ class BinanceClient:
         client_order_id: str = "",
     ) -> dict:
         """Place a limit order."""
+        tick_size = self._price_tick_size.get(symbol, 0.0)
+        step_size = self._qty_step_size.get(symbol, 0.0)
+        if tick_size > 0:
+            price = self._round_down_to_increment(price, tick_size)
+        if step_size > 0:
+            quantity = self._round_down_to_increment(quantity, step_size)
+
+        if quantity <= 0:
+            raise ValueError(f"Order quantity rounds to zero for {symbol}")
+
         qty_prec = self._qty_precision.get(symbol, 3)
         price_prec = self._price_precision.get(symbol, 2)
+        if step_size > 0:
+            qty_prec = self._precision_from_increment(step_size)
+        if tick_size > 0:
+            price_prec = self._precision_from_increment(tick_size)
+
         params: dict[str, Any] = {
             "symbol": symbol,
             "side": side,
@@ -199,7 +234,17 @@ class BinanceClient:
         reduce_only: bool = False,
     ) -> dict:
         """Place a market order."""
+        step_size = self._qty_step_size.get(symbol, 0.0)
+        if step_size > 0:
+            quantity = self._round_down_to_increment(quantity, step_size)
+
+        if quantity <= 0:
+            raise ValueError(f"Order quantity rounds to zero for {symbol}")
+
         qty_prec = self._qty_precision.get(symbol, 3)
+        if step_size > 0:
+            qty_prec = self._precision_from_increment(step_size)
+
         params: dict[str, Any] = {
             "symbol": symbol,
             "side": side,
@@ -274,3 +319,19 @@ class BinanceClient:
         resp = self._client.delete(path, params=params)
         resp.raise_for_status()
         return resp.json()
+
+    @staticmethod
+    def _round_down_to_increment(value: float, increment: float) -> float:
+        if increment <= 0:
+            return value
+        d_value = Decimal(str(value))
+        d_inc = Decimal(str(increment))
+        return float((d_value / d_inc).to_integral_value(rounding=ROUND_DOWN) * d_inc)
+
+    @staticmethod
+    def _precision_from_increment(increment: float) -> int:
+        if increment <= 0:
+            return 0
+        normalized = Decimal(str(increment)).normalize()
+        exp = normalized.as_tuple().exponent
+        return -exp if exp < 0 else 0

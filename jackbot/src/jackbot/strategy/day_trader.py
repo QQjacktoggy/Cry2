@@ -517,3 +517,20 @@ class DayTrader:
         for grid in list(self._engine.active_grids):
             signals.extend(self._engine.close_grid(grid.grid_id, reason=reason))
         return signals
+
+    def manual_halt(self, reason: str = "manual") -> None:
+        """Manually halt trading via external control (e.g. Telegram)."""
+        if not self._halted:
+            self._halt(reason)
+
+    def manual_resume(self) -> bool:
+        """Resume trading if hard risk constraints are not currently violated."""
+        max_allowed_loss = self._cfg.total_capital_usd * (self._cfg.daily_loss_limit_pct / 100.0)
+        if self._daily_loss >= max_allowed_loss:
+            return False
+        self._halted = False
+        return True
+
+    def set_mode(self, mode: TradingMode) -> None:
+        """Force trading mode via external control."""
+        self._mode = mode
