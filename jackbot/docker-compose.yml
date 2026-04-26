@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  jackbot:
+    build: .
+    container_name: jackbot-v1
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+    environment:
+      - PYTHONPATH=/app/src:/app
+    command: python scripts/run.py
+    networks:
+      - bot-network
+
+networks:
+  bot-network:
+    driver: bridge

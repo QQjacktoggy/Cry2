@@ -56,13 +56,14 @@ class EventType(str, Enum):
     REJECT = "REJECT"
     LIQUIDATION = "LIQUIDATION"
     KILL_SWITCH = "KILL_SWITCH"
+    DAILY_TARGET_HIT = "DAILY_TARGET_HIT"
 
 
 # API Constants
 BINANCE_FUTURES_BASE_URL = "https://fapi.binance.com"
-BINANCE_FUTURES_TESTNET_URL = "https://testnet.binancefuture.com"
+BINANCE_FUTURES_TESTNET_URL = "https://demo-fapi.binance.com"
 BINANCE_FUTURES_WS_URL = "wss://fstream.binance.com"
-BINANCE_FUTURES_WS_TESTNET_URL = "wss://stream.binancefuture.com"
+BINANCE_FUTURES_WS_TESTNET_URL = "wss://fstream.binancefuture.com"
 
 # Funding rate settlement interval (8 hours in milliseconds)
 FUNDING_INTERVAL_MS = 8 * 60 * 60 * 1000

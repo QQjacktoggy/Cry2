@@ -58,6 +58,45 @@ def test_order_trade_update_publishes_fill_event() -> None:
     assert fill.strategy_name == "bridge_trend_donchian_btc"
 
 
+def test_order_trade_update_prefers_runtime_strategy_resolver() -> None:
+    event_bus = EventBus()
+    received: list[FillEvent] = []
+    event_bus.subscribe("FILL", received.append)
+
+    stream = UserDataStream(
+        event_bus=event_bus,
+        rest_client=MagicMock(),
+        known_strategies=[
+            "bridge_trend_donchian_mtf_btc",
+            "bridge_tail_risk_hedge_sol",
+        ],
+        strategy_resolver=lambda order_id, client_oid: "bridge_tail_risk_hedge_sol"
+        if order_id == "12345"
+        else None,
+    )
+
+    stream._handle_message(
+        {
+            "e": "ORDER_TRADE_UPDATE",
+            "o": {
+                "x": "TRADE",
+                "s": "SOLUSDT",
+                "S": "BUY",
+                "c": "bot_bridge_t_1234567890_abcd12",
+                "l": "0.01",
+                "L": "100.0",
+                "n": "0.1",
+                "N": "USDT",
+                "i": 12345,
+                "rp": "0",
+                "T": 1_717_286_400_000,
+            },
+        }
+    )
+
+    assert received[0].strategy_name == "bridge_tail_risk_hedge_sol"
+
+
 def test_non_trade_update_is_ignored() -> None:
     event_bus = EventBus()
     received: list[FillEvent] = []

@@ -15,9 +15,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ src/
 COPY config/ config/
 COPY scripts/ scripts/
+COPY backtest_tool/ backtest_tool/
 
 # Set Python path
-ENV PYTHONPATH=/app/src
+ENV PYTHONPATH=/app/src:/app
 ENV PYTHONUNBUFFERED=1
 
 # Health check

@@ -41,7 +41,15 @@ class BinanceRestClient:
                 api_secret=api_secret,
                 testnet=self.endpoint.is_testnet,
             )
-            logger.info("binance_client_initialized", mode=mode)
+            # python-binance does not switch futures REST endpoints when testnet=True.
+            # Set the futures base URL explicitly so futures_account/create_order hit
+            # the configured environment instead of mainnet.
+            self._client.FUTURES_URL = f"{self.endpoint.base_url.rstrip('/')}" + "/fapi"
+            logger.info(
+                "binance_client_initialized",
+                mode=mode,
+                futures_url=self._client.FUTURES_URL,
+            )
         except ImportError:
             logger.warning("python-binance not installed, using mock mode")
         except Exception as e:
@@ -194,6 +202,38 @@ class BinanceRestClient:
         except Exception as e:
             raise ExchangeError(f"Set leverage failed: {e}") from e
 
+    def get_quantity_precision(self, symbol: str) -> int:
+        """Get the quantity decimal precision for a symbol from exchange info.
+
+        Results are cached so repeated calls are free.
+        Returns 3 as a safe fallback if exchange info is unavailable.
+        """
+        if not hasattr(self, "_qty_precision_cache"):
+            self._qty_precision_cache: dict[str, int] = {}
+
+        if symbol in self._qty_precision_cache:
+            return self._qty_precision_cache[symbol]
+
+        if self._client is None:
+            return 3
+
+        try:
+            info = self._client.futures_exchange_info()
+            for sym in info.get("symbols", []):
+                s = sym["symbol"]
+                for f in sym.get("filters", []):
+                    if f["filterType"] == "LOT_SIZE":
+                        step = f["stepSize"].rstrip("0") or "1"
+                        if "." in step:
+                            precision = len(step.split(".")[1])
+                        else:
+                            precision = 0
+                        self._qty_precision_cache[s] = precision
+                        break
+            return self._qty_precision_cache.get(symbol, 3)
+        except Exception:
+            return 3
+
     def get_server_time(self) -> int:
         """Get Binance server time in milliseconds."""
         if self._client is None:
@@ -279,6 +319,30 @@ class BinanceRestClient:
         except Exception as e:
             raise ExchangeError(f"Get account trades failed: {e}") from e
 
+    def get_klines(
+        self,
+        symbol: str,
+        interval: str,
+        limit: int = 200,
+    ) -> list[list]:
+        """Fetch historical futures klines (OHLCV).
+
+        Args:
+            symbol:   e.g. "BTCUSDT"
+            interval: e.g. "4h", "1d"
+            limit:    number of bars (max 1500)
+
+        Returns:
+            List of kline lists: [open_time, open, high, low, close, volume, ...]
+        """
+        self.rate_limiter.acquire(weight=1)
+        if self._client is None:
+            return []
+        try:
+            return self._client.futures_klines(symbol=symbol, interval=interval, limit=limit)
+        except Exception as e:
+            raise ExchangeError(f"Get klines failed: {e}") from e
+
     def get_listen_key(self) -> str:
         """Create a new user data stream listen key (futures).
 
@@ -290,7 +354,12 @@ class BinanceRestClient:
             return ""
         try:
             resp = self._client.futures_stream_get_listen_key()
-            return resp.get("listenKey", "")
+            if isinstance(resp, dict):
+                return resp.get("listenKey", "")
+            # Some client versions or error states return the key string directly
+            if isinstance(resp, str):
+                return resp
+            return ""
         except Exception as e:
             raise ExchangeError(f"Get listen key failed: {e}") from e
 

@@ -37,18 +37,47 @@ class LiveExecutor(BaseExecutor):
         self.order_manager = OrderManager(client)
         self.account_manager = AccountManager(client)
         self._order_symbols: dict[str, str] = {}  # order_id → symbol
+        self._order_strategies: dict[str, str] = {}  # order/client_order_id → strategy
         self._publish_market_fills = publish_market_fills
+
+    def resolve_strategy(self, order_id: str = "", client_order_id: str = "") -> str | None:
+        """Resolve a runtime order identifier back to its originating strategy."""
+        if order_id and order_id in self._order_strategies:
+            return self._order_strategies[order_id]
+        if client_order_id and client_order_id in self._order_strategies:
+            return self._order_strategies[client_order_id]
+        return None
 
     def submit_order(self, order: OrderEvent) -> str:
         """Submit order to Binance."""
         client_order_id = order.client_order_id or generate_client_order_id(order.strategy_name)
+
+        # Round quantity to exchange-defined precision to avoid -1111 errors
+        quantity = order.quantity
+        if hasattr(self.client, "get_quantity_precision"):
+            precision = self.client.get_quantity_precision(order.symbol)
+            quantity = round(quantity, precision)
+
+        # Set leverage on Binance before placing the order when requested.
+        # Binance persists leverage per-symbol so this is idempotent on repeated
+        # calls with the same value.
+        if order.requested_leverage > 0:
+            try:
+                self.client.set_leverage(order.symbol, order.requested_leverage)
+            except Exception as lev_err:
+                logger.warning(
+                    "leverage_set_failed",
+                    symbol=order.symbol,
+                    leverage=order.requested_leverage,
+                    error=str(lev_err),
+                )
 
         try:
             result = self.client.place_order(
                 symbol=order.symbol,
                 side=order.side.value,
                 order_type=order.order_type.value,
-                quantity=order.quantity,
+                quantity=quantity,
                 price=order.price if order.price > 0 else None,
                 stop_price=order.stop_price if order.stop_price > 0 else None,
                 reduce_only=order.reduce_only,
@@ -60,7 +89,9 @@ class LiveExecutor(BaseExecutor):
             exchange_order_id = str(result.get("orderId", ""))
             if exchange_order_id:
                 self._order_symbols[exchange_order_id] = order.symbol
+                self._order_strategies[exchange_order_id] = order.strategy_name
             self._order_symbols[client_order_id] = order.symbol
+            self._order_strategies[client_order_id] = order.strategy_name
 
             # If market order, it should be filled immediately
             if order.order_type == OrderType.MARKET and self._publish_market_fills:

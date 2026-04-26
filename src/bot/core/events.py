@@ -81,6 +81,7 @@ class OrderEvent(BaseEvent):
     reduce_only: bool = False
     post_only: bool = False
     client_order_id: str = ""
+    requested_leverage: int = 0  # 0 = no change; >0 = set before placing
 
 
 class FillEvent(BaseEvent):
@@ -127,3 +128,11 @@ class KillSwitchEvent(BaseEvent):
     reason: str
     triggered_by: str = "system"
     close_all: bool = True
+
+
+class DailyTargetHitEvent(BaseEvent):
+    """Fired once per day when daily realized PnL reaches the profit target."""
+
+    event_type: EventType = EventType.DAILY_TARGET_HIT
+    daily_pnl: float
+    target_usd: float

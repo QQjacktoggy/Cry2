@@ -1,23 +1,47 @@
 """Backtest engine: runner, parameter scanning, portfolio optimization, risk management, regime detection, analytics, robustness."""
 
-from backtest_tool.engine.analytics import (
-    compute_correlation_matrix,
-    compute_correlation_summary,
-    compute_multi_window_sharpe,
-    compute_rolling_sharpe,
-    compute_strategy_health_report,
-    detect_strategy_decay,
-    find_low_correlation_pairs,
-)
+try:
+    from backtest_tool.engine.analytics import (
+        compute_correlation_matrix,
+        compute_correlation_summary,
+        compute_multi_window_sharpe,
+        compute_rolling_sharpe,
+        compute_strategy_health_report,
+        detect_strategy_decay,
+        find_low_correlation_pairs,
+    )
+except ImportError:
+    compute_correlation_matrix = None
+    compute_correlation_summary = None
+    compute_multi_window_sharpe = None
+    compute_rolling_sharpe = None
+    compute_strategy_health_report = None
+    detect_strategy_decay = None
+    find_low_correlation_pairs = None
+
 from backtest_tool.engine.cost_model import CostModel
-from backtest_tool.engine.param_scanner import ParamScanner
-from backtest_tool.engine.portfolio_optimizer import PortfolioOptimizer
-from backtest_tool.engine.regime import (
-    MarketRegimeDetector,
-    Regime,
-    RegimeConfig,
-    StrategySelector,
-)
+try:
+    from backtest_tool.engine.param_scanner import ParamScanner
+    from backtest_tool.engine.portfolio_optimizer import PortfolioOptimizer
+    from backtest_tool.engine.runner import BacktestResult, BacktestRunner, MultiBacktestResult
+except ImportError:
+    ParamScanner = None
+    PortfolioOptimizer = None
+    BacktestResult = None
+    BacktestRunner = None
+    MultiBacktestResult = None
+try:
+    from backtest_tool.engine.regime import (
+        MarketRegimeDetector,
+        Regime,
+        RegimeConfig,
+        StrategySelector,
+    )
+except ImportError:
+    MarketRegimeDetector = None
+    Regime = None
+    RegimeConfig = None
+    StrategySelector = None
 from backtest_tool.engine.risk_manager import (
     PositionSizer,
     RiskManager,
@@ -35,7 +59,6 @@ from backtest_tool.engine.robustness import (
     stress_test,
     walk_forward_analysis,
 )
-from backtest_tool.engine.runner import BacktestResult, BacktestRunner, MultiBacktestResult
 
 __all__ = [
     # Core

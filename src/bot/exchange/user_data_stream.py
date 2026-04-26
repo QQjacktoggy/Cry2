@@ -51,6 +51,7 @@ class UserDataStream:
         rest_client: BinanceRestClient,
         ws_url: str = "wss://fstream.binance.com",
         known_strategies: list[str] | None = None,
+        strategy_resolver: Callable[[str, str], str | None] | None = None,
         on_fill: Callable[[FillEvent], None] | None = None,
         on_status_change: Callable[[bool], None] | None = None,
     ) -> None:
@@ -58,6 +59,7 @@ class UserDataStream:
         self._rest = rest_client
         self._ws_url = ws_url
         self._known_strategies = known_strategies or []
+        self._strategy_resolver = strategy_resolver
         self._on_fill = on_fill
         self._on_status_change = on_status_change
 
@@ -78,7 +80,13 @@ class UserDataStream:
         self._healthy_event.clear()
         self._stopped_event.clear()
         try:
-            self._listen_key = self._rest.get_listen_key()
+            try:
+                self._listen_key = self._rest.get_listen_key()
+            except Exception as e:
+                logger.error("user_data_stream_listen_key_failed", error=str(e))
+                self._running = False
+                self._notify_status_change(False)
+                return
             if not self._listen_key:
                 logger.error("user_data_stream_no_listen_key")
                 self._running = False
@@ -241,13 +249,13 @@ class UserDataStream:
             side = OrderSide.BUY
 
         client_oid = o.get("c", "")
-        strategy = extract_strategy_from_client_oid(client_oid, self._known_strategies) or "unknown"
+        order_id = str(o.get("i", ""))
+        strategy = self._resolve_strategy(order_id, client_oid)
 
         qty = float(o.get("l", 0.0))   # last filled qty
         price = float(o.get("L", 0.0)) # last filled price
         commission = float(o.get("n", 0.0))
         commission_asset = o.get("N", "USDT") or "USDT"
-        order_id = str(o.get("i", ""))
         realized_pnl = float(o.get("rp", 0.0))
 
         ts_ms = o.get("T", 0)
@@ -288,3 +296,15 @@ class UserDataStream:
                 self._on_fill(fill)
             except Exception as exc:
                 logger.warning("on_fill_callback_error", error=str(exc))
+
+    def _resolve_strategy(self, order_id: str, client_oid: str) -> str:
+        if self._strategy_resolver is not None:
+            try:
+                strategy = self._strategy_resolver(order_id, client_oid)
+            except Exception as exc:
+                logger.warning("user_data_strategy_resolver_failed", error=str(exc))
+            else:
+                if strategy:
+                    return strategy
+
+        return extract_strategy_from_client_oid(client_oid, self._known_strategies) or "unknown"

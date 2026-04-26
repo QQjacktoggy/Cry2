@@ -49,6 +49,7 @@ from bot.risk.kill_switch import KillSwitch
 from bot.risk.risk_manager import RiskManager
 from bot.runtime import build_deploy_meta
 from bot.runtime.config_snapshot import write_run_snapshot
+from bot.runtime.multi_timeframe import event_matches_strategy, group_symbols_by_timeframe, sort_timeframes
 from bot.runtime.preflight import format_preflight, run_preflight
 from bot.runtime.review_bundle import export_review_bundle
 from bot.runtime.single_instance import SingleInstance, SingleInstanceError
@@ -366,43 +367,61 @@ async def main() -> None:
                 **details,
             )
 
-    # Data feed (multi-timeframe: use smallest common timeframe)
-    primary_tf = min(all_timeframes, key=lambda t: {"1h": 1, "4h": 4, "8h": 8, "1d": 24}.get(t, 4))
-    feed = LiveFeed(
-        event_bus=event_bus,
-        clock=clock,
-        ws_url=exchange_cfg.get("ws_url", "wss://fstream.binance.com"),
-        symbols=all_symbols,
-        timeframe=primary_tf,
-        rest_client=client,
-        funding_poll_interval=300,
-    )
-    def _on_ws_status(connected: bool) -> None:
-        _sync_health(ws_connected=connected)
-        metrics.report_ws_connected(connected)
+    # Data feed
+    timeframes = sort_timeframes(all_timeframes)
+    primary_tf = timeframes[0]
+    symbols_by_timeframe = group_symbols_by_timeframe(strategies)
+    feed_status_by_timeframe = {timeframe: False for timeframe in symbols_by_timeframe}
+    feeds: list[LiveFeed] = []
+
+    def _on_ws_status(timeframe: str, connected: bool) -> None:
+        feed_status_by_timeframe[timeframe] = connected
+        all_connected = bool(feed_status_by_timeframe) and all(feed_status_by_timeframe.values())
+        _sync_health(ws_connected=all_connected)
+        metrics.report_ws_connected(all_connected)
         if not connected:
             emit_lifecycle_event(
                 "ws_disconnect",
                 run_id=deploy_meta.run_id,
                 environment="live",
+                timeframe=timeframe,
             )
             journal.record_runtime_event(
                 "ws_disconnect",
                 severity="warning",
-                details={"environment": "live"},
+                details={"environment": "live", "timeframe": timeframe},
             )
         else:
             emit_lifecycle_event(
                 "ws_reconnect",
                 run_id=deploy_meta.run_id,
                 environment="live",
+                timeframe=timeframe,
             )
 
-    feed.on_status_change = _on_ws_status
+    for timeframe in timeframes:
+        symbols = symbols_by_timeframe.get(timeframe, [])
+        if not symbols:
+            continue
+        feed = LiveFeed(
+            event_bus=event_bus,
+            clock=clock,
+            ws_url=exchange_cfg.get("ws_url", "wss://fstream.binance.com"),
+            symbols=symbols,
+            timeframe=timeframe,
+            rest_client=client if timeframe == primary_tf else None,
+            funding_poll_interval=300,
+        )
+        feed.on_status_change = lambda connected, tf=timeframe: _on_ws_status(tf, connected)
+        feeds.append(feed)
 
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     user_data_healthy_once = False
+
+    async def _stop_feeds() -> None:
+        for current_feed in feeds:
+            await current_feed.stop_async()
 
     def _halt_for_user_data_stream(reason: str, *, error: str = "") -> None:
         if stop_event.is_set():
@@ -421,7 +440,7 @@ async def main() -> None:
             error=error,
         )
         stop_event.set()
-        loop.create_task(feed.stop_async())
+        loop.create_task(_stop_feeds())
         _sync_health(
             user_data_stream_ok=False,
             user_data_stream_reconnecting=False,
@@ -451,6 +470,7 @@ async def main() -> None:
         rest_client=client,
         ws_url=exchange_cfg.get("ws_url", "wss://fstream.binance.com"),
         known_strategies=strategy_names,
+        strategy_resolver=executor.resolve_strategy,
         on_status_change=_on_user_data_status,
     )
 
@@ -475,7 +495,13 @@ async def main() -> None:
         latency_ms = client.ping()
         kill_switch.check_api_latency(latency_ms)
         metrics.report_api_latency(latency_ms)
-        reconcile_from_binance(client, journal, logger, known_strategies=strategy_names)
+        reconcile_from_binance(
+            client,
+            journal,
+            logger,
+            known_strategies=strategy_names,
+            strategy_resolver=executor.resolve_strategy,
+        )
         _sync_health(
             api_latency_ms=round(latency_ms, 2),
             last_reconcile_ts=datetime.now(UTC).isoformat(),
@@ -485,9 +511,43 @@ async def main() -> None:
             details={"api_latency_ms": round(latency_ms, 2)},
         )
 
-    feed.on_reconnect = _do_reconcile
-    feed.periodic_sync_fn = _do_reconcile
+    for current_feed in feeds:
+        current_feed.on_reconnect = _do_reconcile
+    for current_feed in feeds:
+        if current_feed.timeframe == primary_tf:
+            current_feed.periodic_sync_fn = _do_reconcile
     _do_reconcile()
+
+    def _restore_strategy_position_state() -> None:
+        open_trades = journal.open_trades()
+        open_states: dict[tuple[str, str], str] = {}
+        if not open_trades.empty:
+            for _, trade in open_trades.iterrows():
+                remaining_size = float(trade.get("remaining_size", trade.get("size", 0.0)) or 0.0)
+                if remaining_size <= 0:
+                    continue
+                direction = str(trade.get("direction", "")).lower()
+                if direction not in {"long", "short"}:
+                    continue
+                open_states[(str(trade.get("strategy", "")), str(trade.get("symbol", "")))] = direction
+
+        restored = 0
+        for strategy in strategies:
+            position_state = open_states.get((strategy.name, strategy.symbol), "flat")
+            if hasattr(strategy, "restore_position_state"):
+                strategy.restore_position_state(position_state)
+            elif hasattr(strategy, "_in_position"):
+                strategy._in_position = position_state
+            if position_state != "flat":
+                restored += 1
+
+        logger.info(
+            "strategy_position_state_restored",
+            restored=restored,
+            open_trades=len(open_states),
+        )
+
+    _restore_strategy_position_state()
 
     # Wire strategies to market events
     def on_market(event):
@@ -499,25 +559,32 @@ async def main() -> None:
         for strategy in strategies:
             strategy.set_equity(portfolio.equity)
 
-        risk_manager.update_market_data(event.high, event.low, event.close)
-        risk_manager.tick_bar()
-        _report_risk_observability()
-        if circuit_breaker.is_tripped_at(event.timestamp):
+        leverage_before = state.get("applied_effective_leverage")
+        if event.timeframe == primary_tf:
+            risk_manager.update_market_data(event.high, event.low, event.close)
+            risk_manager.tick_bar()
+            _report_risk_observability()
+            if circuit_breaker.is_tripped_at(event.timestamp):
+                _sync_health(
+                    last_bar_ts=event.timestamp.isoformat(),
+                    circuit_breaker_symbol=state.get("circuit_breaker_symbol", event.symbol),
+                )
+                return
+            if not circuit_breaker.check_bar(event):
+                _sync_health(
+                    last_bar_ts=event.timestamp.isoformat(),
+                    circuit_breaker_symbol=event.symbol,
+                )
+                return
+        elif circuit_breaker.is_tripped_at(event.timestamp):
             _sync_health(
                 last_bar_ts=event.timestamp.isoformat(),
                 circuit_breaker_symbol=state.get("circuit_breaker_symbol", event.symbol),
             )
             return
-        if not circuit_breaker.check_bar(event):
-            _sync_health(
-                last_bar_ts=event.timestamp.isoformat(),
-                circuit_breaker_symbol=event.symbol,
-            )
-            return
 
-        leverage_before = state.get("applied_effective_leverage")
         for strategy in strategies:
-            if event.symbol in strategy.symbols:
+            if event_matches_strategy(strategy, event):
                 try:
                     signals = strategy.on_bar(event)
                     for sig in signals:
@@ -536,14 +603,17 @@ async def main() -> None:
                                  strategy=strategy.name,
                                  error=str(e))
 
-        applied_effective_leverage = round(risk_manager.effective_max_leverage, 2)
-        if leverage_before != applied_effective_leverage:
-            _apply_symbol_leverage()
-        _sync_health(
-            last_bar_ts=event.timestamp.isoformat(),
-            circuit_breaker_symbol="",
-            applied_effective_leverage=applied_effective_leverage,
-        )
+        if event.timeframe == primary_tf:
+            applied_effective_leverage = round(risk_manager.effective_max_leverage, 2)
+            if leverage_before != applied_effective_leverage:
+                _apply_symbol_leverage()
+            _sync_health(
+                last_bar_ts=event.timestamp.isoformat(),
+                circuit_breaker_symbol="",
+                applied_effective_leverage=applied_effective_leverage,
+            )
+        else:
+            _sync_health(last_bar_ts=event.timestamp.isoformat())
 
     event_bus.subscribe(EventType.MARKET.value, on_market)
 
@@ -593,7 +663,7 @@ async def main() -> None:
     def handle_signal(*_):
         logger.info("shutdown_signal_received")
         stop_event.set()
-        loop.create_task(feed.stop_async())
+        loop.create_task(_stop_feeds())
         loop.create_task(user_data_stream.stop())
         _sync_health(
             ws_connected=False,
@@ -646,13 +716,13 @@ async def main() -> None:
         )
         started = True
         with suppress(asyncio.CancelledError):
-            await feed.start_async()
+            await asyncio.gather(*(current_feed.start_async() for current_feed in feeds))
     except Exception as e:
         run_error = e
         logger.error("live_runtime_failed", error=str(e))
     finally:
         stop_event.set()
-        await feed.stop_async()
+        await _stop_feeds()
         await user_data_stream.stop()
         heartbeat_task.cancel()
         with suppress(asyncio.CancelledError):

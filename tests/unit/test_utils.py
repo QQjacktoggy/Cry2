@@ -2,7 +2,11 @@
 
 from datetime import UTC, datetime
 
-from bot.utils.id_generator import generate_client_order_id, generate_run_id
+from bot.utils.id_generator import (
+    extract_strategy_from_client_oid,
+    generate_client_order_id,
+    generate_run_id,
+)
 from bot.utils.math_utils import (
     clamp,
     pct_change,
@@ -57,8 +61,32 @@ class TestTimeUtils:
 class TestIdGenerator:
     def test_client_order_id_format(self):
         oid = generate_client_order_id("test_strat")
-        assert oid.startswith("bot_test_str")
+        assert oid.startswith("bot_test_strat")
         assert len(oid) <= 36
+
+    def test_extract_strategy_uses_unambiguous_prefix_match(self):
+        oid = generate_client_order_id("bridge_tail_risk_hedge_sol")
+
+        strategy = extract_strategy_from_client_oid(
+            oid,
+            [
+                "bridge_trend_donchian_mtf_btc",
+                "bridge_tail_risk_hedge_sol",
+            ],
+        )
+
+        assert strategy == "bridge_tail_risk_hedge_sol"
+
+    def test_extract_strategy_returns_raw_prefix_when_ambiguous(self):
+        strategy = extract_strategy_from_client_oid(
+            "bot_bridge_t_1234567890_abcd12",
+            [
+                "bridge_trend_donchian_mtf_btc",
+                "bridge_tail_risk_hedge_sol",
+            ],
+        )
+
+        assert strategy == "bridge_t"
 
     def test_run_id_format(self):
         rid = generate_run_id()

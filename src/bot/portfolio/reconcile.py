@@ -25,6 +25,7 @@ def reconcile_from_binance(
     journal: TradeJournal,
     log: Any = None,
     known_strategies: list[str] | None = None,
+    strategy_resolver: Any = None,
 ) -> int:
     """Fetch recent fills from Binance and back-fill any missing from the journal.
 
@@ -69,6 +70,14 @@ def reconcile_from_binance(
                         int(t["time"]) / 1000, tz=_dt.timezone.utc
                     ),
                     "strategy": (
+                        strategy_resolver(
+                            str(t.get("orderId", "")),
+                            str(t.get("clientOrderId", "")),
+                        )
+                        if strategy_resolver is not None
+                        else None
+                    )
+                    or (
                         extract_strategy_from_client_oid(
                             str(t.get("clientOrderId", "")), known_strategies
                         ) or "unknown"

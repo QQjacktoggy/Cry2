@@ -13,7 +13,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import structlog
-import vectorbt as vbt
+
+try:
+    import vectorbt as vbt
+    _VBT_AVAILABLE = True
+except ImportError:
+    vbt = None  # type: ignore[assignment]
+    _VBT_AVAILABLE = False
 
 logger = structlog.get_logger(__name__)
 
@@ -100,7 +106,7 @@ class BaseVBTStrategy(ABC):
         fees: float = 0.0004,
         slippage: float = 0.0002,
         leverage: float = 1.0,
-    ) -> vbt.Portfolio:
+    ) -> "vbt.Portfolio":
         """Execute backtest using VBT Portfolio.from_signals().
 
         Args:
@@ -113,6 +119,8 @@ class BaseVBTStrategy(ABC):
         Returns:
             VBT Portfolio object with backtest results.
         """
+        if not _VBT_AVAILABLE:
+            raise ImportError("vectorbt is required for run_backtest(). Install it with: pip install vectorbt")
         ohlcv = ohlcv.copy()
         close = ohlcv["close"]
 
