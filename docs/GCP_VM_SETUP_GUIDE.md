@@ -1,6 +1,7 @@
 # GCP VM 部署教學 — cry2 Bot
 
 > 記錄 2026-04-23 實際部署過程，含所有踩到的坑與解法。
+> 2026-04-24 更新：VM 遷移至 instance-20260424-060848（35.194.254.115）。
 
 ---
 
@@ -8,8 +9,9 @@
 
 | 項目 | 值 |
 |------|-----|
-| VM 名稱 | instance-20260416-030440 |
-| Zone | asia-east1-a |
+| VM 名稱 | instance-20260424-060848 |
+| External IP | 35.194.254.115 |
+| Zone | asia-east1-b |
 | 機型 | e2-micro (1 vCPU, 1GB RAM) |
 | OS | Ubuntu (Debian-based) |
 | 磁碟 | 10GB SSD |
@@ -20,7 +22,7 @@
 ## 一、SSH 連線
 
 ```bash
-gcloud compute ssh instance-20260416-030440 --zone=asia-east1-a
+gcloud compute ssh instance-20260424-060848 --zone=asia-east1-b
 ```
 
 第一次連線會出現 host key 確認，輸入 `yes` 後後續不會再問。
@@ -99,14 +101,14 @@ docker compose version  # 確認
 
 ```bash
 # 方法一：在 VM 上 git clone（推薦）
-gcloud compute ssh instance-20260416-030440 --zone=asia-east1-a --command="git clone <repo_url> /home/punktoggy/cry2"
+gcloud compute ssh instance-20260424-060848 --zone=asia-east1-b --command="git clone <repo_url> /home/punktoggy/cry2"
 
 # 方法二：從本機 SCP 上傳單一檔案
 # 注意：/home/punktoggy/ 可能只有 punktoggy 有權限，先傳到自己的家目錄
-gcloud compute scp myfile.txt instance-20260416-030440:/home/jack_shih/myfile.txt --zone=asia-east1-a
+gcloud compute scp myfile.txt instance-20260424-060848:/home/jack_shih/myfile.txt --zone=asia-east1-b
 
 # 再 sudo cp 到目標位置
-gcloud compute ssh instance-20260416-030440 --zone=asia-east1-a \
+gcloud compute ssh instance-20260424-060848 --zone=asia-east1-b \
   --command="sudo cp /home/jack_shih/myfile.txt /home/punktoggy/cry2/myfile.txt"
 ```
 
@@ -130,7 +132,7 @@ EOF
 **坑：用 heredoc 透過 SSH 寫入時，值可能被清空。** 確認方式：
 
 ```bash
-gcloud compute ssh instance-20260416-030440 --zone=asia-east1-a \
+gcloud compute ssh instance-20260424-060848 --zone=asia-east1-b \
   --command="cat /home/punktoggy/cry2/.env"
 ```
 
@@ -221,7 +223,7 @@ except ImportError:
 修改後需要 **rebuild image**：
 
 ```bash
-gcloud compute ssh instance-20260416-030440 --zone=asia-east1-a \
+gcloud compute ssh instance-20260424-060848 --zone=asia-east1-b \
   --command="cd /home/punktoggy/cry2 && docker compose build bot 2>&1 | tail -20"
 ```
 
@@ -252,7 +254,7 @@ initial_capital: 150
 
 在 VM 上修改：
 ```bash
-gcloud compute ssh instance-20260416-030440 --zone=asia-east1-a \
+gcloud compute ssh instance-20260424-060848 --zone=asia-east1-b \
   --command="sudo nano /home/punktoggy/cry2/config/environments/paper.yaml"
 ```
 
@@ -262,19 +264,19 @@ gcloud compute ssh instance-20260416-030440 --zone=asia-east1-a \
 
 ```bash
 # 啟動所有容器
-gcloud compute ssh instance-20260416-030440 --zone=asia-east1-a \
+gcloud compute ssh instance-20260424-060848 --zone=asia-east1-b \
   --command="cd /home/punktoggy/cry2 && docker compose up -d"
 
 # 查看 bot logs
-gcloud compute ssh instance-20260416-030440 --zone=asia-east1-a \
+gcloud compute ssh instance-20260424-060848 --zone=asia-east1-b \
   --command="docker logs binance-bot --tail 40"
 
 # 確認所有容器狀態
-gcloud compute ssh instance-20260416-030440 --zone=asia-east1-a \
+gcloud compute ssh instance-20260424-060848 --zone=asia-east1-b \
   --command="docker compose -f /home/punktoggy/cry2/docker-compose.yml ps"
 
 # 確認重啟次數（應為 0）
-gcloud compute ssh instance-20260416-030440 --zone=asia-east1-a \
+gcloud compute ssh instance-20260424-060848 --zone=asia-east1-b \
   --command="docker inspect binance-bot --format='Restarts={{.RestartCount}} Status={{.State.Status}}'"
 ```
 
@@ -324,7 +326,7 @@ sudo systemctl status cry2-bot.service
 
 ```bash
 # 上傳檔案到 VM
-gcloud compute scp myfile.py instance-20260416-030440:/home/jack_shih/myfile.py --zone=asia-east1-a
+gcloud compute scp myfile.py instance-20260424-060848:/home/jack_shih/myfile.py --zone=asia-east1-b
 
 # 複製進容器（立即生效）
 docker cp /home/jack_shih/myfile.py binance-bot:/app/path/to/myfile.py
@@ -362,7 +364,7 @@ docker images cry2-bot  # 比對 SHA
 
 ```bash
 # 完整狀態檢查
-gcloud compute ssh instance-20260416-030440 --zone=asia-east1-a --command="
+gcloud compute ssh instance-20260424-060848 --zone=asia-east1-b --command="
   echo '=== Disk ===' && df -h / &&
   echo '=== Swap ===' && free -h &&
   echo '=== Containers ===' && docker compose -f /home/punktoggy/cry2/docker-compose.yml ps &&
@@ -370,7 +372,7 @@ gcloud compute ssh instance-20260416-030440 --zone=asia-east1-a --command="
 "
 
 # 重建並重啟 bot
-gcloud compute ssh instance-20260416-030440 --zone=asia-east1-a --command="
+gcloud compute ssh instance-20260424-060848 --zone=asia-east1-b --command="
   cd /home/punktoggy/cry2 &&
   docker compose build bot 2>&1 | tail -5 &&
   docker compose up -d --force-recreate bot
