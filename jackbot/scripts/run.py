@@ -230,7 +230,8 @@ class JackbotRunner:
                 bot=self._telegram,
                 trader=self._trader,
                 portfolio=self._portfolio,
-                stop_event=self._stop_event
+                stop_event=self._stop_event,
+                client=self._client,
             )
             
             await asyncio.gather(
