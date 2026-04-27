@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-_POLL_INTERVAL = 3.0
-_POLL_TIMEOUT = 2
+_POLL_INTERVAL = 5.0
+_POLL_TIMEOUT = 15
 
 class JackbotCommander:
     def __init__(
@@ -22,23 +22,37 @@ class JackbotCommander:
         bot: TelegramBot,
         trader: DayTrader,
         portfolio: Portfolio,
+        client: Any,
         stop_event: asyncio.Event,
     ) -> None:
         self._bot = bot
         self._trader = trader
         self._portfolio = portfolio
+        self._client_api = client
         self._stop_event = stop_event
         self._offset: int = 0
         self._authorized_chat_id = str(bot._chat_id)
-        self._client = httpx.AsyncClient(timeout=10.0)
+        self._client = httpx.AsyncClient(timeout=_POLL_TIMEOUT + 5.0)
+        self._backoff_until = 0.0
 
     async def run(self) -> None:
         if not self._bot or not self._bot._enabled:
             return
         logger.info("commander_started", chat_id=self._authorized_chat_id)
         while not self._stop_event.is_set():
+            now = asyncio.get_event_loop().time()
+            if now < self._backoff_until:
+                await asyncio.sleep(1)
+                continue
+
             try:
                 await self._poll_once()
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 429:
+                    logger.warning("commander_rate_limited", retry_after=60)
+                    self._backoff_until = now + 60
+                else:
+                    logger.warning("commander_http_error", status=exc.response.status_code)
             except Exception as exc:
                 logger.warning("commander_poll_error", error=str(exc))
             await asyncio.sleep(_POLL_INTERVAL)
@@ -48,14 +62,11 @@ class JackbotCommander:
     async def _poll_once(self) -> None:
         url = f"https://api.telegram.org/bot{self._bot._token}/getUpdates"
         params = {"offset": self._offset, "timeout": _POLL_TIMEOUT, "allowed_updates": ["message"]}
-        try:
-            resp = await self._client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-            if not data.get("ok"): return
-            updates = data.get("result", [])
-        except httpx.ReadTimeout:
-            return
+        resp = await self._client.get(url, params=params)
+        resp.raise_for_status()
+        data = resp.json()
+        if not data.get("ok"): return
+        updates = data.get("result", [])
             
         for update in updates:
             self._offset = update["update_id"] + 1
@@ -78,21 +89,31 @@ class JackbotCommander:
             "help": self._cmd_help,
             "status": self._cmd_status,
             "balance": self._cmd_balance,
-            "pos": self._cmd_status,  # Alias
+            "pos": self._cmd_status,
+            "pnl": self._cmd_pnl,
+            "wallet": self._cmd_wallet,
+            "orders": self._cmd_orders,
         }
         
         handler = handlers.get(cmd)
         if handler:
-            reply = await handler()
-            self._bot.send(reply)
+            try:
+                reply = await handler()
+                self._bot.send(reply)
+            except Exception as e:
+                logger.error("commander_handler_error", cmd=cmd, error=str(e))
+                self._bot.send(f"⚠️ 指令執行失敗: {e}")
         elif cmd:
             self._bot.send("❓ 未知指令。輸入 /help 查看可用指令。")
 
     async def _cmd_help(self) -> str:
         return (
             "🤖 <b>Jackbot 指令列表</b>\n\n"
-            "/status   — 查看目前收益與網格狀態\n"
-            "/balance  — 查看帳戶餘額與複利進度\n"
+            "/status   — 網格狀態與持倉\n"
+            "/balance  — 帳戶權益與盈虧\n"
+            "/pnl      — 詳細損益明細\n"
+            "/wallet   — 真實錢包餘額 (Binance)\n"
+            "/orders   — 當前交易所掛單\n"
             "/help     — 顯示此幫助"
         )
 
@@ -100,17 +121,11 @@ class JackbotCommander:
         status = self._trader.get_status()
         active = status.get("active_grids", [])
 
-        lines = [f"📊 <b>Jackbot 狀態回報</b>"]
-        lines.append(f"• 獲利: ${status.get('total_profit', 0):.2f} USDT")
+        lines = [f"📊 <b>Jackbot 網格狀態</b>"]
         lines.append(f"• 今日目標: ${status.get('daily_target', 0)} USDT")
+        lines.append(f"• 今日盈虧: ${status.get('today_pnl', 0):.4f} USDT")
         lines.append(f"• 活躍網格: {len(active)} 個")
 
-        bar_counts = status.get("bar_counts", {})
-        if bar_counts:
-            warmup_needed = 50
-            progress = ", ".join(f"{sym}: {cnt}/{warmup_needed}" for sym, cnt in bar_counts.items())
-            lines.append(f"• 預熱進度: {progress}")
-        
         for g in active:
             lines.append(f"\n🏷 <b>{g['symbol']} ({g['direction']})</b>")
             lines.append(f"  - 範圍: {g['range']}")
@@ -119,21 +134,75 @@ class JackbotCommander:
             
             level_details = g.get("level_details", [])
             if level_details:
-                lines.append("  - 網格價位:")
-                for i, l in enumerate(level_details):
-                    state = l["state"]
-                    icon = "⏳" if "pending" in state else ("✅" if "filled" in state else "💰")
-                    side = "買" if "buy" in state else ("賣" if "sell" in state else "")
-                    lines.append(f"    {icon} {side} @ {l['price']:.2f}")
+                pending = [l for l in level_details if "pending" in l["state"]]
+                filled = [l for l in level_details if "filled" in l["state"]]
+                lines.append(f"  - 狀態: {len(filled)} 已成交, {len(pending)} 等待中")
             
         return "\n".join(lines)
 
+    async def _cmd_pnl(self) -> str:
+        summary = self._portfolio.get_summary()
+        trades = self._portfolio._trades
+        
+        lines = ["📈 <b>損益詳細報告</b>\n"]
+        lines.append(f"• 總獲利: ${summary['total_pnl']:.4f} USDT")
+        lines.append(f"• 交易次數: {summary['total_trades']} 次")
+        
+        # Breakdown by symbol
+        if trades:
+            lines.append("\n<b>幣種表現:</b>")
+            sym_pnl = {}
+            for t in trades:
+                sym_pnl[t.symbol] = sym_pnl.get(t.symbol, 0.0) + t.profit_usd
+            
+            for sym, pnl in sorted(sym_pnl.items(), key=lambda x: -x[1]):
+                emoji = "📈" if pnl >= 0 else "📉"
+                lines.append(f"  {emoji} {sym}: ${pnl:+.4f}")
+        
+        return "\n".join(lines)
+
     async def _cmd_balance(self) -> str:
-        equity = self._portfolio.available_capital
-        profit = self._portfolio.total_pnl
+        summary = self._portfolio.get_summary()
         return (
-            "💰 <b>帳戶餘額資訊</b>\n\n"
-            f"• 當前權益: ${equity:.2f} USDT\n"
-            f"• 累計盈虧: ${profit:.2f} USDT\n"
-            f"• 策略模式: {self._trader._cfg.mode.value}"
+            "💰 <b>帳戶權益資訊</b>\n\n"
+            f"• 初始資金: ${summary['initial_capital']:.2f}\n"
+            f"• 當前權益: ${summary['available_capital']:.2f}\n"
+            f"• 總盈虧: {summary['total_pnl']:+.4f}\n"
+            f"• 今日盈虧: {summary['today_pnl']:+.4f}\n"
+            f"• 模式: {self._trader.mode.value.upper()}"
         )
+
+    async def _cmd_wallet(self) -> str:
+        """Query real Binance balance."""
+        loop = asyncio.get_event_loop()
+        account = await loop.run_in_executor(None, self._client_api.get_account_info)
+        
+        lines = ["💳 <b>Binance 錢包餘額</b>\n"]
+        assets = [a for a in account.get("assets", []) if float(a.get("walletBalance", 0)) > 0.01]
+        
+        for a in assets:
+            lines.append(f"• <b>{a['asset']}</b>: {float(a['walletBalance']):.4f}")
+            
+        lines.append(f"\n<b>總權益:</b> ${float(account.get('totalMarginBalance', 0)):.2f} USDT")
+        lines.append(f"<b>可用保證金:</b> ${float(account.get('availableBalance', 0)):.2f} USDT")
+        return "\n".join(lines)
+
+    async def _cmd_orders(self) -> str:
+        """Query open orders."""
+        lines = ["📋 <b>當前掛單明細</b>"]
+        loop = asyncio.get_event_loop()
+        
+        any_order = False
+        for symbol in self._trader._cfg.symbols:
+            orders = await loop.run_in_executor(None, self._client_api.get_open_orders, symbol)
+            if orders:
+                any_order = True
+                lines.append(f"\n🏷 <b>{symbol}</b>")
+                for o in orders:
+                    side = "買" if o["side"] == "BUY" else "賣"
+                    lines.append(f"  - {side} {o['origQty']} @ {o['price']}")
+        
+        if not any_order:
+            return "📋 <b>目前沒有任何掛單</b>"
+            
+        return "\n".join(lines)

@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import signal
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,6 +29,7 @@ from jackbot.core.event_bus import EventBus
 from jackbot.core.events import FillEvent, GridProfitEvent, GridSignalEvent, MarketEvent
 from jackbot.exchange.client import BinanceClient
 from jackbot.exchange.feed import KlineFeed
+from jackbot.exchange.user_data import UserDataStream
 from jackbot.notify.telegram import TelegramBot
 from jackbot.portfolio.portfolio import Portfolio, TradeRecord
 from jackbot.strategy.day_trader import DayTrader, DayTraderConfig
@@ -101,9 +103,16 @@ class JackbotRunner:
             enabled=tg.get("enabled", False) and not dry_run,
         )
 
+        # WebSocket feeds URLs
+        ws_url = exchange.get("ws_url", "")
+
         # WebSocket feed
-        self._feed = KlineFeed(symbols=symbols, timeframe=timeframe, testnet=testnet)
+        self._feed = KlineFeed(symbols=symbols, timeframe=timeframe, testnet=testnet, ws_url=ws_url)
         self._feed.on_bar = self._on_bar
+
+        # User data stream
+        self._user_data = UserDataStream(api_client=self._client, testnet=testnet, ws_url=ws_url)
+        self._user_data.on_fill = self._on_fill
 
         # Subscribe to profit events
         self._bus.subscribe("GridProfitEvent", self._on_profit)
@@ -130,6 +139,46 @@ class JackbotRunner:
         # Execute signals on exchange
         for signal in signals:
             self._execute_signal(signal)
+
+    def _on_fill(self, fill: FillEvent) -> None:
+        """Handle execution reports from the exchange."""
+        # Find grid_id if not present (exchange fills don't carry grid_id)
+        if not fill.grid_id:
+            # Search active grids for this symbol and order_id
+            for grid in self._trader._engine.active_grids:
+                if grid.symbol != fill.symbol:
+                    continue
+                for level in grid.levels:
+                    if level.buy_order_id == fill.order_id or level.sell_order_id == fill.order_id:
+                        # Re-construct fill with grid context
+                        fill = FillEvent(
+                            timestamp=fill.timestamp,
+                            symbol=fill.symbol,
+                            side=fill.side,
+                            quantity=fill.quantity,
+                            price=fill.price,
+                            commission=fill.commission,
+                            realized_pnl=fill.realized_pnl,
+                            order_id=fill.order_id,
+                            client_order_id=fill.client_order_id,
+                            grid_id=grid.grid_id,
+                            level_index=level.index,
+                            source=fill.source,
+                        )
+                        break
+                if fill.grid_id:
+                    break
+
+        if not fill.grid_id:
+            logger.debug("fill_ignored_no_grid_match", order_id=fill.order_id, symbol=fill.symbol)
+            return
+
+        # Pass to trader
+        signals = self._trader.on_fill(fill)
+        
+        # Execute any resulting counter-orders
+        for s in signals:
+            self._execute_signal(s)
 
     def _execute_signal(self, signal: GridSignalEvent) -> None:
         """Execute a grid signal on the exchange."""
@@ -230,11 +279,13 @@ class JackbotRunner:
                 bot=self._telegram,
                 trader=self._trader,
                 portfolio=self._portfolio,
+                client=self._client,
                 stop_event=self._stop_event
             )
             
             await asyncio.gather(
                 self._feed.start(),
+                self._user_data.start(),
                 commander.run()
             )
         else:
@@ -308,11 +359,23 @@ def main():
         return
 
     try:
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(runner_stop(runner)))
+            
         asyncio.run(runner.run())
     except KeyboardInterrupt:
         logger.info("keyboard_interrupt")
+    except Exception as e:
+        logger.error("run_error", error=str(e))
     finally:
         runner.shutdown()
+
+
+async def runner_stop(runner: JackbotRunner):
+    logger.info("signal_received_shutting_down")
+    runner.shutdown()
+    sys.exit(0)
 
 
 if __name__ == "__main__":

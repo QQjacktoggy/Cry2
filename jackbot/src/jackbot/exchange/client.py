@@ -18,8 +18,14 @@ from urllib.parse import urlencode
 
 import httpx
 import structlog
+from decimal import Decimal
 
 logger = structlog.get_logger(__name__)
+
+
+def _decimals(step: str) -> int:
+    """Return number of decimal places implied by a step/tick string like '0.10' or '0.001'."""
+    return abs(Decimal(step).normalize().as_tuple().exponent)
 
 # Testnet and production base URLs
 TESTNET_URL = "https://testnet.binancefuture.com"
@@ -90,20 +96,31 @@ class BinanceClient:
         return float(resp.json()["price"])
 
     def load_symbol_info(self, symbols: list[str]) -> None:
-        """Fetch and cache qty/price precision for each symbol from exchange info."""
+        """Fetch and cache qty/price precision from actual filter tick sizes.
+
+        Uses LOT_SIZE.stepSize for qty and PRICE_FILTER.tickSize for price —
+        these are the values Binance enforces, not the metadata pricePrecision
+        field which can differ (e.g. BTCUSDT has pricePrecision=2 but tickSize=0.10).
+        """
         resp = self._client.get("/fapi/v1/exchangeInfo")
         resp.raise_for_status()
         for sym_info in resp.json().get("symbols", []):
-            if sym_info["symbol"] in symbols:
-                self._qty_precision[sym_info["symbol"]] = sym_info["quantityPrecision"]
-                self._price_precision[sym_info["symbol"]] = sym_info["pricePrecision"]
-                logger.info(
-                    "symbol_info_loaded",
-                    symbol=sym_info["symbol"],
-                    qty_precision=sym_info["quantityPrecision"],
-                    price_precision=sym_info["pricePrecision"],
-                    margin_asset=sym_info.get("marginAsset"),
-                )
+            if sym_info["symbol"] not in symbols:
+                continue
+            filters = {f["filterType"]: f for f in sym_info.get("filters", [])}
+            tick = filters.get("PRICE_FILTER", {}).get("tickSize", "0.01")
+            step = filters.get("LOT_SIZE", {}).get("stepSize", "0.001")
+            self._price_precision[sym_info["symbol"]] = _decimals(tick)
+            self._qty_precision[sym_info["symbol"]] = _decimals(step)
+            logger.info(
+                "symbol_info_loaded",
+                symbol=sym_info["symbol"],
+                price_precision=self._price_precision[sym_info["symbol"]],
+                qty_precision=self._qty_precision[sym_info["symbol"]],
+                tick_size=tick,
+                step_size=step,
+                margin_asset=sym_info.get("marginAsset"),
+            )
 
     def ping(self) -> float:
         """Test connectivity and measure latency (ms)."""
@@ -121,6 +138,10 @@ class BinanceClient:
             if asset.get("asset") == "USDT":
                 return float(asset.get("availableBalance", 0))
         return 0.0
+
+    def get_account_info(self) -> dict:
+        """Get full account information including assets and positions."""
+        return self._signed_get("/fapi/v2/account")
 
     def get_position(self, symbol: str) -> dict:
         """Get position info for a symbol."""
@@ -228,6 +249,18 @@ class BinanceClient:
             })
             logger.info("order_cancelled", symbol=symbol, order_id=order_id)
             return True
+        except httpx.HTTPStatusError as e:
+            # -2011: "Unknown order" (likely already closed/filled)
+            try:
+                error_data = e.response.json()
+                if error_data.get("code") == -2011:
+                    logger.debug("cancel_ignored_already_closed", symbol=symbol, order_id=order_id)
+                    return True
+            except Exception:
+                pass
+            
+            logger.warning("cancel_failed", symbol=symbol, order_id=order_id, error=str(e))
+            return False
         except Exception as e:
             logger.warning("cancel_failed", symbol=symbol, order_id=order_id, error=str(e))
             return False
@@ -245,6 +278,34 @@ class BinanceClient:
     def get_open_orders(self, symbol: str) -> list[dict]:
         """Get all open orders for a symbol."""
         return self._signed_get("/fapi/v1/openOrders", {"symbol": symbol})
+
+    # ── User Data Stream (listenKey) ──────────────────────────────────
+
+    def get_listen_key(self) -> str:
+        """Generate a new listenKey for user data stream."""
+        resp = self._client.post("/fapi/v1/listenKey")
+        resp.raise_for_status()
+        return resp.json().get("listenKey", "")
+
+    def keep_alive_listen_key(self) -> bool:
+        """Extend the validity of the current listenKey."""
+        try:
+            resp = self._client.put("/fapi/v1/listenKey")
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            logger.warning("listen_key_keepalive_failed", error=str(e))
+            return False
+
+    def close_listen_key(self) -> bool:
+        """Close the user data stream."""
+        try:
+            resp = self._client.delete("/fapi/v1/listenKey")
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            logger.warning("listen_key_close_failed", error=str(e))
+            return False
 
     # ── Signing helpers ───────────────────────────────────────────────
 

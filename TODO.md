@@ -50,7 +50,12 @@
 ### 1. V7.4 上 GCP VM 跑 Binance Testnet（最高優先）
 
 主軸只分 3 條：**(A) 安全部署 / rollback** → **(B) runtime hardening** → **(C) testnet 資料回流**。  
-`### 2` 是這 3 條主軸的實作拆解，不另開新範圍。
+- [x] (B) 實作成交監聽 (User Data Stream) 以處理實盤成交
+- [x] (B) 優化 Telegram Commander 指令 (找回 /pnl, /wallet, /orders)
+- [x] (B) 優化 API 429 Rate Limit 處理與日誌降噪
+- [x] (B) 配置 Docker Log Rotation 節省磁碟空間
+- [x] (B) 實施 SIGTERM 優雅平倉關機機制
+- [ ] (C) 持續觀察網格表現與資料回流驗證
 
 ### 2. GCP VM Testnet 實作拆解（對應上方主軸）
 

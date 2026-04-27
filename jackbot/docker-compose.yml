@@ -16,6 +16,11 @@ services:
     command: python scripts/run.py
     networks:
       - bot-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   bot-network:

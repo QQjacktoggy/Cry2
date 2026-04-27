@@ -36,10 +36,16 @@ class KlineFeed:
         symbols: list[str],
         timeframe: str = "5m",
         testnet: bool = True,
+        ws_url: str = "",
     ) -> None:
         self._symbols = [s.lower() for s in symbols]
         self._timeframe = timeframe
-        self._ws_url = TESTNET_WS_URL if testnet else BINANCE_WS_URL
+        
+        if ws_url:
+            self._ws_url = ws_url if ws_url.endswith("/ws") else f"{ws_url}/ws"
+        else:
+            self._ws_url = TESTNET_WS_URL if testnet else BINANCE_WS_URL
+
         self._running = False
         self.on_bar: Callable[[MarketEvent], None] | None = None
 
