@@ -86,6 +86,13 @@ optimizations:
   throttle_tier2_factor: 0.4
   throttle_tier3_factor: 0.2
 
+  # t1-profit-lock: replace conservative-switch with size-up + reserve
+  profit_lock_enabled: false
+  profit_lock_step_usd: 5.0
+  profit_lock_step_factor: 0.2
+  profit_lock_max_factor: 1.5
+  profit_lock_reserve_pct: 0.5
+
 telegram:
   enabled: true
   bot_token_env: TELEGRAM_BOT_TOKEN

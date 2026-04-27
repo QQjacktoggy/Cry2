@@ -104,6 +104,13 @@ class DayTraderConfig:
     throttle_tier2_factor: float = 0.4
     throttle_tier3_factor: float = 0.2
 
+    # t1-profit-lock: replace binary conservative-switch with let-winners-ride + reserve
+    profit_lock_enabled: bool = False
+    profit_lock_step_usd: float = 5.0     # bump size every +5 USDT past target
+    profit_lock_step_factor: float = 0.2  # +20% size per step
+    profit_lock_max_factor: float = 1.5   # cap (1.5×)
+    profit_lock_reserve_pct: float = 0.5  # 50% of realised PnL locked away
+
     def __post_init__(self) -> None:
         # Phase A risk decision: max_leverage hard-capped at 10 across all entry points.
         assert self.max_leverage <= 10, (
@@ -161,6 +168,10 @@ class DayTrader:
         self._halted: bool = False
         self._last_reset_date: str = ""
         self._warming_up: bool = True
+
+        # t1-profit-lock state (only used when profit_lock_enabled)
+        self._reserved_profit: float = 0.0
+        self._profit_lock_size_factor: float = 1.0
 
         # Bar counter per symbol (for warmup & hourly review)
         self._bar_counts: dict[str, int] = {}
@@ -315,11 +326,11 @@ class DayTrader:
             )
 
             # Check daily target
-            if (
-                self._mode == TradingMode.AGGRESSIVE
-                and self._daily_profit >= self._cfg.daily_profit_target_usd
-            ):
-                self._switch_to_conservative()
+            if self._daily_profit >= self._cfg.daily_profit_target_usd:
+                if self._cfg.profit_lock_enabled:
+                    self._apply_profit_lock()
+                elif self._mode == TradingMode.AGGRESSIVE:
+                    self._switch_to_conservative()
 
         # Track losses from fill PnL
         if fill.realized_pnl < 0:
@@ -391,6 +402,10 @@ class DayTrader:
             if factor < 1.0:
                 investment *= factor
                 leverage = max(self._cfg.min_leverage, int(leverage * factor))
+
+        # t1-profit-lock: scale up sizing once we're playing with house money
+        if self._cfg.profit_lock_enabled and self._profit_lock_size_factor > 1.0:
+            investment *= self._profit_lock_size_factor
 
         grid, signals = self._engine.create_grid(
             symbol=symbol,
@@ -577,6 +592,36 @@ class DayTrader:
             action="switch_to_conservative",
         )
 
+    def _apply_profit_lock(self) -> None:
+        """Update size factor + reserved profit once daily_profit ≥ target.
+
+        Runs every time profit accumulates beyond target; the size factor only
+        ratchets upward (clamped to profit_lock_max_factor) and reserved profit
+        only grows. Mode stays AGGRESSIVE — let winners ride.
+        """
+        excess = self._daily_profit - self._cfg.daily_profit_target_usd
+        if excess < 0:
+            return
+
+        tier = int(excess / self._cfg.profit_lock_step_usd)
+        new_factor = min(
+            self._cfg.profit_lock_max_factor,
+            1.0 + tier * self._cfg.profit_lock_step_factor,
+        )
+        if new_factor > self._profit_lock_size_factor:
+            self._profit_lock_size_factor = new_factor
+
+        new_reserved = self._daily_profit * self._cfg.profit_lock_reserve_pct
+        if new_reserved > self._reserved_profit:
+            self._reserved_profit = new_reserved
+
+        logger.info(
+            "profit_lock_update",
+            daily_profit=round(self._daily_profit, 4),
+            reserved=round(self._reserved_profit, 4),
+            size_factor=round(self._profit_lock_size_factor, 3),
+        )
+
     def _halt(self, reason: str) -> None:
         self._halted = True
         # Close all active grids
@@ -611,6 +656,8 @@ class DayTrader:
             self._daily_resets = 0
             self._mode = TradingMode.AGGRESSIVE
             self._halted = False
+            self._reserved_profit = 0.0
+            self._profit_lock_size_factor = 1.0
             self._last_reset_date = today
 
     # ── Status ────────────────────────────────────────────────────────
@@ -623,6 +670,8 @@ class DayTrader:
             "daily_loss": round(self._daily_loss, 4),
             "daily_resets": self._daily_resets,
             "halted": self._halted,
+            "reserved_profit": round(self._reserved_profit, 4),
+            "profit_lock_size_factor": round(self._profit_lock_size_factor, 3),
             "active_grids": self._engine.get_status(),
             "total_profit": round(self._engine.get_total_profit(), 4),
             "bar_counts": dict(self._bar_counts),
