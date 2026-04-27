@@ -77,6 +77,15 @@ optimizations:
   maker_only_close: false
   maker_close_tick_size: 0.1
 
+  # t1-drawdown-throttle: graduated sizing tiers — replaces binary daily halt
+  graduated_throttle_enabled: false
+  throttle_tier1_loss_pct: 3.0
+  throttle_tier2_loss_pct: 5.0
+  throttle_tier3_loss_pct: 8.0
+  throttle_tier1_factor: 0.7
+  throttle_tier2_factor: 0.4
+  throttle_tier3_factor: 0.2
+
 telegram:
   enabled: true
   bot_token_env: TELEGRAM_BOT_TOKEN

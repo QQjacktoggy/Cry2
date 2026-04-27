@@ -95,6 +95,15 @@ class DayTraderConfig:
     maker_only_close: bool = False
     maker_close_tick_size: float = 0.1
 
+    # t1-drawdown-throttle: graduated sizing as daily loss grows (vs binary halt)
+    graduated_throttle_enabled: bool = False
+    throttle_tier1_loss_pct: float = 3.0    # daily loss % at which factor first kicks in
+    throttle_tier2_loss_pct: float = 5.0
+    throttle_tier3_loss_pct: float = 8.0
+    throttle_tier1_factor: float = 0.7
+    throttle_tier2_factor: float = 0.4
+    throttle_tier3_factor: float = 0.2
+
     def __post_init__(self) -> None:
         # Phase A risk decision: max_leverage hard-capped at 10 across all entry points.
         assert self.max_leverage <= 10, (
@@ -376,6 +385,13 @@ class DayTrader:
             upper = mid + half_range
             lower = mid - half_range
 
+        # t1-drawdown-throttle: shrink size & leverage as daily DD grows
+        if self._cfg.graduated_throttle_enabled:
+            factor = self._drawdown_throttle_factor()
+            if factor < 1.0:
+                investment *= factor
+                leverage = max(self._cfg.min_leverage, int(leverage * factor))
+
         grid, signals = self._engine.create_grid(
             symbol=symbol,
             direction=assessment.direction,
@@ -406,6 +422,26 @@ class DayTrader:
         )
 
         return signals
+
+    # ── Drawdown throttle (t1-drawdown-throttle) ─────────────────────
+
+    def _drawdown_throttle_factor(self) -> float:
+        """Return a multiplier in (0, 1] based on today's loss % of capital.
+
+        Tiered: <tier1 → 1.0, tier1..tier2 → tier1_factor, tier2..tier3 →
+        tier2_factor, ≥tier3 → tier3_factor. Replaces the binary
+        "halt at daily_loss_limit_pct" with a progressive de-risking ramp.
+        """
+        if self._cfg.total_capital_usd <= 0:
+            return 1.0
+        loss_pct = self._daily_loss / self._cfg.total_capital_usd * 100.0
+        if loss_pct >= self._cfg.throttle_tier3_loss_pct:
+            return self._cfg.throttle_tier3_factor
+        if loss_pct >= self._cfg.throttle_tier2_loss_pct:
+            return self._cfg.throttle_tier2_factor
+        if loss_pct >= self._cfg.throttle_tier1_loss_pct:
+            return self._cfg.throttle_tier1_factor
+        return 1.0
 
     # ── Dynamic spacing (t1-dynamic-spacing) ─────────────────────────
 
