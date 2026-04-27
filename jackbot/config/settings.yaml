@@ -93,6 +93,11 @@ optimizations:
   profit_lock_max_factor: 1.5
   profit_lock_reserve_pct: 0.5
 
+  # t1-mtf-regime: 1h-derived ADX context filter on top of 5m
+  mtf_enabled: false
+  mtf_higher_tf_bars: 12
+  mtf_conflict_confidence_mult: 0.5
+
 telegram:
   enabled: true
   bot_token_env: TELEGRAM_BOT_TOKEN

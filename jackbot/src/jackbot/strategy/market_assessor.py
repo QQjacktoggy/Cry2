@@ -57,6 +57,9 @@ class MarketAssessor:
         max_leverage: int = 20,
         min_leverage: int = 5,
         default_grid_count: int = 10,
+        mtf_enabled: bool = False,
+        mtf_higher_tf_bars: int = 12,           # 12 × 5m = 1h
+        mtf_conflict_confidence_mult: float = 0.5,
     ) -> None:
         self._adx_period = adx_period
         self._trending_threshold = trending_threshold
@@ -67,31 +70,64 @@ class MarketAssessor:
         self._max_leverage = max_leverage
         self._min_leverage = min_leverage
         self._default_grid_count = default_grid_count
+        self._mtf_enabled = mtf_enabled
+        self._mtf_higher_tf_bars = mtf_higher_tf_bars
+        self._mtf_conflict_confidence_mult = mtf_conflict_confidence_mult
 
         # Per-symbol bar history
         self._bars: dict[str, deque[dict]] = {}
-        # ADX internals per symbol
+        # ADX internals per symbol (5m primary timeframe)
         self._adx_state: dict[str, dict] = {}
+        # Higher-TF accumulator + ADX state (used only when mtf_enabled)
+        self._htf_buffer: dict[str, dict] = {}
+        self._htf_state: dict[str, dict] = {}
 
     def update(self, symbol: str, high: float, low: float, close: float) -> None:
         """Feed one new bar for a symbol."""
         if symbol not in self._bars:
             self._bars[symbol] = deque(maxlen=300)
-            self._adx_state[symbol] = {
-                "smooth_plus_dm": 0.0,
-                "smooth_minus_dm": 0.0,
-                "smooth_tr": 0.0,
-                "adx": 0.0,
-                "bar_count": 0,
-                "prev_high": None,
-                "prev_low": None,
-                "prev_close": None,
-                "plus_di": 0.0,
-                "minus_di": 0.0,
-            }
+            self._adx_state[symbol] = self._fresh_adx_state()
+            self._htf_state[symbol] = self._fresh_adx_state()
+            self._htf_buffer[symbol] = {"high": high, "low": low, "close": close, "count": 0}
 
         self._bars[symbol].append({"high": high, "low": low, "close": close})
-        self._update_adx(symbol, high, low, close)
+        self._update_adx(symbol, high, low, close, self._adx_state[symbol])
+
+        if self._mtf_enabled:
+            self._accumulate_higher_tf(symbol, high, low, close)
+
+    def _fresh_adx_state(self) -> dict:
+        return {
+            "smooth_plus_dm": 0.0,
+            "smooth_minus_dm": 0.0,
+            "smooth_tr": 0.0,
+            "adx": 0.0,
+            "bar_count": 0,
+            "prev_high": None,
+            "prev_low": None,
+            "prev_close": None,
+            "plus_di": 0.0,
+            "minus_di": 0.0,
+        }
+
+    def _accumulate_higher_tf(self, symbol: str, high: float, low: float, close: float) -> None:
+        """Roll up 5m bars into a synthetic higher-TF bar; feed to _htf_state on close."""
+        buf = self._htf_buffer[symbol]
+        if buf["count"] == 0:
+            buf["high"] = high
+            buf["low"] = low
+        else:
+            buf["high"] = max(buf["high"], high)
+            buf["low"] = min(buf["low"], low)
+        buf["close"] = close
+        buf["count"] += 1
+
+        if buf["count"] >= self._mtf_higher_tf_bars:
+            self._update_adx(symbol, buf["high"], buf["low"], buf["close"], self._htf_state[symbol])
+            buf["high"] = close
+            buf["low"] = close
+            buf["close"] = close
+            buf["count"] = 0
 
     def assess(self, symbol: str) -> MarketAssessment | None:
         """Produce a market assessment for the given symbol.
@@ -142,6 +178,28 @@ class MarketAssessor:
         # Confidence: higher ADX + narrower BB → higher confidence
         confidence = min(1.0, adx_val / 40.0) * 0.6 + min(1.0, range_pct / 5.0) * 0.4
 
+        # t1-mtf-regime: if higher-TF disagrees, downgrade
+        if self._mtf_enabled:
+            htf = self._htf_state.get(symbol)
+            if htf and htf["bar_count"] >= self._adx_period:
+                htf_regime = self._classify_regime(htf["adx"])
+                htf_direction = self._determine_direction(
+                    htf_regime, htf["plus_di"], htf["minus_di"],
+                )
+                conflict = self._detect_regime_conflict(
+                    regime, direction, htf_regime, htf_direction,
+                )
+                if conflict:
+                    confidence *= self._mtf_conflict_confidence_mult
+                    direction = GridDirection.NEUTRAL
+                    leverage = self._min_leverage
+                    logger.info(
+                        "mtf_conflict_downgrade",
+                        symbol=symbol,
+                        five_m=f"{regime.value}/{direction.value}",
+                        higher_tf=f"{htf_regime.value}/{htf_direction.value}",
+                    )
+
         assessment = MarketAssessment(
             symbol=symbol,
             direction=direction,
@@ -171,8 +229,16 @@ class MarketAssessor:
 
     # ── ADX calculation (Wilder smoothing, ported from cry2) ──────────
 
-    def _update_adx(self, symbol: str, high: float, low: float, close: float) -> None:
-        s = self._adx_state[symbol]
+    def _update_adx(
+        self,
+        symbol: str,
+        high: float,
+        low: float,
+        close: float,
+        s: dict | None = None,
+    ) -> None:
+        if s is None:
+            s = self._adx_state[symbol]
         s["bar_count"] += 1
         period = self._adx_period
 
@@ -256,6 +322,31 @@ class MarketAssessor:
         return sum(trs[-period:]) / period
 
     # ── Decision helpers ─────────────────────────────────────────────
+
+    def _detect_regime_conflict(
+        self,
+        five_m_regime: Regime,
+        five_m_direction: GridDirection,
+        htf_regime: Regime,
+        htf_direction: GridDirection,
+    ) -> bool:
+        """True when the higher-TF context contradicts the 5m signal.
+
+        Two flagged cases:
+          1. 5m says TRENDING but higher-TF says RANGING → likely false breakout.
+          2. 5m and higher-TF point to opposing directions (LONG vs SHORT).
+        """
+        if five_m_regime == Regime.TRENDING and htf_regime == Regime.RANGING:
+            return True
+        if (
+            five_m_direction == GridDirection.LONG
+            and htf_direction == GridDirection.SHORT
+        ) or (
+            five_m_direction == GridDirection.SHORT
+            and htf_direction == GridDirection.LONG
+        ):
+            return True
+        return False
 
     def _classify_regime(self, adx: float) -> Regime:
         if adx >= self._trending_threshold:

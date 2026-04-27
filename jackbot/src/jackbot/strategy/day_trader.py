@@ -111,6 +111,11 @@ class DayTraderConfig:
     profit_lock_max_factor: float = 1.5   # cap (1.5×)
     profit_lock_reserve_pct: float = 0.5  # 50% of realised PnL locked away
 
+    # t1-mtf-regime: 1h ADX context filter on top of 5m
+    mtf_enabled: bool = False
+    mtf_higher_tf_bars: int = 12               # 12 × 5m = 1h
+    mtf_conflict_confidence_mult: float = 0.5
+
     def __post_init__(self) -> None:
         # Phase A risk decision: max_leverage hard-capped at 10 across all entry points.
         assert self.max_leverage <= 10, (
@@ -157,6 +162,9 @@ class DayTrader:
             max_leverage=config.max_leverage,
             min_leverage=config.min_leverage,
             default_grid_count=config.default_grid_count,
+            mtf_enabled=config.mtf_enabled,
+            mtf_higher_tf_bars=config.mtf_higher_tf_bars,
+            mtf_conflict_confidence_mult=config.mtf_conflict_confidence_mult,
         )
         self._engine = GridEngine()
 
