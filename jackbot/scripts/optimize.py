@@ -79,16 +79,17 @@ def run_optimization():
     print(f"   [月 1 - 最佳化] {start_dt.strftime('%Y-%m-%d')} → {mid_dt.strftime('%Y-%m-%d')}")
     print(f"   [月 2 - 驗證期] {mid_dt.strftime('%Y-%m-%d')} → {end_dt.strftime('%Y-%m-%d')}")
 
-    print("\n🔍 開始 Month 1 參數最佳化 (Grid Search)...")
-    best_net_profit = -9999.0
+    print("\n🔍 開始 Month 1 參數最佳化 (composite score: Sharpe×0.5 + Calmar×0.3 + ROI×0.2)...")
+    print("   (MaxDD% > 15 直接 reject)")
+    best_score = float("-inf")
     best_params = None
     best_results = None
 
     combinations = list(itertools.product(grid_counts, stop_losses))
-    
+
     for i, (gc, sl) in enumerate(combinations, 1):
         print(f"   [{i}/{len(combinations)}] 測試 GridCount={gc:2}, StopLoss={sl:.1f}%...", end=" ")
-        
+
         config = DayTraderConfig(
             symbols=symbols,
             timeframe="5m",
@@ -108,22 +109,30 @@ def run_optimization():
             hourly_review_interval_bars=12,
             warmup_bars=50,
         )
-        
+
         engine = BacktestEngine(config, maker_rate=maker_fee, taker_rate=taker_fee)
         res = engine.run(m1_data)
+        score = res["risk"]["score"]
         net_profit = res["pnl"]["net_profit"]
-        
-        print(f"淨利: ${net_profit:>7.4f}")
-        
-        if net_profit > best_net_profit:
-            best_net_profit = net_profit
+        max_dd_pct = res["risk"]["max_drawdown_pct"]
+
+        score_str = "REJECT" if score == float("-inf") else f"{score:>7.3f}"
+        print(f"淨利: ${net_profit:>7.4f}  DD: {max_dd_pct:>4.1f}%  score: {score_str}")
+
+        if score > best_score:
+            best_score = score
             best_params = {"grid_count": gc, "stop_loss": sl}
             best_results = res
+
+    if best_params is None:
+        print("\n❌ 所有參數組合都被 MaxDD 規則 reject")
+        return
 
     print("\n🏆 Month 1 最佳參數:")
     print(f"   網格數 (Grid Count): {best_params['grid_count']}")
     print(f"   止損點 (Stop Loss):  {best_params['stop_loss']}%")
-    print(f"   >> Month 1 淨利潤:  ${best_net_profit:.4f} (ROI: {best_results['pnl']['roi_pct']}%)")
+    print(f"   >> Month 1 淨利潤:  ${best_results['pnl']['net_profit']:.4f} "
+          f"(ROI: {best_results['pnl']['roi_pct']}%, score: {best_score:.3f})")
 
     print("\n🚀 使用最佳參數執行 Month 2 驗證...")
     config_m2 = DayTraderConfig(

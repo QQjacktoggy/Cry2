@@ -101,13 +101,14 @@ def _run(klines_by_symbol: dict, grid_count: int, stop_loss: float,
 
 
 def _best_on_train(train_klines: dict, maker_fee: float, taker_fee: float) -> tuple[int, float]:
-    best_profit = -9999.0
+    """Pick best (grid_count, stop_loss) by composite score on the training slice."""
+    best_score = float("-inf")
     best_gc, best_sl = GRID_COUNTS[0], STOP_LOSSES[0]
     for gc, sl in itertools.product(GRID_COUNTS, STOP_LOSSES):
         res = _run(train_klines, gc, sl, maker_fee, taker_fee)
-        net = res["pnl"]["net_profit"]
-        if net > best_profit:
-            best_profit = net
+        score = res["risk"]["score"]
+        if score > best_score:
+            best_score = score
             best_gc, best_sl = gc, sl
     return best_gc, best_sl
 
@@ -153,7 +154,7 @@ def main(months: int = 6) -> None:
 
     n = len(windows)
     print(f"🔄 共 {n} 個滾動窗口 ({len(GRID_COUNTS)*len(STOP_LOSSES)} 組參數每次)\n")
-    print(f"  {'窗口':>3}  {'測試期':>13}  {'最佳參數':>12}  {'OOS ROI':>8}  {'PF':>6}  {'最大DD':>7}  {'淨利':>9}  {'判定'}")
+    print(f"  {'窗口':>3}  {'測試期':>13}  {'最佳參數':>12}  {'OOS ROI':>8}  {'Score':>6}  {'最大DD':>7}  {'淨利':>9}  {'判定'}")
     print(f"  {'-'*3}  {'-'*13}  {'-'*12}  {'-'*8}  {'-'*6}  {'-'*7}  {'-'*9}  {'-'*4}")
 
     oos_results: list[dict] = []
@@ -173,10 +174,11 @@ def main(months: int = 6) -> None:
         roi = res["pnl"]["roi_pct"]
         net = res["pnl"]["net_profit"]
         max_dd = res["risk"]["max_drawdown"]
-        max_dd_pct = max_dd / 150.0 * 100
+        max_dd_pct = res["risk"].get("max_drawdown_pct", max_dd / 150.0 * 100)
+        score = res["risk"]["score"]
         pf = res["trades"]["profit_factor"]
-        pf_str = "∞" if pf == float("inf") else f"{pf:.2f}"
-        ok = "✅" if roi > 0 else "❌"
+        score_str = "REJ" if score == float("-inf") else f"{score:.2f}"
+        ok = "✅" if score > 0 else "❌"
         params_str = f"G{best_gc}/SL{best_sl:.0f}%"
 
         print(
@@ -184,7 +186,7 @@ def main(months: int = 6) -> None:
             f"{test_start.strftime('%m-%d')}→{test_end.strftime('%m-%d')}  "
             f"{params_str:>12}  "
             f"{roi:>+7.2f}%  "
-            f"{pf_str:>6}  "
+            f"{score_str:>6}  "
             f"{max_dd_pct:>6.1f}%  "
             f"${net:>+8.4f}  "
             f"{ok}"
@@ -199,6 +201,7 @@ def main(months: int = 6) -> None:
             "roi_pct": roi,
             "net_profit": net,
             "max_dd_pct": round(max_dd_pct, 2),
+            "score": score if score != float("-inf") else None,
             "profit_factor": pf if pf != float("inf") else 9999,
         })
 
@@ -208,12 +211,15 @@ def main(months: int = 6) -> None:
     total_net = sum(r["net_profit"] for r in oos_results)
     max_single_dd = max((r["max_dd_pct"] for r in oos_results), default=0)
     avg_pf = sum(min(r["profit_factor"], 9999) for r in oos_results) / len(oos_results) if oos_results else 0
+    valid_scores = [r["score"] for r in oos_results if r.get("score") is not None]
+    avg_score = sum(valid_scores) / len(valid_scores) if valid_scores else 0
 
     print(f"\n{'='*62}")
     print(f"  📊 Walk-Forward 摘要")
     print(f"  總窗口數:        {len(oos_results)}")
     print(f"  正報酬窗口:      {len(positive)} / {len(oos_results)}  ({len(positive)/len(oos_results)*100:.0f}%)")
     print(f"  平均 OOS ROI:    {avg_roi:+.2f}%")
+    print(f"  平均 OOS Score:  {avg_score:+.3f}")
     print(f"  累計淨利:        ${total_net:+.4f}")
     print(f"  平均 PF:         {avg_pf:.2f}")
     print(f"  單窗口最大 DD:   {max_single_dd:.1f}%")
@@ -236,6 +242,7 @@ def main(months: int = 6) -> None:
                 "total_windows": len(oos_results),
                 "positive_windows": len(positive),
                 "avg_roi_pct": round(avg_roi, 2),
+                "avg_score": round(avg_score, 3),
                 "total_net_profit": round(total_net, 4),
                 "max_single_dd_pct": round(max_single_dd, 2),
                 "avg_profit_factor": round(avg_pf, 2),

@@ -30,6 +30,7 @@ sys.path.insert(0, str(ROOT / "src"))
 import httpx
 import structlog
 
+from jackbot.backtest_metrics import compute_calmar, compute_score, compute_sharpe
 from jackbot.core.clock import Clock
 from jackbot.core.constants import GridDirection, GridLevelState, TradingMode
 from jackbot.core.event_bus import EventBus
@@ -556,6 +557,11 @@ class BacktestEngine:
             },
             "risk": {
                 "max_drawdown": round(max_dd, 4),
+                "max_drawdown_pct": round(max_dd / self._cfg.total_capital_usd * 100.0, 2)
+                    if self._cfg.total_capital_usd > 0 else 0.0,
+                "sharpe": round(self._sharpe(daily_profits), 3),
+                "calmar": round(self._calmar(net_profit, max_dd, len(daily_profits)), 3),
+                "score": round(self._score(net_profit, max_dd, len(daily_profits)), 3),
                 "stop_losses": self._stop_losses,
                 "breakouts": self._breakouts,
                 "reviews_closed": self._reviews_closed,
@@ -563,6 +569,30 @@ class BacktestEngine:
             },
             "daily_detail": self._daily_results,
         }
+
+    def _daily_returns_pct(self, daily_profits: list[float]) -> list[float]:
+        cap = self._cfg.total_capital_usd
+        return [p / cap * 100.0 for p in daily_profits] if cap > 0 else []
+
+    def _sharpe(self, daily_profits: list[float]) -> float:
+        return compute_sharpe(self._daily_returns_pct(daily_profits))
+
+    def _calmar(self, net_profit: float, max_dd: float, days: int) -> float:
+        cap = self._cfg.total_capital_usd or 1.0
+        roi = net_profit / cap * 100.0
+        max_dd_pct = max_dd / cap * 100.0
+        return compute_calmar(roi, max(days, 1), max_dd_pct)
+
+    def _score(self, net_profit: float, max_dd: float, days: int) -> float:
+        cap = self._cfg.total_capital_usd or 1.0
+        roi = net_profit / cap * 100.0
+        max_dd_pct = max_dd / cap * 100.0
+        return compute_score(
+            sharpe=self._sharpe([d["profit"] for d in self._daily_results.values()]),
+            calmar=compute_calmar(roi, max(days, 1), max_dd_pct),
+            roi_pct=roi,
+            max_dd_pct=max_dd_pct,
+        )
 
 
 # ── Report formatting ─────────────────────────────────────────────────
