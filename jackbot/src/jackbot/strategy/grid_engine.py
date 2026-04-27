@@ -39,6 +39,11 @@ class GridLevel:
     quantity: float = 0.0
     matched_count: int = 0           # how many buy→sell cycles completed
 
+    # t1-partial-tp-trailing — used only when grid.partial_tp_enabled
+    partial_filled_qty: float = 0.0  # qty already taken via partial TP
+    trailing_active: bool = False    # set after partial TP fires
+    high_water_mark: float = 0.0     # best price since trailing started
+
 
 @dataclass
 class GridInstance:
@@ -57,9 +62,16 @@ class GridInstance:
     matched_profit: float = 0.0      # accumulated profit in USDT
     unrealized_pnl: float = 0.0      # current floating PnL
     total_matched: int = 0
+    partial_tp_profit: float = 0.0   # USDT taken via partial TP (subset of total realised)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     closed: bool = False
     close_reason: str = ""
+
+    # t1-partial-tp-trailing (per-grid configuration; OFF by default)
+    partial_tp_enabled: bool = False
+    partial_tp_pct: float = 1.0          # floating-pct threshold to trigger
+    partial_tp_close_pct: float = 0.5    # fraction of position to close
+    trailing_atr_mult: float = 0.5       # trailing exit dist = ATR × this
 
 
 class GridEngine:
@@ -96,6 +108,10 @@ class GridEngine:
         leverage: int,
         total_investment: float,
         current_price: float,
+        partial_tp_enabled: bool = False,
+        partial_tp_pct: float = 1.0,
+        partial_tp_close_pct: float = 0.5,
+        trailing_atr_mult: float = 0.5,
     ) -> tuple[GridInstance, list[GridSignalEvent]]:
         """Create a new grid and return the initial limit-order signals.
 
@@ -134,6 +150,10 @@ class GridEngine:
             leverage=leverage,
             total_investment=total_investment,
             per_level_qty=per_level_qty,
+            partial_tp_enabled=partial_tp_enabled,
+            partial_tp_pct=partial_tp_pct,
+            partial_tp_close_pct=partial_tp_close_pct,
+            trailing_atr_mult=trailing_atr_mult,
         )
 
         # Build levels
@@ -312,6 +332,141 @@ class GridEngine:
                 elif level.state == GridLevelState.FILLED_SELL and level.sell_fill_price > 0:
                     pnl += (level.sell_fill_price - current_price) * level.quantity
             grid.unrealized_pnl = round(pnl, 4)
+
+    def check_partial_tp_and_trailing(
+        self,
+        symbol: str,
+        current_price: float,
+        atr: float,
+    ) -> tuple[list[GridSignalEvent], list[str]]:
+        """Run partial-TP / trailing logic for grids that have it enabled.
+
+        Returns:
+            (partial_close_signals, trailing_exit_grid_ids)
+
+        Partial TP fires when a filled level's floating PnL ≥ partial_tp_pct;
+        emits a market reduce-only order for partial_tp_close_pct of the held
+        quantity, reduces level.quantity in place, and arms trailing.
+
+        Trailing exit fires when, after partial TP, price retraces by
+        atr × trailing_atr_mult from the high-water-mark; the caller should
+        close the entire grid with reason="trailing_exit".
+        """
+        signals: list[GridSignalEvent] = []
+        trailing_grids: list[str] = []
+        now = datetime.now(UTC)
+
+        for grid in self.active_grids:
+            if grid.symbol != symbol or not grid.partial_tp_enabled:
+                continue
+
+            tp_threshold = grid.partial_tp_pct / 100.0
+            trail_dist = atr * grid.trailing_atr_mult
+
+            for level in grid.levels:
+                # Long-side filled level: holding base asset, profit on upside
+                if level.state == GridLevelState.FILLED_BUY and level.buy_fill_price > 0:
+                    entry = level.buy_fill_price
+                    floating_pct = (current_price - entry) / entry
+
+                    if not level.trailing_active and floating_pct >= tp_threshold:
+                        close_qty = round(level.quantity * grid.partial_tp_close_pct, 6)
+                        if close_qty > 0:
+                            signals.append(GridSignalEvent(
+                                timestamp=now,
+                                symbol=grid.symbol,
+                                side=OrderSide.SELL.value,
+                                order_type="MARKET",
+                                price=0.0,
+                                quantity=close_qty,
+                                grid_id=grid.grid_id,
+                                level_index=level.index,
+                                reduce_only=True,
+                                metadata={"reason": "partial_tp"},
+                            ))
+                            partial_profit = (current_price - entry) * close_qty
+                            grid.partial_tp_profit += partial_profit
+                            grid.matched_profit += partial_profit
+                            level.partial_filled_qty += close_qty
+                            level.quantity = round(level.quantity - close_qty, 6)
+                            level.trailing_active = True
+                            level.high_water_mark = current_price
+                            logger.info(
+                                "partial_tp_triggered",
+                                grid_id=grid.grid_id,
+                                level=level.index,
+                                entry=entry,
+                                price=current_price,
+                                close_qty=close_qty,
+                                profit=round(partial_profit, 4),
+                            )
+                    elif level.trailing_active:
+                        if current_price > level.high_water_mark:
+                            level.high_water_mark = current_price
+                        if current_price <= level.high_water_mark - trail_dist:
+                            trailing_grids.append(grid.grid_id)
+                            logger.warning(
+                                "trailing_exit_long",
+                                grid_id=grid.grid_id,
+                                level=level.index,
+                                hwm=level.high_water_mark,
+                                price=current_price,
+                                trail_dist=round(trail_dist, 4),
+                            )
+                            break  # whole grid will be closed; no need to keep scanning
+
+                # Short-side filled level: holding short, profit on downside
+                elif level.state == GridLevelState.FILLED_SELL and level.sell_fill_price > 0:
+                    entry = level.sell_fill_price
+                    floating_pct = (entry - current_price) / entry
+
+                    if not level.trailing_active and floating_pct >= tp_threshold:
+                        close_qty = round(level.quantity * grid.partial_tp_close_pct, 6)
+                        if close_qty > 0:
+                            signals.append(GridSignalEvent(
+                                timestamp=now,
+                                symbol=grid.symbol,
+                                side=OrderSide.BUY.value,
+                                order_type="MARKET",
+                                price=0.0,
+                                quantity=close_qty,
+                                grid_id=grid.grid_id,
+                                level_index=level.index,
+                                reduce_only=True,
+                                metadata={"reason": "partial_tp"},
+                            ))
+                            partial_profit = (entry - current_price) * close_qty
+                            grid.partial_tp_profit += partial_profit
+                            grid.matched_profit += partial_profit
+                            level.partial_filled_qty += close_qty
+                            level.quantity = round(level.quantity - close_qty, 6)
+                            level.trailing_active = True
+                            level.high_water_mark = current_price
+                            logger.info(
+                                "partial_tp_triggered_short",
+                                grid_id=grid.grid_id,
+                                level=level.index,
+                                entry=entry,
+                                price=current_price,
+                                close_qty=close_qty,
+                                profit=round(partial_profit, 4),
+                            )
+                    elif level.trailing_active:
+                        if current_price < level.high_water_mark:
+                            level.high_water_mark = current_price
+                        if current_price >= level.high_water_mark + trail_dist:
+                            trailing_grids.append(grid.grid_id)
+                            logger.warning(
+                                "trailing_exit_short",
+                                grid_id=grid.grid_id,
+                                level=level.index,
+                                hwm=level.high_water_mark,
+                                price=current_price,
+                                trail_dist=round(trail_dist, 4),
+                            )
+                            break
+
+        return signals, trailing_grids
 
     def check_margin_rate(
         self,

@@ -66,6 +66,12 @@ optimizations:
   dynamic_spacing_min_count: 5
   dynamic_spacing_max_count: 30
 
+  # t1-partial-tp-trailing: lock 50% at +1% move, trail rest by 0.5×ATR
+  partial_tp_enabled: false
+  partial_tp_pct: 1.0
+  partial_tp_close_pct: 0.5
+  trailing_atr_mult: 0.5
+
 telegram:
   enabled: true
   bot_token_env: TELEGRAM_BOT_TOKEN

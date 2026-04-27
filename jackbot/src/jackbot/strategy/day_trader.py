@@ -85,6 +85,12 @@ class DayTraderConfig:
     dynamic_spacing_min_count: int = 5
     dynamic_spacing_max_count: int = 30
 
+    # t1-partial-tp-trailing: lock 50% on +1% move, trail rest by 0.5×ATR
+    partial_tp_enabled: bool = False
+    partial_tp_pct: float = 1.0
+    partial_tp_close_pct: float = 0.5
+    trailing_atr_mult: float = 0.5
+
     def __post_init__(self) -> None:
         # Phase A risk decision: max_leverage hard-capped at 10 across all entry points.
         assert self.max_leverage <= 10, (
@@ -194,6 +200,19 @@ class DayTrader:
 
         # Update unrealized PnL for active grids
         self._engine.update_unrealized_pnl(symbol, event.close)
+
+        # t1-partial-tp-trailing: lock partial profit + trail rest before SL fires
+        if self._cfg.partial_tp_enabled:
+            assessment = self._assessor.assess(symbol)
+            atr = assessment.atr if assessment is not None else 0.0
+            tp_signals, trailing_ids = self._engine.check_partial_tp_and_trailing(
+                symbol, event.close, atr,
+            )
+            signals.extend(tp_signals)
+            for grid_id in trailing_ids:
+                close_signals = self._engine.close_grid(grid_id, reason="trailing_exit")
+                signals.extend(close_signals)
+                self._daily_resets = min(self._daily_resets + 1, self._cfg.max_daily_resets)
 
         # A4: Margin rate check — fires BEFORE 3% SL to catch gap-down scenarios
         margin_critical_ids = self._engine.check_margin_rate(
@@ -354,6 +373,10 @@ class DayTrader:
             leverage=leverage,
             total_investment=investment,
             current_price=current_price,
+            partial_tp_enabled=self._cfg.partial_tp_enabled,
+            partial_tp_pct=self._cfg.partial_tp_pct,
+            partial_tp_close_pct=self._cfg.partial_tp_close_pct,
+            trailing_atr_mult=self._cfg.trailing_atr_mult,
         )
 
         logger.info(
