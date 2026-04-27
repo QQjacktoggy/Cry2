@@ -84,6 +84,7 @@ class JackbotRunner:
         trader_params.update(config.get("conservative", {}))
         trader_params.update(config.get("risk", {}))
         trader_params.update(config.get("market_assessor", {}))
+        trader_params.update(config.get("optimizations", {}))
         trader_params.update(config.get("leverage", {
             "max_leverage": 10,
             "min_leverage": 5,

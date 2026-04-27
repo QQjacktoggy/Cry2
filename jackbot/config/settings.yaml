@@ -55,6 +55,17 @@ market_assessor:
   bb_std: 2.0
   atr_period: 14
 
+# Phase A optimisations — all OFF by default; enable per-flag for A/B backtests.
+optimizations:
+  # t1-dynamic-spacing: regime-aware grid spacing via ATR × k
+  dynamic_spacing_enabled: false
+  dynamic_spacing_tick_size: 0.1
+  dynamic_spacing_k_trending: 0.8
+  dynamic_spacing_k_neutral: 0.6
+  dynamic_spacing_k_ranging: 0.4
+  dynamic_spacing_min_count: 5
+  dynamic_spacing_max_count: 30
+
 telegram:
   enabled: true
   bot_token_env: TELEGRAM_BOT_TOKEN

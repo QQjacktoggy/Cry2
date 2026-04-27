@@ -18,11 +18,11 @@ from typing import Any
 import structlog
 
 from jackbot.core.clock import Clock
-from jackbot.core.constants import GridDirection, TradingMode
+from jackbot.core.constants import GridDirection, Regime, TradingMode
 from jackbot.core.event_bus import EventBus
 from jackbot.core.events import FillEvent, GridProfitEvent, GridSignalEvent, MarketEvent
 from jackbot.strategy.grid_engine import GridEngine
-from jackbot.strategy.market_assessor import MarketAssessor
+from jackbot.strategy.market_assessor import MarketAssessment, MarketAssessor
 
 logger = structlog.get_logger(__name__)
 
@@ -73,6 +73,17 @@ class DayTraderConfig:
     atr_period: int = 14
 
     warmup_bars: int = 50
+
+    # ── Phase A optimisations (all OFF by default; opt-in via settings) ──
+
+    # t1-dynamic-spacing: regime-aware grid spacing (overrides assessor's grid_count)
+    dynamic_spacing_enabled: bool = False
+    dynamic_spacing_tick_size: float = 0.1      # USDT, defensive floor
+    dynamic_spacing_k_trending: float = 0.8     # spacing = ATR × this in trending regime
+    dynamic_spacing_k_neutral: float = 0.6
+    dynamic_spacing_k_ranging: float = 0.4
+    dynamic_spacing_min_count: int = 5
+    dynamic_spacing_max_count: int = 30
 
     def __post_init__(self) -> None:
         # Phase A risk decision: max_leverage hard-capped at 10 across all entry points.
@@ -322,6 +333,9 @@ class DayTrader:
         upper = assessment.upper_price
         lower = assessment.lower_price
 
+        if self._cfg.dynamic_spacing_enabled:
+            grid_count = self._compute_dynamic_grid_count(assessment)
+
         if self._mode == TradingMode.CONSERVATIVE:
             leverage = min(leverage, self._cfg.conservative_leverage)
             investment *= self._cfg.conservative_size_factor
@@ -355,6 +369,33 @@ class DayTrader:
         )
 
         return signals
+
+    # ── Dynamic spacing (t1-dynamic-spacing) ─────────────────────────
+
+    def _compute_dynamic_grid_count(self, assessment: MarketAssessment) -> int:
+        """Choose grid_count from a regime-aware spacing instead of fixed N.
+
+        spacing = max(tick_size × 5, ATR × k); k depends on regime so trending
+        markets get wider levels (fewer trips, but each level captures real
+        directional moves) while ranging markets get tighter levels (more
+        round-trip profit at low risk).
+        """
+        if assessment.regime == Regime.TRENDING:
+            k = self._cfg.dynamic_spacing_k_trending
+        elif assessment.regime == Regime.RANGING:
+            k = self._cfg.dynamic_spacing_k_ranging
+        else:
+            k = self._cfg.dynamic_spacing_k_neutral
+
+        floor = self._cfg.dynamic_spacing_tick_size * 5
+        spacing = max(floor, assessment.atr * k)
+
+        price_range = max(assessment.upper_price - assessment.lower_price, spacing)
+        raw = int(price_range // spacing)
+        return max(
+            self._cfg.dynamic_spacing_min_count,
+            min(self._cfg.dynamic_spacing_max_count, raw),
+        )
 
     # ── Hourly review ─────────────────────────────────────────────
 
