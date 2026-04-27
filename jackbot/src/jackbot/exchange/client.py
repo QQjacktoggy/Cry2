@@ -22,6 +22,11 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
+# HTTP status codes that are transient and safe to retry
+_RETRYABLE_STATUS = {408, 429, 500, 502, 503, 504}
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 1.0  # seconds
+
 # Testnet and production base URLs
 TESTNET_URL = "https://testnet.binancefuture.com"
 MAINNET_URL = "https://fapi.binance.com"
@@ -42,7 +47,7 @@ class BinanceClient:
         self._base_url = base_url or (TESTNET_URL if testnet else MAINNET_URL)
         self._client = httpx.Client(
             base_url=self._base_url,
-            timeout=10.0,
+            timeout=15.0,
             headers={"X-MBX-APIKEY": self._api_key},
         )
         # symbol → (qty_precision, price_precision); populated by load_symbol_info()
@@ -303,22 +308,61 @@ class BinanceClient:
         return params
 
     def _signed_get(self, path: str, params: dict | None = None) -> Any:
-        params = self._sign(params or {})
-        resp = self._client.get(path, params=params)
-        resp.raise_for_status()
-        return resp.json()
+        return self._request_with_retry("GET", path, params or {})
 
     def _signed_post(self, path: str, params: dict) -> Any:
-        params = self._sign(params)
-        resp = self._client.post(path, params=params)
-        resp.raise_for_status()
-        return resp.json()
+        return self._request_with_retry("POST", path, params)
 
     def _signed_delete(self, path: str, params: dict) -> Any:
-        params = self._sign(params)
-        resp = self._client.delete(path, params=params)
-        resp.raise_for_status()
-        return resp.json()
+        return self._request_with_retry("DELETE", path, params)
+
+    def _request_with_retry(self, method: str, path: str, params: dict) -> Any:
+        """Execute a signed request with exponential-backoff retry on transient errors."""
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            signed = self._sign(dict(params))
+            try:
+                if method == "GET":
+                    resp = self._client.get(path, params=signed)
+                elif method == "POST":
+                    resp = self._client.post(path, params=signed)
+                else:
+                    resp = self._client.delete(path, params=signed)
+
+                if resp.status_code in _RETRYABLE_STATUS:
+                    last_exc = httpx.HTTPStatusError(
+                        f"HTTP {resp.status_code}", request=resp.request, response=resp
+                    )
+                    self._log_retry(attempt, path, last_exc)
+                    time.sleep(min(_RETRY_BASE_DELAY * (2 ** attempt), 30.0))
+                    continue
+
+                resp.raise_for_status()
+                return resp.json()
+
+            except httpx.TimeoutException as exc:
+                last_exc = exc
+                self._log_retry(attempt, path, exc)
+                time.sleep(min(_RETRY_BASE_DELAY * (2 ** attempt), 30.0))
+
+        raise last_exc  # type: ignore[misc]
+
+    def _log_retry(self, attempt: int, path: str, exc: Exception) -> None:
+        if attempt < _MAX_RETRIES:
+            logger.warning(
+                "request_retry",
+                path=path,
+                attempt=attempt + 1,
+                max_retries=_MAX_RETRIES,
+                error=str(exc),
+            )
+        else:
+            logger.error(
+                "request_failed_all_retries",
+                path=path,
+                attempts=_MAX_RETRIES + 1,
+                error=str(exc),
+            )
 
     @staticmethod
     def _round_down_to_increment(value: float, increment: float) -> float:
