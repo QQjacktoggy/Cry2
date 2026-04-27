@@ -91,6 +91,10 @@ class DayTraderConfig:
     partial_tp_close_pct: float = 0.5
     trailing_atr_mult: float = 0.5
 
+    # t1-maker-only-close: post-only LIMIT reduce-only on grid close (live: 5s fallback)
+    maker_only_close: bool = False
+    maker_close_tick_size: float = 0.1
+
     def __post_init__(self) -> None:
         # Phase A risk decision: max_leverage hard-capped at 10 across all entry points.
         assert self.max_leverage <= 10, (
@@ -210,7 +214,9 @@ class DayTrader:
             )
             signals.extend(tp_signals)
             for grid_id in trailing_ids:
-                close_signals = self._engine.close_grid(grid_id, reason="trailing_exit")
+                close_signals = self._engine.close_grid(
+                    grid_id, reason="trailing_exit", current_price=event.close,
+                )
                 signals.extend(close_signals)
                 self._daily_resets = min(self._daily_resets + 1, self._cfg.max_daily_resets)
 
@@ -227,7 +233,9 @@ class DayTrader:
                     grid_id=grid_id,
                     unrealized_pnl=grid.unrealized_pnl,
                 )
-            close_signals = self._engine.close_grid(grid_id, reason="margin_rate")
+            close_signals = self._engine.close_grid(
+                grid_id, reason="margin_rate", current_price=event.close,
+            )
             signals.extend(close_signals)
             self._daily_resets = min(self._daily_resets + 1, self._cfg.max_daily_resets)
 
@@ -243,14 +251,18 @@ class DayTrader:
                     unrealized_pnl=grid.unrealized_pnl,
                     daily_loss=round(self._daily_loss, 4),
                 )
-            close_signals = self._engine.close_grid(grid_id, reason="stop_loss")
+            close_signals = self._engine.close_grid(
+                grid_id, reason="stop_loss", current_price=event.close,
+            )
             signals.extend(close_signals)
             self._daily_resets = min(self._daily_resets + 1, self._cfg.max_daily_resets)
 
         # Check breakouts on active grids for this symbol
         breakout_ids = self._engine.check_breakout(symbol, event.close)
         for grid_id in breakout_ids:
-            close_signals = self._engine.close_grid(grid_id, reason="breakout")
+            close_signals = self._engine.close_grid(
+                grid_id, reason="breakout", current_price=event.close,
+            )
             signals.extend(close_signals)
             self._daily_resets = min(self._daily_resets + 1, self._cfg.max_daily_resets)
 
@@ -377,6 +389,8 @@ class DayTrader:
             partial_tp_pct=self._cfg.partial_tp_pct,
             partial_tp_close_pct=self._cfg.partial_tp_close_pct,
             trailing_atr_mult=self._cfg.trailing_atr_mult,
+            maker_only_close=self._cfg.maker_only_close,
+            maker_close_tick_size=self._cfg.maker_close_tick_size,
         )
 
         logger.info(
@@ -497,7 +511,9 @@ class DayTrader:
                     adx=assessment.adx,
                     direction=assessment.direction.value,
                 )
-                close_signals = self._engine.close_grid(grid.grid_id, reason=f"review:{reason}")
+                close_signals = self._engine.close_grid(
+                    grid.grid_id, reason=f"review:{reason}", current_price=current_price,
+                )
                 signals.extend(close_signals)
                 self._daily_resets = min(self._daily_resets + 1, self._cfg.max_daily_resets)
             else:
@@ -529,7 +545,8 @@ class DayTrader:
         self._halted = True
         # Close all active grids
         for grid in list(self._engine.active_grids):
-            self._engine.close_grid(grid.grid_id, reason=reason)
+            price_hint = self._last_prices.get(grid.symbol, 0.0)
+            self._engine.close_grid(grid.grid_id, reason=reason, current_price=price_hint)
         logger.error("day_trader_halted", reason=reason, daily_loss=round(self._daily_loss, 4))
 
     # ── Daily reset ───────────────────────────────────────────────────
@@ -579,7 +596,10 @@ class DayTrader:
         """Close all active grids (for shutdown / kill switch)."""
         signals: list[GridSignalEvent] = []
         for grid in list(self._engine.active_grids):
-            signals.extend(self._engine.close_grid(grid.grid_id, reason=reason))
+            price_hint = self._last_prices.get(grid.symbol, 0.0)
+            signals.extend(self._engine.close_grid(
+                grid.grid_id, reason=reason, current_price=price_hint,
+            ))
         return signals
 
     def manual_halt(self, reason: str = "manual") -> None:

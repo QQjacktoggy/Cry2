@@ -73,6 +73,10 @@ class GridInstance:
     partial_tp_close_pct: float = 0.5    # fraction of position to close
     trailing_atr_mult: float = 0.5       # trailing exit dist = ATR × this
 
+    # t1-maker-only-close (per-grid; OFF by default)
+    maker_only_close: bool = False
+    maker_close_tick_size: float = 0.1   # offset applied to current price
+
 
 class GridEngine:
     """Creates and manages futures grid instances.
@@ -112,6 +116,8 @@ class GridEngine:
         partial_tp_pct: float = 1.0,
         partial_tp_close_pct: float = 0.5,
         trailing_atr_mult: float = 0.5,
+        maker_only_close: bool = False,
+        maker_close_tick_size: float = 0.1,
     ) -> tuple[GridInstance, list[GridSignalEvent]]:
         """Create a new grid and return the initial limit-order signals.
 
@@ -154,6 +160,8 @@ class GridEngine:
             partial_tp_pct=partial_tp_pct,
             partial_tp_close_pct=partial_tp_close_pct,
             trailing_atr_mult=trailing_atr_mult,
+            maker_only_close=maker_only_close,
+            maker_close_tick_size=maker_close_tick_size,
         )
 
         # Build levels
@@ -563,10 +571,22 @@ class GridEngine:
 
     # ── Grid lifecycle ────────────────────────────────────────────────
 
-    def close_grid(self, grid_id: str, reason: str = "manual") -> list[GridSignalEvent]:
-        """Close a grid: cancel all pending orders and market-close positions.
+    def close_grid(
+        self,
+        grid_id: str,
+        reason: str = "manual",
+        current_price: float = 0.0,
+    ) -> list[GridSignalEvent]:
+        """Close a grid: cancel pending orders, optionally close open positions.
 
-        Returns cancel signals for all open orders.
+        With maker_only_close OFF (legacy default): only cancels pending orders.
+        With maker_only_close ON: also emits post-only LIMIT reduce-only orders
+        to close any held positions, priced one tick on the passive side of the
+        current price. The live runner is responsible for cancelling and
+        retrying as MARKET if the LIMIT fails to fill within its timeout window
+        (TODO: hook 5s timer in scripts/run.py).
+
+        Returns the list of signals (cancels + optional close LIMITs).
         """
         grid = self._grids.get(grid_id)
         if grid is None or grid.closed:
@@ -576,6 +596,7 @@ class GridEngine:
         grid.close_reason = reason
         signals: list[GridSignalEvent] = []
         now = datetime.now(UTC)
+        tick = grid.maker_close_tick_size
 
         for level in grid.levels:
             # Cancel any pending orders
@@ -594,6 +615,43 @@ class GridEngine:
                     grid_id=grid.grid_id,
                     level_index=level.index,
                 ))
+
+            # t1-maker-only-close: emit reduce-only LIMIT to close held positions
+            if grid.maker_only_close and level.quantity > 0:
+                if level.state == GridLevelState.FILLED_BUY and level.buy_fill_price > 0:
+                    close_price = round(
+                        current_price + tick if current_price > 0 else level.price + tick,
+                        2,
+                    )
+                    signals.append(GridSignalEvent(
+                        timestamp=now,
+                        symbol=grid.symbol,
+                        side=OrderSide.SELL.value,
+                        order_type="LIMIT",
+                        price=close_price,
+                        quantity=level.quantity,
+                        grid_id=grid.grid_id,
+                        level_index=level.index,
+                        reduce_only=True,
+                        metadata={"close_intent": "maker_only", "fallback_after_s": 5},
+                    ))
+                elif level.state == GridLevelState.FILLED_SELL and level.sell_fill_price > 0:
+                    close_price = round(
+                        current_price - tick if current_price > 0 else level.price - tick,
+                        2,
+                    )
+                    signals.append(GridSignalEvent(
+                        timestamp=now,
+                        symbol=grid.symbol,
+                        side=OrderSide.BUY.value,
+                        order_type="LIMIT",
+                        price=close_price,
+                        quantity=level.quantity,
+                        grid_id=grid.grid_id,
+                        level_index=level.index,
+                        reduce_only=True,
+                        metadata={"close_intent": "maker_only", "fallback_after_s": 5},
+                    ))
 
             level.state = GridLevelState.CANCELLED
 

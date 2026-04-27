@@ -72,6 +72,11 @@ optimizations:
   partial_tp_close_pct: 0.5
   trailing_atr_mult: 0.5
 
+  # t1-maker-only-close: post-only LIMIT reduce-only when grid closes
+  # (live runner falls back to MARKET if not filled in 5s — TODO)
+  maker_only_close: false
+  maker_close_tick_size: 0.1
+
 telegram:
   enabled: true
   bot_token_env: TELEGRAM_BOT_TOKEN
