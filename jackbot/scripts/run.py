@@ -129,6 +129,9 @@ class JackbotRunner:
     def _on_bar(self, event: MarketEvent) -> None:
         """Handle each completed kline bar."""
         signals = self._trader.on_bar(event)
+        
+        # Sync unrealized PnL to portfolio for accurate equity tracking
+        self._portfolio.unrealized_pnl = self._trader.unrealized_pnl
 
         if self._dry_run:
             for s in signals:
@@ -241,6 +244,7 @@ class JackbotRunner:
             profit=event.profit_usd,
             total=self._trader.daily_profit,
             target=self._trader._cfg.daily_profit_target_usd,
+            equity=self._portfolio.total_equity,
         )
 
     async def run(self) -> None:
@@ -324,6 +328,7 @@ class JackbotRunner:
         return {
             **self._trader.get_status(),
             **self._portfolio.get_summary(),
+            "equity": round(self._portfolio.total_equity, 2),
         }
 
     def shutdown(self) -> None:

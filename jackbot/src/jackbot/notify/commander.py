@@ -145,7 +145,7 @@ class JackbotCommander:
         trades = self._portfolio._trades
         
         lines = ["📈 <b>損益詳細報告</b>\n"]
-        lines.append(f"• 總獲利: ${summary['total_pnl']:.4f} USDT")
+        lines.append(f"• 總獲利: ${summary['realized_pnl']:.4f} USDT")
         lines.append(f"• 交易次數: {summary['total_trades']} 次")
         
         # Breakdown by symbol
@@ -164,11 +164,12 @@ class JackbotCommander:
     async def _cmd_balance(self) -> str:
         summary = self._portfolio.get_summary()
         return (
-            "💰 <b>帳戶權益資訊</b>\n\n"
+            "💰 <b>帳戶權益資訊 (虛擬)</b>\n\n"
             f"• 初始資金: ${summary['initial_capital']:.2f}\n"
-            f"• 當前權益: ${summary['available_capital']:.2f}\n"
-            f"• 總盈虧: {summary['total_pnl']:+.4f}\n"
-            f"• 今日盈虧: {summary['today_pnl']:+.4f}\n"
+            f"• 總獲利: ${summary['realized_pnl']:.4f}\n"
+            f"• 未實現: ${summary['unrealized_pnl']:+.4f}\n"
+            f"<b>• 當前權益: ${summary['total_equity']:.2f}</b>\n"
+            f"• 今日盈虧: ${summary['today_pnl']:+.4f}\n"
             f"• 模式: {self._trader.mode.value.upper()}"
         )
 

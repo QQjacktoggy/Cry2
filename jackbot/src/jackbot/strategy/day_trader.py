@@ -153,6 +153,11 @@ class DayTrader:
         return self._daily_profit
 
     @property
+    def unrealized_pnl(self) -> float:
+        """Sum of unrealized PnL from all active grids."""
+        return sum(grid.unrealized_pnl for grid in self._engine.active_grids)
+
+    @property
     def is_halted(self) -> bool:
         return self._halted
 

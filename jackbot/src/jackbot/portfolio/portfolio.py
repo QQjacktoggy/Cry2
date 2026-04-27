@@ -25,26 +25,40 @@ class TradeRecord:
 
 
 class Portfolio:
-    """Tracks capital, trades, and daily PnL."""
+    """Tracks capital, trades, and daily PnL with virtual equity support."""
 
     def __init__(self, initial_capital: float = 150.0) -> None:
         self._initial_capital = initial_capital
-        self._available_capital = initial_capital
+        self._realized_pnl = 0.0
+        self._unrealized_pnl = 0.0
         self._trades: list[TradeRecord] = []
-        self._daily_pnl: dict[str, float] = {}  # date_str → cumulative PnL
+        self._daily_pnl: dict[str, float] = {}  # date_str -> cumulative PnL
 
     @property
-    def available_capital(self) -> float:
-        return self._available_capital
+    def initial_capital(self) -> float:
+        return self._initial_capital
 
     @property
-    def total_pnl(self) -> float:
-        return sum(t.profit_usd for t in self._trades)
+    def total_realized_pnl(self) -> float:
+        return self._realized_pnl
+
+    @property
+    def unrealized_pnl(self) -> float:
+        return self._unrealized_pnl
+
+    @unrealized_pnl.setter
+    def unrealized_pnl(self, value: float) -> None:
+        self._unrealized_pnl = value
+
+    @property
+    def total_equity(self) -> float:
+        """Total virtual equity: 150 + Realized + Unrealized."""
+        return self._initial_capital + self._realized_pnl + self._unrealized_pnl
 
     def record_trade(self, trade: TradeRecord) -> None:
         """Record a completed grid match."""
         self._trades.append(trade)
-        self._available_capital += trade.profit_usd
+        self._realized_pnl += trade.profit_usd
 
         date_key = trade.timestamp.strftime("%Y-%m-%d")
         self._daily_pnl[date_key] = self._daily_pnl.get(date_key, 0.0) + trade.profit_usd
@@ -53,19 +67,16 @@ class Portfolio:
             "trade_recorded",
             symbol=trade.symbol,
             profit=round(trade.profit_usd, 4),
-            capital=round(self._available_capital, 2),
+            equity=round(self.total_equity, 2),
         )
-
-    def get_daily_pnl(self, date_str: str | None = None) -> float:
-        if date_str is None:
-            date_str = datetime.now(UTC).strftime("%Y-%m-%d")
-        return self._daily_pnl.get(date_str, 0.0)
 
     def get_summary(self) -> dict:
         return {
             "initial_capital": self._initial_capital,
-            "available_capital": round(self._available_capital, 2),
-            "total_pnl": round(self.total_pnl, 4),
+            "realized_pnl": round(self._realized_pnl, 4),
+            "unrealized_pnl": round(self._unrealized_pnl, 4),
+            "total_equity": round(self.total_equity, 2),
             "total_trades": len(self._trades),
-            "today_pnl": round(self.get_daily_pnl(), 4),
+            "today_pnl": round(self._daily_pnl.get(datetime.now(UTC).strftime("%Y-%m-%d"), 0.0), 4),
         }
+
