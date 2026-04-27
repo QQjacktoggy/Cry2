@@ -37,7 +37,9 @@ class GridLevel:
     buy_fill_price: float = 0.0
     sell_fill_price: float = 0.0
     quantity: float = 0.0
-    matched_count: int = 0           # how many buy→sell cycles completed
+    matched_count: int = 0           # how many buy-sell cycles completed
+    commission: float = 0.0          # total fee accumulated for this level
+
 
 
 @dataclass
@@ -229,6 +231,9 @@ class GridEngine:
         signals: list[GridSignalEvent] = []
         profit_event: GridProfitEvent | None = None
 
+        # Accumulate actual fee from this fill
+        level.commission += fill.commission
+
         if fill.side == OrderSide.BUY.value:
             level.buy_fill_price = fill.price
             level.buy_order_id = fill.order_id
@@ -261,6 +266,9 @@ class GridEngine:
                     level.matched_count += 1
                     buy_level.matched_count += 1
 
+                    # Total fee is buy fee + sell fee
+                    total_fee = buy_level.commission + level.commission
+
                     profit_event = GridProfitEvent(
                         timestamp=fill.timestamp,
                         symbol=grid.symbol,
@@ -270,6 +278,7 @@ class GridEngine:
                         sell_price=level.sell_fill_price,
                         quantity=level.quantity,
                         profit_usd=round(profit, 4),
+                        commission=round(total_fee, 6),
                     )
 
                     logger.info(
@@ -279,9 +288,14 @@ class GridEngine:
                         buy=buy_level.buy_fill_price,
                         sell=level.sell_fill_price,
                         profit=round(profit, 4),
+                        fee=round(total_fee, 6),
                         total_matched=grid.total_matched,
                         total_profit=round(grid.matched_profit, 4),
                     )
+
+                    # Reset level commissions for next cycle
+                    buy_level.commission = 0.0
+                    level.commission = 0.0
 
                     # Re-place BUY at the lower level for another cycle
                     buy_level.state = GridLevelState.PENDING_BUY

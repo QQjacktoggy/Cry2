@@ -136,6 +136,7 @@ class DayTrader:
         self._bar_counts: dict[str, int] = {}
         self._last_review_bar: dict[str, int] = {}  # symbol → bar count at last review
         self._last_prices: dict[str, float] = {}     # symbol → latest close price
+        self._last_report_date: str = ""
 
     # ── Properties ────────────────────────────────────────────────────
 
@@ -166,6 +167,7 @@ class DayTrader:
     def on_bar(self, event: MarketEvent) -> list[GridSignalEvent]:
         """Process a new 5m bar. Returns grid signals to execute."""
         self._check_daily_reset()
+        self._check_daily_report()
 
         if self._halted:
             return []
@@ -250,6 +252,19 @@ class DayTrader:
             signals.extend(create_signals)
 
         return signals
+
+    def _check_daily_report(self) -> None:
+        """Trigger daily summary report at 13:00 UTC (21:00 TPE)."""
+        now = self._clock.now()
+        today = now.strftime("%Y-%m-%d")
+        
+        # Trigger if it's 13:00 UTC or later, and we haven't reported today
+        if now.hour >= 13 and self._last_report_date != today:
+            self._last_report_date = today
+            logger.info("daily_report_triggered", time=now.isoformat())
+            # Use GridProfitEvent as a carrier or create a dedicated event
+            # For simplicity, we trigger a dedicated status push via EventBus
+            self._bus.publish_status_report()
 
     # ── Fill handler ──────────────────────────────────────────────────
 

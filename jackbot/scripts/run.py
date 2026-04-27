@@ -116,6 +116,7 @@ class JackbotRunner:
 
         # Subscribe to profit events
         self._bus.subscribe("GridProfitEvent", self._on_profit)
+        self._bus.subscribe("status_report", self._on_status_report)
 
         logger.info(
             "jackbot_initialized",
@@ -125,6 +126,12 @@ class JackbotRunner:
             dry_run=dry_run,
             testnet=testnet,
         )
+
+    def _on_status_report(self) -> None:
+        """Handle scheduled status report trigger."""
+        logger.info("handling_scheduled_report")
+        status = self.status()
+        self._telegram.notify_status(status)
 
     def _on_bar(self, event: MarketEvent) -> None:
         """Handle each completed kline bar."""
@@ -236,6 +243,7 @@ class JackbotRunner:
             sell_price=event.sell_price,
             quantity=event.quantity,
             profit_usd=event.profit_usd,
+            commission=event.commission,
             leverage=0,
         )
         self._portfolio.record_trade(trade)
@@ -245,6 +253,7 @@ class JackbotRunner:
             total=self._trader.daily_profit,
             target=self._trader._cfg.daily_profit_target_usd,
             equity=self._portfolio.total_equity,
+            fee=event.commission,
         )
 
     async def run(self) -> None:
@@ -325,10 +334,12 @@ class JackbotRunner:
             logger.warning("warmup_failed", symbol=symbol, error=str(e))
 
     def status(self) -> dict:
+        summary = self._portfolio.get_summary()
         return {
             **self._trader.get_status(),
-            **self._portfolio.get_summary(),
-            "equity": round(self._portfolio.total_equity, 2),
+            **summary,
+            "equity": summary["total_equity"],
+            "total_fee": summary["total_commission"],
         }
 
     def shutdown(self) -> None:

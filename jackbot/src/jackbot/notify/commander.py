@@ -118,12 +118,14 @@ class JackbotCommander:
         )
 
     async def _cmd_status(self) -> str:
+        summary = self._portfolio.get_summary()
         status = self._trader.get_status()
         active = status.get("active_grids", [])
 
         lines = [f"📊 <b>Jackbot 網格狀態</b>"]
-        lines.append(f"• 今日目標: ${status.get('daily_target', 0)} USDT")
-        lines.append(f"• 今日盈虧: ${status.get('today_pnl', 0):.4f} USDT")
+        lines.append(f"• 今日淨盈虧: ${summary['today_pnl']:.4f} USDT")
+        lines.append(f"• 累計手續費: ${summary['total_commission']:.6f} USDT")
+        lines.append(f"• 當前權益: <b>${summary['total_equity']:.2f}</b>")
         lines.append(f"• 活躍網格: {len(active)} 個")
 
         for g in active:

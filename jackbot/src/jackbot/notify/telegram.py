@@ -62,15 +62,16 @@ class TelegramBot:
         )
         self.send(msg)
 
-    def notify_grid_profit(self, profit: float, total: float, target: float, equity: float = 0) -> None:
+    def notify_grid_profit(self, profit: float, total: float, target: float, equity: float = 0, fee: float = 0) -> None:
         pct = total / target * 100 if target > 0 else 0
         bar_len = min(20, int(pct / 5))
         bar = "█" * bar_len + "░" * (20 - bar_len)
         equity_str = f"\n權益(含未實現): <b>${equity:.2f}</b>" if equity > 0 else ""
+        fee_str = f"\n手續費: <code>-${fee:.6f}</code>" if fee > 0 else ""
         msg = (
-            f"💰 <b>格間利潤</b> +${profit:.4f}\n"
+            f"💰 <b>格間利潤</b> +${profit:.4f}{fee_str}\n"
             f"日標進度: [{bar}] {pct:.1f}%\n"
-            f"累計獲利: ${total:.4f} / ${target:.2f}"
+            f"累計淨獲利: ${total:.4f} / ${target:.2f}"
             f"{equity_str}"
         )
         self.send(msg)
@@ -94,7 +95,8 @@ class TelegramBot:
             f"📊 <b>Jackbot 狀態</b>\n"
             f"模式: {status.get('mode', '?')}\n"
             f"目前權益: <b>${status.get('equity', 0):.2f}</b>\n"
-            f"日利潤: ${status.get('daily_profit', 0):.4f} / ${status.get('daily_target', 0):.2f}\n"
+            f"今日盈虧: ${status.get('daily_profit', 0):.4f} (已扣費: ${status.get('total_fee', 0):.4f})\n"
+            f"日目標: ${status.get('daily_target', 0):.2f}\n"
             f"活躍網格:\n{grid_info}"
         )
         self.send(msg)
