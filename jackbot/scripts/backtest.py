@@ -13,8 +13,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import sys
+from bisect import bisect_left
 from collections import deque
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -113,17 +115,34 @@ def download_klines(
 class FillSimulator:
     """Simulates limit order fills based on bar high/low.
 
-    Grid limit orders are treated as maker fills (zero fee on Binance).
-    SL/breakout/review market closes are taker fills (0.04% + ATR slippage).
-    Partial fills: 50–100% random fill rate per level.
+    Grid limit orders are treated as maker fills (maker rate may be negative
+    to model rebates). SL/breakout/review market closes are taker fills
+    (taker_rate + ATR slippage).
+
+    Partial fills:
+      * legacy mode: ratio = random.uniform(0.5, 1.0) per level (back-compat)
+      * volume-aware mode (default): ratio = clamp(bar.volume / per_level_qty
+        / volume_norm, 0.1, 1.0). Models thin/heavy bars more honestly.
+
+    Multi-level ties (multiple levels touched in same bar) are sorted by
+    distance to close so the level closest to the bar's exit price wins fill
+    priority — a coarse proxy for queue position.
     """
 
     _ATR_PERIOD = 14
 
-    def __init__(self, maker_rate: float = 0.0, taker_rate: float = 0.0004) -> None:
+    def __init__(
+        self,
+        maker_rate: float = 0.0,
+        taker_rate: float = 0.0004,
+        legacy_fill: bool = False,
+        volume_norm: float = 50.0,
+    ) -> None:
         self._fill_count = 0
         self._maker_rate = maker_rate
         self._taker_rate = taker_rate
+        self._legacy_fill = legacy_fill
+        self._volume_norm = volume_norm
         self._atr_buffers: dict[str, deque] = {}
         self._atr_values: dict[str, float] = {}
 
@@ -160,64 +179,131 @@ class FillSimulator:
         slippage = open_notional * (atr / bar.close) * 0.02 if bar.close > 0 else 0.0
         return commission + slippage
 
+    def _fill_ratio(self, level_qty: float, bar_volume: float) -> float:
+        if self._legacy_fill or level_qty <= 0:
+            return random.uniform(0.5, 1.0)
+        return min(1.0, max(0.1, bar_volume / level_qty / self._volume_norm))
+
     def check_fills(
         self,
         grids: list[GridInstance],
         bar: MarketEvent,
     ) -> list[FillEvent]:
-        """Check all active grids for fills based on this bar's price range.
-
-        All grid-level fills are passive limit orders (maker, zero fee).
-        Applies a 50–100% random partial fill rate per level.
-        """
+        """Check all active grids for fills based on this bar's price range."""
         fills: list[FillEvent] = []
 
+        # Collect candidate (grid, level, side) tuples for this bar, then sort
+        # by distance to close so closer levels fill first when bar straddles
+        # multiple. This is a coarse model of intra-bar order: the level at
+        # the bar's high/low fills before levels nearer to close.
+        candidates: list[tuple[GridInstance, "GridLevel", str, float]] = []
         for grid in grids:
             if grid.closed:
                 continue
-
             for level in grid.levels:
-                # Check BUY fills: price dropped to or below the level
-                if (
-                    level.state == GridLevelState.PENDING_BUY
-                    and level.price >= bar.low
-                    and level.price <= bar.high
-                ):
-                    self._fill_count += 1
-                    qty = level.quantity * random.uniform(0.5, 1.0)
-                    fills.append(FillEvent(
-                        timestamp=bar.timestamp,
-                        symbol=bar.symbol,
-                        side="BUY",
-                        quantity=qty,
-                        price=level.price,
-                        commission=level.price * qty * self._maker_rate,
-                        order_id=f"sim_{self._fill_count}",
-                        grid_id=grid.grid_id,
-                        level_index=level.index,
-                    ))
+                if not (bar.low <= level.price <= bar.high):
+                    continue
+                if level.state == GridLevelState.PENDING_BUY:
+                    candidates.append((grid, level, "BUY", abs(level.price - bar.close)))
+                elif level.state == GridLevelState.PENDING_SELL:
+                    candidates.append((grid, level, "SELL", abs(level.price - bar.close)))
 
-                # Check SELL fills: price rose to or above the level
-                elif (
-                    level.state == GridLevelState.PENDING_SELL
-                    and level.price >= bar.low
-                    and level.price <= bar.high
-                ):
-                    self._fill_count += 1
-                    qty = level.quantity * random.uniform(0.5, 1.0)
-                    fills.append(FillEvent(
-                        timestamp=bar.timestamp,
-                        symbol=bar.symbol,
-                        side="SELL",
-                        quantity=qty,
-                        price=level.price,
-                        commission=level.price * qty * self._maker_rate,
-                        order_id=f"sim_{self._fill_count}",
-                        grid_id=grid.grid_id,
-                        level_index=level.index,
-                    ))
+        # Sort by distance to close ascending — closest levels execute first.
+        candidates.sort(key=lambda t: t[3])
+
+        for grid, level, side, _dist in candidates:
+            self._fill_count += 1
+            qty = level.quantity * self._fill_ratio(level.quantity, bar.volume)
+            fills.append(FillEvent(
+                timestamp=bar.timestamp,
+                symbol=bar.symbol,
+                side=side,
+                quantity=qty,
+                price=level.price,
+                commission=level.price * qty * self._maker_rate,
+                order_id=f"sim_{self._fill_count}",
+                grid_id=grid.grid_id,
+                level_index=level.index,
+            ))
 
         return fills
+
+    def compute_funding(self, grid: GridInstance, current_price: float, rate: float) -> float:
+        """Funding charge for a grid's net open position at this settlement.
+
+        Long position pays funding when rate > 0; short position receives.
+        Returns a signed dollar amount: positive = cost, negative = credit.
+        """
+        long_qty = sum(
+            lvl.quantity for lvl in grid.levels
+            if lvl.state == GridLevelState.FILLED_BUY
+            and lvl.buy_fill_price > 0 and lvl.sell_fill_price == 0
+        )
+        short_qty = sum(
+            lvl.quantity for lvl in grid.levels
+            if lvl.state == GridLevelState.FILLED_SELL
+            and lvl.sell_fill_price > 0 and lvl.buy_fill_price == 0
+        )
+        net_long_notional = (long_qty - short_qty) * current_price
+        return net_long_notional * rate
+
+
+# ── Funding rate fetch + cache ────────────────────────────────────────
+
+
+_FUNDING_CACHE_DIR = ROOT / "data" / "funding"
+
+
+def download_funding(symbol: str, start_ts: int, end_ts: int) -> list[tuple[int, float]]:
+    """Download Binance USDT-M futures funding rates for [start_ts, end_ts].
+
+    Cached per-symbol-and-window in data/funding/. Each entry is (ms, rate).
+    Funding settles every 8h; ~3 entries per day per symbol.
+    """
+    _FUNDING_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = _FUNDING_CACHE_DIR / f"{symbol}_{start_ts}_{end_ts}.json"
+    if cache_path.exists():
+        return [(int(ts), float(rate)) for ts, rate in json.loads(cache_path.read_text())]
+
+    url = "https://fapi.binance.com/fapi/v1/fundingRate"
+    out: list[tuple[int, float]] = []
+    cursor = start_ts
+    with httpx.Client(timeout=30.0) as client:
+        while True:
+            resp = client.get(url, params={
+                "symbol": symbol,
+                "startTime": cursor,
+                "endTime": end_ts,
+                "limit": 1000,
+            })
+            resp.raise_for_status()
+            data = resp.json()
+            if not data:
+                break
+            for row in data:
+                out.append((int(row["fundingTime"]), float(row["fundingRate"])))
+            last_ts = int(data[-1]["fundingTime"])
+            if last_ts >= end_ts or len(data) < 1000:
+                break
+            cursor = last_ts + 1
+
+    cache_path.write_text(json.dumps(out))
+    return out
+
+
+def funding_rate_at(events: list[tuple[int, float]], ts_ms: int) -> float:
+    """Return the funding rate that *just settled* at or before ts_ms.
+
+    Settlement happens at fundingTime; the rate applies to that single 8h
+    interval. We bisect to find the most recent event ≤ ts_ms.
+    """
+    if not events:
+        return 0.0
+    times = [e[0] for e in events]
+    idx = bisect_left(times, ts_ms + 1) - 1
+    if idx < 0:
+        return 0.0
+    return events[idx][1]
 
 
 # ── Backtest engine ───────────────────────────────────────────────────
@@ -231,12 +317,16 @@ class BacktestEngine:
         config: DayTraderConfig,
         maker_rate: float = 0.0,
         taker_rate: float = 0.0004,
+        legacy_fill: bool = False,
+        funding_by_symbol: dict[str, list[tuple[int, float]]] | None = None,
     ) -> None:
         self._cfg = config
         self._bus = EventBus()
         self._clock = BacktestClock()
         self._trader = DayTrader(config=config, event_bus=self._bus, clock=self._clock)
-        self._sim = FillSimulator(maker_rate, taker_rate)
+        self._sim = FillSimulator(maker_rate, taker_rate, legacy_fill=legacy_fill)
+        self._funding_by_symbol = funding_by_symbol or {}
+        self._next_funding_idx: dict[str, int] = {s: 0 for s in self._funding_by_symbol}
 
         # Tracking
         self._daily_results: dict[str, dict] = {}  # date → {profit, trades, ...}
@@ -244,6 +334,7 @@ class BacktestEngine:
         self._current_date: str = ""
         self._all_profits: list[float] = []
         self._total_commission: float = 0.0
+        self._total_funding: float = 0.0
         self._total_fills: int = 0
         self._mode_switches: int = 0
         self._stop_losses: int = 0
@@ -337,6 +428,10 @@ class BacktestEngine:
                         self._total_commission += self._sim.compute_taker_close(grid, bar)
                     grid._fee_charged = True
 
+            # Funding settlement: charge any funding events whose timestamp
+            # falls at or before this bar (and that haven't been charged yet).
+            self._settle_funding(symbol, bar)
+
             # 2. Update ATR then simulate fills for active grids
             self._sim.update_atr(bar)
             active_grids = self._trader._engine.active_grids
@@ -360,6 +455,22 @@ class BacktestEngine:
 
         return self._compile_results()
 
+    def _settle_funding(self, symbol: str, bar: MarketEvent) -> None:
+        events = self._funding_by_symbol.get(symbol)
+        if not events:
+            return
+        idx = self._next_funding_idx[symbol]
+        bar_ts_ms = int(bar.timestamp.timestamp() * 1000)
+        while idx < len(events) and events[idx][0] <= bar_ts_ms:
+            ts_ms, rate = events[idx]
+            for grid in self._trader._engine.active_grids:
+                if grid.symbol != symbol:
+                    continue
+                charge = self._sim.compute_funding(grid, bar.close, rate)
+                self._total_funding += charge
+            idx += 1
+        self._next_funding_idx[symbol] = idx
+
     def _snapshot_daily(self, date_str: str) -> None:
         """Snapshot daily state — called when date changes."""
         self._daily_results[date_str] = {
@@ -373,7 +484,7 @@ class BacktestEngine:
     def _compile_results(self) -> dict:
         """Compile all backtest metrics."""
         total_profit = sum(self._all_profits)
-        net_profit = total_profit - self._total_commission
+        net_profit = total_profit - self._total_commission - self._total_funding
         num_trades = len(self._all_profits)
 
         # Daily stats
@@ -421,6 +532,7 @@ class BacktestEngine:
             "pnl": {
                 "gross_profit": round(total_profit, 4),
                 "commission": round(self._total_commission, 4),
+                "funding": round(self._total_funding, 4),
                 "net_profit": round(net_profit, 4),
                 "roi_pct": round(net_profit / self._cfg.total_capital_usd * 100, 2),
             },
@@ -477,6 +589,7 @@ def print_report(results: dict) -> None:
     print(f"{'─' * 40}")
     print(f"  毛利潤:      ${pnl['gross_profit']:>10.4f}")
     print(f"  手續費:      ${pnl['commission']:>10.4f}")
+    print(f"  Funding:     ${pnl.get('funding', 0.0):>10.4f}")
     print(f"  淨利潤:      ${pnl['net_profit']:>10.4f}")
     print(f"  投資報酬率:   {pnl['roi_pct']:>9.2f}%")
 
@@ -544,8 +657,10 @@ def main():
     parser.add_argument("--stop-loss", type=float, default=2.0, help="Grid stop-loss %")
     parser.add_argument("--grid-count", type=int, default=10, help="Default grid count")
     parser.add_argument("--compound", type=float, default=0.0, help="Compound profit % (e.g. 50.0)")
-    parser.add_argument("--maker-fee", type=float, default=0.0, help="Maker fee rate (grid limit orders, default 0.0)")
+    parser.add_argument("--maker-fee", type=float, default=0.0, help="Maker fee rate (negative = rebate)")
     parser.add_argument("--taker-fee", type=float, default=0.0004, help="Taker fee rate (SL/breakout/review, default 0.0004)")
+    parser.add_argument("--legacy-fill", action="store_true", help="Use legacy random 50–100% fill ratio (parity check)")
+    parser.add_argument("--no-funding", action="store_true", help="Skip historical funding rate fetch+settlement")
     parser.add_argument("--out", type=str, default="", help="Output JSON file path")
     args = parser.parse_args()
 
@@ -600,7 +715,23 @@ def main():
 
     # Run backtest
     p(f"\n⚙️  回測中...")
-    engine = BacktestEngine(config, maker_rate=args.maker_fee, taker_rate=args.taker_fee)
+    funding_by_symbol: dict[str, list[tuple[int, float]]] = {}
+    if not args.no_funding:
+        for sym in symbols:
+            try:
+                funding_by_symbol[sym] = download_funding(sym, start_ts, end_ts)
+                p(f"   📥 funding {sym}: {len(funding_by_symbol[sym])} events")
+            except Exception as e:
+                logger.warning("funding_fetch_failed", symbol=sym, error=str(e))
+                funding_by_symbol[sym] = []
+
+    engine = BacktestEngine(
+        config,
+        maker_rate=args.maker_fee,
+        taker_rate=args.taker_fee,
+        legacy_fill=args.legacy_fill,
+        funding_by_symbol=funding_by_symbol,
+    )
     results = engine.run(klines_by_symbol)
 
     # Print report
