@@ -68,5 +68,6 @@ class GridProfitEvent(BaseModel, frozen=True):
     buy_price: float
     sell_price: float
     quantity: float
-    profit_usd: float               # sell_price - buy_price * quantity
+    profit_usd: float               # sell_price - buy_price * quantity (gross)
+    commission: float = 0.0          # total fee for both sides
     source: str = "grid_engine"

@@ -21,76 +21,75 @@ class TradeRecord:
     sell_price: float
     quantity: float
     profit_usd: float
-    leverage: int
+    commission: float = 0.0
+    leverage: int = 0
 
 
 class Portfolio:
-    """Tracks capital, trades, and daily PnL."""
+    """Tracks capital, trades, and daily PnL with virtual equity support."""
 
     def __init__(self, initial_capital: float = 150.0) -> None:
         self._initial_capital = initial_capital
-        self._available_capital = initial_capital
+        self._realized_pnl = 0.0
+        self._total_commission = 0.0
+        self._unrealized_pnl = 0.0
         self._trades: list[TradeRecord] = []
-        self._daily_pnl: dict[str, float] = {}  # date_str → cumulative PnL
+        self._daily_pnl: dict[str, float] = {}  # date_str -> cumulative PnL
 
     @property
-    def available_capital(self) -> float:
-        return self._available_capital
+    def initial_capital(self) -> float:
+        return self._initial_capital
 
     @property
-    def total_pnl(self) -> float:
-        return sum(t.profit_usd for t in self._trades)
+    def total_realized_pnl(self) -> float:
+        """Net realized PnL (profit - commission)."""
+        return self._realized_pnl - self._total_commission
+
+    @property
+    def total_commission(self) -> float:
+        return self._total_commission
+
+    @property
+    def unrealized_pnl(self) -> float:
+        return self._unrealized_pnl
+
+    @unrealized_pnl.setter
+    def unrealized_pnl(self, value: float) -> None:
+        self._unrealized_pnl = value
+
+    @property
+    def total_equity(self) -> float:
+        """Total virtual equity: 150 + Realized - Commission + Unrealized."""
+        return self._initial_capital + self._realized_pnl - self._total_commission + self._unrealized_pnl
 
     def record_trade(self, trade: TradeRecord) -> None:
         """Record a completed grid match."""
         self._trades.append(trade)
-        self._available_capital += trade.profit_usd
+        self._realized_pnl += trade.profit_usd
+        self._total_commission += trade.commission
 
         date_key = trade.timestamp.strftime("%Y-%m-%d")
-        self._daily_pnl[date_key] = self._daily_pnl.get(date_key, 0.0) + trade.profit_usd
+        net_profit = trade.profit_usd - trade.commission
+        self._daily_pnl[date_key] = self._daily_pnl.get(date_key, 0.0) + net_profit
 
         logger.info(
             "trade_recorded",
             symbol=trade.symbol,
             profit=round(trade.profit_usd, 4),
-            capital=round(self._available_capital, 2),
+            fee=round(trade.commission, 6),
+            equity=round(self.total_equity, 2),
         )
 
-    def get_daily_pnl(self, date_str: str | None = None) -> float:
-        if date_str is None:
-            date_str = datetime.now(UTC).strftime("%Y-%m-%d")
-        return self._daily_pnl.get(date_str, 0.0)
-
     def get_summary(self) -> dict:
+        date_str = datetime.now(UTC).strftime("%Y-%m-%d")
         return {
             "initial_capital": self._initial_capital,
-            "available_capital": round(self._available_capital, 2),
-            "total_pnl": round(self.total_pnl, 4),
+            "realized_pnl": round(self._realized_pnl, 4),
+            "total_commission": round(self._total_commission, 6),
+            "net_realized_pnl": round(self.total_realized_pnl, 4),
+            "unrealized_pnl": round(self._unrealized_pnl, 4),
+            "total_equity": round(self.total_equity, 2),
             "total_trades": len(self._trades),
-            "today_pnl": round(self.get_daily_pnl(), 4),
+            "today_pnl": round(self._daily_pnl.get(date_str, 0.0), 4),
         }
 
-    def get_recent_trades(self, limit: int = 10) -> list[dict]:
-        """Return recent matched trades in descending time order."""
-        limit = max(1, limit)
-        recent = self._trades[-limit:]
-        result: list[dict] = []
-        for t in reversed(recent):
-            result.append({
-                "timestamp": t.timestamp.isoformat(),
-                "symbol": t.symbol,
-                "grid_id": t.grid_id,
-                "buy_price": t.buy_price,
-                "sell_price": t.sell_price,
-                "quantity": t.quantity,
-                "profit_usd": t.profit_usd,
-                "leverage": t.leverage,
-            })
-        return result
-
-    def get_symbol_pnl(self) -> dict[str, float]:
-        """Aggregate realized PnL by symbol."""
-        by_symbol: dict[str, float] = {}
-        for t in self._trades:
-            by_symbol[t.symbol] = by_symbol.get(t.symbol, 0.0) + t.profit_usd
-        return {k: round(v, 4) for k, v in by_symbol.items()}

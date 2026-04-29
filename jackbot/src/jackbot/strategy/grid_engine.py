@@ -37,7 +37,10 @@ class GridLevel:
     buy_fill_price: float = 0.0
     sell_fill_price: float = 0.0
     quantity: float = 0.0
-    matched_count: int = 0           # how many buy→sell cycles completed
+    filled_quantity: float = 0.0      # actual filled/open quantity for this level
+    matched_count: int = 0           # how many buy-sell cycles completed
+    commission: float = 0.0          # total fee accumulated for this level
+
 
 
 @dataclass
@@ -229,9 +232,14 @@ class GridEngine:
         signals: list[GridSignalEvent] = []
         profit_event: GridProfitEvent | None = None
 
+        # Accumulate actual fee from this fill
+        level.commission += fill.commission
+
         if fill.side == OrderSide.BUY.value:
             level.buy_fill_price = fill.price
             level.buy_order_id = fill.order_id
+            level.quantity = fill.quantity
+            level.filled_quantity = fill.quantity
             level.state = GridLevelState.FILLED_BUY
 
             # Place SELL at the next higher level
@@ -239,7 +247,8 @@ class GridEngine:
             if sell_index < len(grid.levels):
                 sell_level = grid.levels[sell_index]
                 sell_level.state = GridLevelState.PENDING_SELL
-                sell_level.quantity = level.quantity
+                sell_level.quantity = fill.quantity
+                sell_level.filled_quantity = 0.0
                 signals.append(self._make_signal(
                     grid, sell_level, OrderSide.SELL, sell_level.price, fill.timestamp,
                 ))
@@ -247,6 +256,8 @@ class GridEngine:
         elif fill.side == OrderSide.SELL.value:
             level.sell_fill_price = fill.price
             level.sell_order_id = fill.order_id
+            level.quantity = fill.quantity
+            level.filled_quantity = fill.quantity
             level.state = GridLevelState.FILLED_SELL
 
             # Check for matched profit (buy at lower + sell at this level)
@@ -254,12 +265,18 @@ class GridEngine:
             if buy_index >= 0:
                 buy_level = grid.levels[buy_index]
                 if buy_level.state == GridLevelState.FILLED_BUY and buy_level.buy_fill_price > 0:
+                    matched_qty = min(buy_level.filled_quantity, level.filled_quantity)
+                    if matched_qty <= 0:
+                        return signals, None
                     # Profit = (sell_price - buy_price) * quantity
-                    profit = (level.sell_fill_price - buy_level.buy_fill_price) * level.quantity
+                    profit = (level.sell_fill_price - buy_level.buy_fill_price) * matched_qty
                     grid.matched_profit += profit
                     grid.total_matched += 1
                     level.matched_count += 1
                     buy_level.matched_count += 1
+
+                    # Total fee is buy fee + sell fee
+                    total_fee = buy_level.commission + level.commission
 
                     profit_event = GridProfitEvent(
                         timestamp=fill.timestamp,
@@ -268,8 +285,9 @@ class GridEngine:
                         level_index=fill.level_index,
                         buy_price=buy_level.buy_fill_price,
                         sell_price=level.sell_fill_price,
-                        quantity=level.quantity,
+                        quantity=matched_qty,
                         profit_usd=round(profit, 4),
+                        commission=round(total_fee, 6),
                     )
 
                     logger.info(
@@ -279,12 +297,19 @@ class GridEngine:
                         buy=buy_level.buy_fill_price,
                         sell=level.sell_fill_price,
                         profit=round(profit, 4),
+                        fee=round(total_fee, 6),
                         total_matched=grid.total_matched,
                         total_profit=round(grid.matched_profit, 4),
                     )
 
+                    # Reset level commissions for next cycle
+                    buy_level.commission = 0.0
+                    level.commission = 0.0
+
                     # Re-place BUY at the lower level for another cycle
                     buy_level.state = GridLevelState.PENDING_BUY
+                    buy_level.quantity = matched_qty
+                    buy_level.filled_quantity = 0.0
                     buy_level.buy_fill_price = 0.0
                     buy_level.buy_order_id = ""
                     signals.append(self._make_signal(
@@ -308,9 +333,9 @@ class GridEngine:
             pnl = 0.0
             for level in grid.levels:
                 if level.state == GridLevelState.FILLED_BUY and level.buy_fill_price > 0:
-                    pnl += (current_price - level.buy_fill_price) * level.quantity
+                    pnl += (current_price - level.buy_fill_price) * level.filled_quantity
                 elif level.state == GridLevelState.FILLED_SELL and level.sell_fill_price > 0:
-                    pnl += (level.sell_fill_price - current_price) * level.quantity
+                    pnl += (level.sell_fill_price - current_price) * level.filled_quantity
             grid.unrealized_pnl = round(pnl, 4)
 
     def check_margin_rate(
@@ -513,5 +538,9 @@ class GridEngine:
             quantity=level.quantity,
             grid_id=grid.grid_id,
             level_index=level.index,
-            metadata={"leverage": grid.leverage},
+            metadata={
+                "leverage": grid.leverage,
+                "upper": grid.upper_price,
+                "lower": grid.lower_price,
+            },
         )

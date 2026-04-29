@@ -37,3 +37,9 @@ class EventBus:
                     handler=handler.__name__,
                     error=str(exc),
                 )
+
+    def publish_status_report(self) -> None:
+        """Dedicated trigger for daily summary reports."""
+        handlers = self._subscribers.get("status_report", [])
+        for handler in handlers:
+            handler()

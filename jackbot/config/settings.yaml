@@ -1,7 +1,3 @@
-# ============================================================
-# Jackbot_V1 — 幣安合約網格日內交易機器人
-# ============================================================
-
 exchange:
   name: binance
   mode: testnet
@@ -11,41 +7,41 @@ exchange:
   api_secret_env: BINANCE_TESTNET_API_SECRET
 
 trading:
-  symbols: [BTCUSDT, ETHUSDT]
+  symbols: [ETHUSDC]
   timeframe: 5m
   total_capital_usd: 150
-  per_symbol_alloc_pct: 50       # 每幣種 75 USDT
-  compound_pct: 50.0             # 每日利潤的 50% 滾入本金
+  per_symbol_alloc_pct: 50
+  compound_pct: 50.0
 
 grid:
-  default_grid_count: 10
-  max_leverage: 10               # 逐倉最高 10x (A3a: 從 20x 降低以減少 taker 費用衝擊)
-  min_leverage: 5                # 逐倉最低 5x
-  warmup_bars: 50                # 50 x 5m = ~4h 預熱
+  default_grid_count: 8
+  max_leverage: 10
+  min_leverage: 9
+  warmup_bars: 50
 
 exposure:
-  max_total_notional_multiplier: 2.0  # 所有活躍 grid 總 notional ≤ 本金 × 2
+  max_total_notional_multiplier: 2.0
 
 targets:
-  daily_profit_target_usd: 10    # 日標 10 USDT
-  daily_loss_limit_pct: 10.0     # 日虧上限: 總本金的 10%
-  grid_stop_loss_pct: 3.0        # 單網格止損: 浮虧 > 投入的 3% 就平倉
+  daily_profit_target_usd: 4.5
+  daily_loss_limit_pct: 10.0
+  grid_stop_loss_pct: 3.0
 
 review:
-  hourly_review_interval_bars: 12  # 12 x 5m = 每小時 review 一次
+  hourly_review_interval_bars: 12
 
 conservative:
   conservative_size_factor: 0.25
   conservative_grid_spacing_mult: 2.0
-  conservative_leverage: 3
+  conservative_leverage: 9
 
 risk:
   max_concurrent_grids: 2
   max_daily_resets: 10
 
 fees:
-  maker: 0.0        # Grid 限價單被動成交 (Binance Regular maker rebate)
-  taker: 0.0004     # SL / breakout / review 平倉市價單 (0.04%)
+  maker: 0.00018
+  taker: 0.00045
 
 market_assessor:
   adx_period: 14

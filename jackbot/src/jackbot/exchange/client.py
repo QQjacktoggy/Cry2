@@ -9,7 +9,6 @@ Supports both testnet and mainnet. Designed for grid trading:
 
 from __future__ import annotations
 
-from decimal import ROUND_DOWN, Decimal
 import hashlib
 import hmac
 import os
@@ -19,8 +18,26 @@ from urllib.parse import urlencode
 
 import httpx
 import structlog
+from decimal import Decimal
 
 logger = structlog.get_logger(__name__)
+
+
+def _decimals(step: str) -> int:
+    """Return number of decimal places implied by a step/tick string like '0.10' or '0.001'."""
+    return abs(Decimal(step).normalize().as_tuple().exponent)
+
+
+def _round_step(value: float, step: float) -> str:
+    """Round value down to the nearest multiple of step, maintaining precision."""
+    if not step:
+        return str(value)
+    # Use Decimal for exact precision
+    d_step = Decimal(str(step))
+    d_value = Decimal(str(value))
+    rounded = (d_value // d_step) * d_step
+    return f"{rounded.normalize():f}"
+
 
 # Testnet and production base URLs
 TESTNET_URL = "https://testnet.binancefuture.com"
@@ -48,9 +65,8 @@ class BinanceClient:
         # symbol → (qty_precision, price_precision); populated by load_symbol_info()
         self._qty_precision: dict[str, int] = {}
         self._price_precision: dict[str, int] = {}
-        # symbol -> trading increments from exchange filters
-        self._qty_step_size: dict[str, float] = {}
-        self._price_tick_size: dict[str, float] = {}
+        self._tick_size: dict[str, float] = {}
+        self._step_size: dict[str, float] = {}
 
     def close(self) -> None:
         self._client.close()
@@ -94,31 +110,33 @@ class BinanceClient:
         return float(resp.json()["price"])
 
     def load_symbol_info(self, symbols: list[str]) -> None:
-        """Fetch and cache qty/price precision for each symbol from exchange info."""
+        """Fetch and cache qty/price precision from actual filter tick sizes.
+
+        Uses LOT_SIZE.stepSize for qty and PRICE_FILTER.tickSize for price —
+        these are the values Binance enforces, not the metadata pricePrecision
+        field which can differ (e.g. BTCUSDT has pricePrecision=2 but tickSize=0.10).
+        """
         resp = self._client.get("/fapi/v1/exchangeInfo")
         resp.raise_for_status()
         for sym_info in resp.json().get("symbols", []):
-            if sym_info["symbol"] in symbols:
-                symbol = sym_info["symbol"]
-                self._qty_precision[symbol] = sym_info["quantityPrecision"]
-                self._price_precision[symbol] = sym_info["pricePrecision"]
-
-                # Prefer exchange filters for order validity (tick/step constraints).
-                for f in sym_info.get("filters", []):
-                    if f.get("filterType") == "LOT_SIZE":
-                        self._qty_step_size[symbol] = float(f.get("stepSize", 0.0))
-                    elif f.get("filterType") == "PRICE_FILTER":
-                        self._price_tick_size[symbol] = float(f.get("tickSize", 0.0))
-
-                logger.info(
-                    "symbol_info_loaded",
-                    symbol=symbol,
-                    qty_precision=sym_info["quantityPrecision"],
-                    price_precision=sym_info["pricePrecision"],
-                    qty_step=self._qty_step_size.get(symbol),
-                    price_tick=self._price_tick_size.get(symbol),
-                    margin_asset=sym_info.get("marginAsset"),
-                )
+            if sym_info["symbol"] not in symbols:
+                continue
+            filters = {f["filterType"]: f for f in sym_info.get("filters", [])}
+            tick = filters.get("PRICE_FILTER", {}).get("tickSize", "0.01")
+            step = filters.get("LOT_SIZE", {}).get("stepSize", "0.001")
+            self._price_precision[sym_info["symbol"]] = _decimals(tick)
+            self._qty_precision[sym_info["symbol"]] = _decimals(step)
+            self._tick_size[sym_info["symbol"]] = float(tick)
+            self._step_size[sym_info["symbol"]] = float(step)
+            logger.info(
+                "symbol_info_loaded",
+                symbol=sym_info["symbol"],
+                price_precision=self._price_precision[sym_info["symbol"]],
+                qty_precision=self._qty_precision[sym_info["symbol"]],
+                tick_size=tick,
+                step_size=step,
+                margin_asset=sym_info.get("marginAsset"),
+            )
 
     def ping(self) -> float:
         """Test connectivity and measure latency (ms)."""
@@ -136,6 +154,10 @@ class BinanceClient:
             if asset.get("asset") == "USDT":
                 return float(asset.get("availableBalance", 0))
         return 0.0
+
+    def get_account_info(self) -> dict:
+        """Get full account information including assets and positions."""
+        return self._signed_get("/fapi/v2/account")
 
     def get_position(self, symbol: str) -> dict:
         """Get position info for a symbol."""
@@ -163,15 +185,10 @@ class BinanceClient:
                 "marginType": margin_type,
             })
             logger.info("margin_type_set", symbol=symbol, margin_type=margin_type)
-        except httpx.HTTPStatusError as e:
-            # Binance returns 400 for no-op margin updates; avoid noisy warnings.
-            msg = e.response.text if e.response is not None else str(e)
-            if "-4046" in msg or "No need to change margin type" in msg:
-                logger.debug("margin_type_unchanged", symbol=symbol, margin_type=margin_type)
-                return
-            logger.warning("margin_type_failed", symbol=symbol, error=str(e))
         except Exception as e:
-            logger.warning("margin_type_failed", symbol=symbol, error=str(e))
+            # Ignore "No need to change margin type" error
+            if "-4046" not in str(e):
+                logger.warning("margin_type_failed", symbol=symbol, error=str(e))
 
     # ── Orders ────────────────────────────────────────────────────────
 
@@ -185,29 +202,14 @@ class BinanceClient:
         client_order_id: str = "",
     ) -> dict:
         """Place a limit order."""
-        tick_size = self._price_tick_size.get(symbol, 0.0)
-        step_size = self._qty_step_size.get(symbol, 0.0)
-        if tick_size > 0:
-            price = self._round_down_to_increment(price, tick_size)
-        if step_size > 0:
-            quantity = self._round_down_to_increment(quantity, step_size)
-
-        if quantity <= 0:
-            raise ValueError(f"Order quantity rounds to zero for {symbol}")
-
-        qty_prec = self._qty_precision.get(symbol, 3)
-        price_prec = self._price_precision.get(symbol, 2)
-        if step_size > 0:
-            qty_prec = self._precision_from_increment(step_size)
-        if tick_size > 0:
-            price_prec = self._precision_from_increment(tick_size)
-
+        tick = self._tick_size.get(symbol, 0.01)
+        step = self._step_size.get(symbol, 0.001)
         params: dict[str, Any] = {
             "symbol": symbol,
             "side": side,
             "type": "LIMIT",
-            "price": f"{price:.{price_prec}f}",
-            "quantity": f"{quantity:.{qty_prec}f}",
+            "price": _round_step(price, tick),
+            "quantity": _round_step(quantity, step),
             "timeInForce": "GTC",
         }
         if reduce_only:
@@ -234,22 +236,12 @@ class BinanceClient:
         reduce_only: bool = False,
     ) -> dict:
         """Place a market order."""
-        step_size = self._qty_step_size.get(symbol, 0.0)
-        if step_size > 0:
-            quantity = self._round_down_to_increment(quantity, step_size)
-
-        if quantity <= 0:
-            raise ValueError(f"Order quantity rounds to zero for {symbol}")
-
-        qty_prec = self._qty_precision.get(symbol, 3)
-        if step_size > 0:
-            qty_prec = self._precision_from_increment(step_size)
-
+        step = self._step_size.get(symbol, 0.001)
         params: dict[str, Any] = {
             "symbol": symbol,
             "side": side,
             "type": "MARKET",
-            "quantity": f"{quantity:.{qty_prec}f}",
+            "quantity": _round_step(quantity, step),
         }
         if reduce_only:
             params["reduceOnly"] = "true"
@@ -273,6 +265,18 @@ class BinanceClient:
             })
             logger.info("order_cancelled", symbol=symbol, order_id=order_id)
             return True
+        except httpx.HTTPStatusError as e:
+            # -2011: "Unknown order" (likely already closed/filled)
+            try:
+                error_data = e.response.json()
+                if error_data.get("code") == -2011:
+                    logger.debug("cancel_ignored_already_closed", symbol=symbol, order_id=order_id)
+                    return True
+            except Exception:
+                pass
+            
+            logger.warning("cancel_failed", symbol=symbol, order_id=order_id, error=str(e))
+            return False
         except Exception as e:
             logger.warning("cancel_failed", symbol=symbol, order_id=order_id, error=str(e))
             return False
@@ -290,6 +294,34 @@ class BinanceClient:
     def get_open_orders(self, symbol: str) -> list[dict]:
         """Get all open orders for a symbol."""
         return self._signed_get("/fapi/v1/openOrders", {"symbol": symbol})
+
+    # ── User Data Stream (listenKey) ──────────────────────────────────
+
+    def get_listen_key(self) -> str:
+        """Generate a new listenKey for user data stream."""
+        resp = self._client.post("/fapi/v1/listenKey")
+        resp.raise_for_status()
+        return resp.json().get("listenKey", "")
+
+    def keep_alive_listen_key(self) -> bool:
+        """Extend the validity of the current listenKey."""
+        try:
+            resp = self._client.put("/fapi/v1/listenKey")
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            logger.warning("listen_key_keepalive_failed", error=str(e))
+            return False
+
+    def close_listen_key(self) -> bool:
+        """Close the user data stream."""
+        try:
+            resp = self._client.delete("/fapi/v1/listenKey")
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            logger.warning("listen_key_close_failed", error=str(e))
+            return False
 
     # ── Signing helpers ───────────────────────────────────────────────
 
@@ -319,19 +351,3 @@ class BinanceClient:
         resp = self._client.delete(path, params=params)
         resp.raise_for_status()
         return resp.json()
-
-    @staticmethod
-    def _round_down_to_increment(value: float, increment: float) -> float:
-        if increment <= 0:
-            return value
-        d_value = Decimal(str(value))
-        d_inc = Decimal(str(increment))
-        return float((d_value / d_inc).to_integral_value(rounding=ROUND_DOWN) * d_inc)
-
-    @staticmethod
-    def _precision_from_increment(increment: float) -> int:
-        if increment <= 0:
-            return 0
-        normalized = Decimal(str(increment)).normalize()
-        exp = normalized.as_tuple().exponent
-        return -exp if exp < 0 else 0
