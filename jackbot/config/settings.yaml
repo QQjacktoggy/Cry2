@@ -1,3 +1,6 @@
+strategy:
+  variant: baseline_grid
+
 exchange:
   name: binance
   mode: testnet
@@ -50,6 +53,49 @@ market_assessor:
   bb_period: 20
   bb_std: 2.0
   atr_period: 14
+
+variants:
+  baseline_grid:
+    expected_edge_floor_bps: 0.0
+    breakout_cooldown_bars: 0
+    slippage_buffer_bps: 0.0
+    safety_margin_bps: 0.0
+    adaptive_spacing_adx_weight: 0.0
+    adaptive_spacing_atr_weight: 0.0
+    adaptive_spacing_max_mult: 1.0
+    grid_allocation_pct: 100.0
+    trend_allocation_pct: 0.0
+    buffer_allocation_pct: 0.0
+
+  fee_aware_grid:
+    expected_edge_floor_bps: 6.0
+    breakout_cooldown_bars: 18
+    slippage_buffer_bps: 2.0
+    safety_margin_bps: 1.5
+    adaptive_spacing_adx_weight: 0.35
+    adaptive_spacing_atr_weight: 0.8
+    adaptive_spacing_max_mult: 2.15
+    max_daily_resets: 6
+    grid_allocation_pct: 100.0
+    trend_allocation_pct: 0.0
+    buffer_allocation_pct: 0.0
+
+  hybrid_trend_grid:
+    expected_edge_floor_bps: 6.5
+    breakout_cooldown_bars: 24
+    slippage_buffer_bps: 2.5
+    safety_margin_bps: 1.8
+    adaptive_spacing_adx_weight: 0.45
+    adaptive_spacing_atr_weight: 0.9
+    adaptive_spacing_max_mult: 2.3
+    max_daily_resets: 6
+    grid_allocation_pct: 70.0
+    trend_allocation_pct: 20.0
+    buffer_allocation_pct: 10.0
+    directional_adx_threshold: 22.0
+    trend_activation_adx: 28.0
+    trend_activation_slope: 1.0
+    trend_trailing_atr_mult: 2.2
 
 telegram:
   enabled: true

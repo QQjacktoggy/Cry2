@@ -1,0 +1,6 @@
+strategy:
+  variant: fee_aware_grid
+
+trading:
+  symbols: [ETHUSDC]
+  per_symbol_alloc_pct: 100

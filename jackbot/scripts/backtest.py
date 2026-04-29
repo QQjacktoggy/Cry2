@@ -27,12 +27,12 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import httpx
 import structlog
-import yaml
 
 from jackbot.core.clock import Clock
 from jackbot.core.constants import GridDirection, GridLevelState, TradingMode
 from jackbot.core.event_bus import EventBus
-from jackbot.core.events import FillEvent, MarketEvent
+from jackbot.core.events import FillEvent, MarketEvent, StrategyPnLEvent
+from jackbot.config_utils import build_day_trader_params, load_merged_config
 from jackbot.strategy.day_trader import DayTrader, DayTraderConfig
 from jackbot.strategy.grid_engine import GridInstance
 
@@ -43,8 +43,7 @@ def load_config(path: str = "config/settings.yaml") -> dict:
     config_path = ROOT / path
     if not config_path.exists():
         raise FileNotFoundError(f"Config not found: {config_path}")
-    with open(config_path, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+    return load_merged_config(config_path)
 
 
 def resolve_fee_rates(
@@ -176,15 +175,23 @@ class FillSimulator:
             return 0.0
         return notional * (atr / close_price) * 0.02
 
-    def estimate_close_cost(self, symbol: str, close_price: float, notional: float, order_type: str) -> float:
-        """Estimate close-side fee/slippage for a forced grid exit."""
+    def estimate_close_breakdown(self, symbol: str, close_price: float, notional: float, order_type: str) -> dict[str, float]:
+        """Estimate close-side fee/slippage breakdown for a forced grid exit."""
         if notional <= 0:
-            return 0.0
+            return {"maker_fee": 0.0, "taker_fee": 0.0, "slippage": 0.0}
         if order_type == "MARKET":
-            return notional * self._taker_rate + self._atr_slippage(symbol, close_price, notional)
-        return notional * self._maker_rate
+            return {
+                "maker_fee": 0.0,
+                "taker_fee": notional * self._taker_rate,
+                "slippage": self._atr_slippage(symbol, close_price, notional),
+            }
+        return {
+            "maker_fee": notional * self._maker_rate,
+            "taker_fee": 0.0,
+            "slippage": 0.0,
+        }
 
-    def realize_close(self, grid: GridInstance, bar: MarketEvent, close_kind: str) -> tuple[float, float]:
+    def realize_close(self, grid: GridInstance, bar: MarketEvent, close_kind: str) -> tuple[float, dict[str, float]]:
         """Realize unmatched position PnL and close-side costs for a grid exit."""
         realized_pnl = 0.0
         close_notional = 0.0
@@ -198,8 +205,9 @@ class FillSimulator:
                 close_notional += bar.close * level.quantity
 
         close_order_type = "MARKET" if close_kind == "stop_loss" else "LIMIT"
-        close_cost = self.estimate_close_cost(grid.symbol, bar.close, close_notional, close_order_type)
-        return round(realized_pnl, 4), round(close_cost, 6)
+        close_breakdown = self.estimate_close_breakdown(grid.symbol, bar.close, close_notional, close_order_type)
+        rounded = {key: round(value, 6) for key, value in close_breakdown.items()}
+        return round(realized_pnl, 4), rounded
 
     def check_fills(
         self,
@@ -290,6 +298,9 @@ class BacktestEngine:
         self._gross_profit_total: float = 0.0
         self._realized_profit_total: float = 0.0
         self._total_commission: float = 0.0
+        self._maker_fee_total: float = 0.0
+        self._taker_fee_total: float = 0.0
+        self._slippage_total: float = 0.0
         self._total_fills: int = 0
         self._mode_switches: int = 0
         self._stop_losses: int = 0
@@ -298,14 +309,32 @@ class BacktestEngine:
         self._bars_processed: int = 0
         self._snapshot_realized_profit: float = 0.0
         self._snapshot_commission: float = 0.0
+        self._snapshot_grid_net: float = 0.0
+        self._snapshot_trend_net: float = 0.0
+        self._snapshot_maker_fee: float = 0.0
+        self._snapshot_taker_fee: float = 0.0
+        self._grid_pnl_net: float = 0.0
+        self._trend_pnl_net: float = 0.0
 
         # Subscribe to events
         self._bus.subscribe("GridProfitEvent", self._on_profit)
+        self._bus.subscribe("StrategyPnLEvent", self._on_strategy_pnl)
 
     def _on_profit(self, event) -> None:
         self._matched_trade_pnls.append(event.profit_usd - event.commission)
         self._gross_profit_total += event.profit_usd
         self._realized_profit_total += event.profit_usd
+        self._grid_pnl_net += event.profit_usd - event.commission
+
+    def _on_strategy_pnl(self, event: StrategyPnLEvent) -> None:
+        self._realized_profit_total += event.gross_pnl
+        self._total_commission += event.commission
+        if event.bucket == "trend":
+            self._trend_pnl_net += event.net_pnl
+        else:
+            self._grid_pnl_net += event.net_pnl
+        if event.source.startswith("trend_"):
+            self._taker_fee_total += event.commission
 
     def run(self, klines_by_symbol: dict[str, list[dict]]) -> dict:
         """Run backtest on merged, time-sorted klines.
@@ -381,12 +410,17 @@ class BacktestEngine:
             # 1.5 Realize close PnL/costs for newly-closed grids.
             for grid in self._trader._engine._grids.values():
                 if grid.closed and not hasattr(grid, "_close_realized"):
-                    close_pnl, close_cost = self._sim.realize_close(grid, bar, grid.close_reason)
+                    close_pnl, close_breakdown = self._sim.realize_close(grid, bar, grid.close_reason)
+                    close_cost = sum(close_breakdown.values())
                     self._close_pnls.append(close_pnl)
                     self._close_net_pnls.append(close_pnl - close_cost)
                     self._realized_profit_total += close_pnl
                     self._total_commission += close_cost
-                    self._trader.record_realized_pnl(close_pnl - close_cost)
+                    self._maker_fee_total += close_breakdown["maker_fee"]
+                    self._taker_fee_total += close_breakdown["taker_fee"]
+                    self._slippage_total += close_breakdown["slippage"]
+                    self._grid_pnl_net += close_pnl - close_cost
+                    self._trader.record_realized_pnl(close_pnl - close_cost, bucket="grid")
                     grid._close_realized = True
 
             # 2. Update ATR then simulate fills for active grids
@@ -397,6 +431,7 @@ class BacktestEngine:
             for fill in fills:
                 self._total_fills += 1
                 self._total_commission += fill.commission
+                self._maker_fee_total += fill.commission
                 # Process fill through DayTrader
                 self._trader.on_fill(fill)
 
@@ -417,10 +452,18 @@ class BacktestEngine:
         gross_profit = self._realized_profit_total - self._snapshot_realized_profit
         commission = self._total_commission - self._snapshot_commission
         net_profit = gross_profit - commission
+        grid_pnl = self._grid_pnl_net - self._snapshot_grid_net
+        trend_pnl = self._trend_pnl_net - self._snapshot_trend_net
+        maker_fee = self._maker_fee_total - self._snapshot_maker_fee
+        taker_fee = self._taker_fee_total - self._snapshot_taker_fee
         self._daily_results[date_str] = {
             "gross_profit": round(gross_profit, 4),
             "commission": round(commission, 4),
             "net_profit": round(net_profit, 4),
+            "grid_pnl": round(grid_pnl, 4),
+            "trend_pnl": round(trend_pnl, 4),
+            "maker_fee": round(maker_fee, 6),
+            "taker_fee": round(taker_fee, 6),
             "mode": self._trader.mode.value,
             "resets": self._trader._daily_resets,
             "halted": self._trader.is_halted,
@@ -428,15 +471,23 @@ class BacktestEngine:
         }
         self._snapshot_realized_profit = self._realized_profit_total
         self._snapshot_commission = self._total_commission
+        self._snapshot_grid_net = self._grid_pnl_net
+        self._snapshot_trend_net = self._trend_pnl_net
+        self._snapshot_maker_fee = self._maker_fee_total
+        self._snapshot_taker_fee = self._taker_fee_total
 
     def _compile_results(self) -> dict:
         """Compile all backtest metrics."""
-        gross_profit = self._gross_profit_total
         total_close_pnl = sum(self._close_pnls)
         realized_before_fees = self._realized_profit_total
+        matched_grid_gross_profit = self._gross_profit_total
+        gross_profit = realized_before_fees
         net_profit = realized_before_fees - self._total_commission
         ending_equity = self._initial_capital + net_profit
         num_trades = len(self._matched_trade_pnls)
+        commission_ratio = self._total_commission / gross_profit if gross_profit > 0 else 0.0
+        total_daily_resets = sum(d.get("resets", 0) for d in self._daily_results.values())
+        max_daily_resets = max((d.get("resets", 0) for d in self._daily_results.values()), default=0)
 
         # Daily stats
         daily_profits = [d["net_profit"] for d in self._daily_results.values()]
@@ -487,9 +538,11 @@ class BacktestEngine:
             "initial_capital": self._initial_capital,
             "pnl": {
                 "gross_profit": round(gross_profit, 4),
+                "matched_grid_gross_profit": round(matched_grid_gross_profit, 4),
                 "close_pnl": round(total_close_pnl, 4),
                 "realized_before_fees": round(realized_before_fees, 4),
                 "commission": round(self._total_commission, 4),
+                "commission_to_gross_profit": round(commission_ratio, 4),
                 "net_profit": round(net_profit, 4),
                 "roi_pct": round(net_profit / self._initial_capital * 100, 2),
             },
@@ -519,6 +572,17 @@ class BacktestEngine:
                 "breakouts": self._breakouts,
                 "reviews_closed": self._reviews_closed,
                 "mode_switches": self._mode_switches,
+                "daily_reset_total": total_daily_resets,
+                "max_daily_resets_used": max_daily_resets,
+            },
+            "fees": {
+                "maker_fee_total": round(self._maker_fee_total, 6),
+                "taker_fee_total": round(self._taker_fee_total, 6),
+                "slippage_total": round(self._slippage_total, 6),
+            },
+            "strategy_pnl": {
+                "grid_pnl": round(self._grid_pnl_net, 4),
+                "trend_pnl": round(self._trend_pnl_net, 4),
             },
             "daily_detail": self._daily_results,
         }
@@ -669,33 +733,24 @@ def main():
         p(f"{len(klines):,} 根")
 
     # Configure
-    config = DayTraderConfig(
-        symbols=symbols,
-        timeframe=timeframe,
-        total_capital_usd=args.capital,
-        per_symbol_alloc_pct=per_symbol_alloc_pct,
-        compound_pct=args.compound,
-        default_grid_count=args.grid_count,
-        max_leverage=args.max_leverage,
-        min_leverage=args.min_leverage,
-        daily_profit_target_usd=args.target,
-        daily_loss_limit_pct=targets_cfg.get("daily_loss_limit_pct", 10.0),
-        grid_stop_loss_pct=args.stop_loss,
-        conservative_size_factor=conservative_cfg.get("conservative_size_factor", 0.25),
-        conservative_grid_spacing_mult=conservative_cfg.get("conservative_grid_spacing_mult", 2.0),
-        conservative_leverage=conservative_cfg.get("conservative_leverage", 3),
-        max_concurrent_grids=risk_cfg.get("max_concurrent_grids", 2),
-        max_daily_resets=risk_cfg.get("max_daily_resets", 10),
-        hourly_review_interval_bars=config_data.get("review", {}).get("hourly_review_interval_bars", 12),
-        warmup_bars=grid_cfg.get("warmup_bars", 50),
-        max_total_notional_multiplier=config_data.get("exposure", {}).get("max_total_notional_multiplier", 2.0),
-        adx_period=config_data.get("market_assessor", {}).get("adx_period", 14),
-        trending_threshold=config_data.get("market_assessor", {}).get("trending_threshold", 25.0),
-        ranging_threshold=config_data.get("market_assessor", {}).get("ranging_threshold", 20.0),
-        bb_period=config_data.get("market_assessor", {}).get("bb_period", 20),
-        bb_std=config_data.get("market_assessor", {}).get("bb_std", 2.0),
-        atr_period=config_data.get("market_assessor", {}).get("atr_period", 14),
+    trader_params = build_day_trader_params(
+        config_data,
+        capital_override=args.capital,
+        maker_rate=maker_rate,
+        taker_rate=taker_rate,
     )
+    trader_params.update({
+        "symbols": symbols,
+        "timeframe": timeframe,
+        "per_symbol_alloc_pct": per_symbol_alloc_pct,
+        "compound_pct": args.compound,
+        "default_grid_count": args.grid_count,
+        "max_leverage": args.max_leverage,
+        "min_leverage": args.min_leverage,
+        "daily_profit_target_usd": args.target,
+        "grid_stop_loss_pct": args.stop_loss,
+    })
+    config = DayTraderConfig.from_dict(trader_params)
 
     # Run backtest
     p(f"\n⚙️  回測中...")

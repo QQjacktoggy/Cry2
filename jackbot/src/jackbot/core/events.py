@@ -71,3 +71,16 @@ class GridProfitEvent(BaseModel, frozen=True):
     profit_usd: float               # sell_price - buy_price * quantity (gross)
     commission: float = 0.0          # total fee for both sides
     source: str = "grid_engine"
+
+
+class StrategyPnLEvent(BaseModel, frozen=True):
+    """Realized PnL contribution outside the normal matched-grid event flow."""
+
+    timestamp: datetime
+    symbol: str
+    source: str
+    bucket: str
+    gross_pnl: float = 0.0
+    commission: float = 0.0
+    net_pnl: float = 0.0
+    metadata: dict[str, Any] = Field(default_factory=dict)

@@ -22,9 +22,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import structlog
-import yaml
 from dotenv import load_dotenv
 
+from jackbot.config_utils import build_day_trader_params, load_merged_config
 from jackbot.core.event_bus import EventBus
 from jackbot.core.events import FillEvent, GridProfitEvent, GridSignalEvent, MarketEvent
 from jackbot.exchange.client import BinanceClient
@@ -42,8 +42,7 @@ def load_config(path: str = "config/settings.yaml") -> dict:
     if not config_path.exists():
         logger.error("config_not_found", path=str(config_path))
         sys.exit(1)
-    with open(config_path, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+    return load_merged_config(config_path)
 
 
 class JackbotRunner:
@@ -74,18 +73,7 @@ class JackbotRunner:
         )
 
         # Build DayTrader config from merged sections
-        trader_params = {}
-        trader_params.update(trading)
-        trader_params.update(config.get("grid", {}))
-        trader_params.update(config.get("targets", {}))
-        trader_params.update(config.get("conservative", {}))
-        trader_params.update(config.get("risk", {}))
-        trader_params.update(config.get("market_assessor", {}))
-        trader_params.update(config.get("leverage", {
-            "max_leverage": 10,
-            "min_leverage": 5,
-        }))
-        trader_params["total_capital_usd"] = self._capital
+        trader_params = build_day_trader_params(config, capital_override=self._capital)
         trader_params["symbols"] = symbols
         trader_params["timeframe"] = timeframe
 
