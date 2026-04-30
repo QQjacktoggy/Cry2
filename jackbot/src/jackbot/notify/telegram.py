@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from typing import Any
 
 import structlog
@@ -63,6 +64,62 @@ class TelegramBot:
         self.send(msg)
 
     def notify_grid_profit(self, profit: float, total: float, target: float, equity: float = 0, fee: float = 0) -> None:
+        self.notify_grid_cycle(
+            symbol="",
+            grid_id="",
+            level_index=-1,
+            buy_price=0.0,
+            sell_price=0.0,
+            quantity=0.0,
+            gross_profit=profit,
+            commission=fee,
+            session_net=total,
+            target=target,
+            equity=equity,
+        )
+
+    def notify_grid_cycle(
+        self,
+        *,
+        symbol: str,
+        grid_id: str,
+        level_index: int,
+        buy_price: float,
+        sell_price: float,
+        quantity: float,
+        gross_profit: float,
+        commission: float,
+        session_net: float,
+        target: float,
+        equity: float = 0,
+    ) -> None:
+        """Send the single authoritative notification for a completed grid cycle."""
+        net_profit = gross_profit - commission
+        pct = session_net / target * 100 if target > 0 else 0
+        bar_len = min(20, max(0, int(pct / 5)))
+        bar = "█" * bar_len + "░" * (20 - bar_len)
+        context = f"{symbol} L{level_index}" if symbol else "Grid cycle"
+        prices = ""
+        if buy_price > 0 and sell_price > 0 and quantity > 0:
+            prices = (
+                f"\nBuy: <code>{buy_price:.4f}</code> qty <code>{quantity:.4f}</code>"
+                f"\nSell: <code>{sell_price:.4f}</code>"
+            )
+        equity_str = f"\n權益(含未實現): <b>${equity:.2f}</b>" if equity > 0 else ""
+        msg = (
+            f"✅ <b>Grid 成交完成</b>\n"
+            f"{context}{prices}\n"
+            f"Gross: <code>${gross_profit:+.4f}</code>\n"
+            f"Fee: <code>-${commission:.6f}</code>\n"
+            f"Net: <b>${net_profit:+.4f}</b>\n"
+            f"啟動後淨盈餘: <b>${session_net:+.4f}</b> / ${target:.2f}\n"
+            f"進度: [{bar}] {pct:.1f}%"
+            f"{equity_str}\n"
+            f"Grid: <code>{grid_id or '-'}</code>"
+        )
+        self.send(msg)
+
+    def _notify_grid_profit_legacy(self, profit: float, total: float, target: float, equity: float = 0, fee: float = 0) -> None:
         pct = total / target * 100 if target > 0 else 0
         bar_len = min(20, int(pct / 5))
         bar = "█" * bar_len + "░" * (20 - bar_len)
@@ -70,10 +127,75 @@ class TelegramBot:
         fee_str = f"\n手續費: <code>-${fee:.6f}</code>" if fee > 0 else ""
         msg = (
             f"💰 <b>格間利潤</b> +${profit:.4f}{fee_str}\n"
-            f"日標進度: [{bar}] {pct:.1f}%\n"
-            f"累計淨獲利: ${total:.4f} / ${target:.2f}"
+            f"啟動後目標進度: [{bar}] {pct:.1f}%\n"
+            f"啟動後淨獲利: ${total:.4f} / ${target:.2f}"
             f"{equity_str}"
         )
+        self.send(msg)
+
+    def notify_exchange_fill(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: float,
+        price: float,
+        commission: float,
+        realized_pnl: float,
+        order_id: str,
+        client_order_id: str,
+        commission_asset: str = "",
+        trade_id: str = "",
+        grid_id: str = "",
+        level_index: int = -1,
+        daily_profit: float = 0.0,   # session net PnL since Docker start
+        daily_target: float = 0.0,
+    ) -> None:
+        """Send an exchange-sourced fill notification.
+
+        ``daily_profit`` is session net PnL since Docker start, not exchange
+        calendar-day PnL.  The label in Telegram reflects this explicitly.
+        """
+        pnl_prefix = "+" if realized_pnl >= 0 else ""
+        progress = ""
+        if daily_target > 0:
+            pct = max(min(daily_profit / daily_target * 100, 100.0), 0.0)
+            progress = f"\n啟動後淨盈餘: ${daily_profit:+.4f}  ({pct:.1f}% / ${daily_target:.2f})"
+        elif daily_profit != 0.0:
+            progress = f"\n啟動後淨盈餘: ${daily_profit:+.4f}"
+
+        grid_context = ""
+        if grid_id:
+            grid_context = f"\nGrid: {grid_id} L{level_index if level_index >= 0 else '-'}"
+
+        title = "📥 <b>Grid 成交</b>" if abs(realized_pnl) < 1e-12 else "📌 <b>成交更新</b>"
+        msg = (
+            f"{title}\n"
+            f"{symbol} {side} {quantity:.4f} @ {price:.4f}\n"
+            f"PnL: {pnl_prefix}${realized_pnl:.5f}\n"
+            f"Commission: -${commission:.6f} {commission_asset or 'USDT'}\n"
+            f"Order ID: <code>{order_id}</code>\n"
+            f"Trade ID: <code>{trade_id or '-'}</code>\n"
+            f"Client ID: <code>{client_order_id or '-'}</code>"
+            f"{grid_context}"
+            f"{progress}"
+        )
+        self.send(msg)
+
+    def notify_reconcile(self, report: dict, safe_mode: bool = False) -> None:
+        status = report.get("status", "?")
+        warnings = report.get("warnings", [])
+        msg = (
+            f"⚠️ <b>Exchange Reconcile</b>\n"
+            f"狀態: <code>{status}</code>\n"
+            f"Safe mode: <code>{'ON' if safe_mode else 'OFF'}</code>\n"
+            f"Positions: {len(report.get('positions', []))}\n"
+            f"Open orders: {len(report.get('open_orders', []))}\n"
+            f"Orphan orders: {len(report.get('orphan_orders', []))}\n"
+            f"Orphan positions: {len(report.get('orphan_positions', []))}"
+        )
+        if warnings:
+            msg += "\n" + "\n".join(f"  - {w}" for w in warnings[:5])
         self.send(msg)
 
     def notify_alert(self, title: str, message: str) -> None:
@@ -98,16 +220,41 @@ class TelegramBot:
     def notify_status(self, status: dict) -> None:
         grids = status.get("active_grids", [])
         grid_info = "\n".join(
-            f"  · {g['symbol']} {g['direction']} {g['levels']}格 利潤${g['profit']}"
+            f"  · {g['symbol']} {g['direction']} {g['levels']}格 淨PnL ${g.get('net_pnl', 0)}"
             for g in grids
         ) or "  (無)"
+        realized = status.get("session_realized_pnl", status.get("exchange_today_realized_pnl", 0))
+        commission = status.get("session_commission", status.get("exchange_today_commission", 0))
+        net_pnl = status.get("session_net_pnl", status.get("daily_profit", 0))
+        negative_fills = status.get("session_negative_fills", [])
+        negative_lines = []
+        if negative_fills:
+            negative_lines.append("負PnL 成交:")
+            for fill in negative_fills:
+                negative_lines.append(
+                    f"  · {fill.get('timestamp', '?')} {fill.get('symbol', '?')} {fill.get('side', '?')} "
+                    f"qty={float(fill.get('quantity', 0.0) or 0.0):.3f} "
+                    f"pnl={float(fill.get('realized_pnl', 0.0) or 0.0):+.5f}"
+                )
+        else:
+            negative_lines.append("負PnL 成交: 無")
 
         msg = (
             f"📊 <b>Jackbot 狀態</b>\n"
             f"模式: {status.get('mode', '?')}\n"
+            f"策略: {status.get('strategy_variant', '?')}\n"
+            f"Safe mode: {status.get('safe_mode', False)} {status.get('safe_mode_reason', '')}\n"
             f"目前權益: <b>${status.get('equity', 0):.2f}</b>\n"
-            f"今日盈虧: ${status.get('daily_profit', 0):.4f} (已扣費: ${status.get('total_fee', 0):.4f})\n"
+            f"⚡ <i>以下數據自本次 Docker 啟動後起算</i>\n"
+            f"  已實現: ${float(realized):+.4f}\n"
+            f"  手續費: ${float(commission):.6f}\n"
+            f"  淨盈餘: ${float(net_pnl):+.4f}\n"
+            f"最後成交: {status.get('session_last_fill_at') or status.get('exchange_last_fill_at') or '-'}\n"
             f"日目標: ${status.get('daily_target', 0):.2f}\n"
-            f"活躍網格:\n{grid_info}"
+            f"交易所掛單: {len(status.get('exchange_open_orders', []))} "
+            f"(orphan {len(status.get('exchange_orphan_orders', []))})\n"
+            f"交易所倉位: {len(status.get('exchange_orphan_positions', []))} orphan\n"
+            f"活躍網格:\n{grid_info}\n"
+            f"{chr(10).join(negative_lines)}"
         )
         self.send(msg)

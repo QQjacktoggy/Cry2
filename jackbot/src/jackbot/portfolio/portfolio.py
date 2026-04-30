@@ -93,3 +93,21 @@ class Portfolio:
             "today_pnl": round(self._daily_pnl.get(date_str, 0.0), 4),
         }
 
+    def snapshot_runtime_state(self) -> dict:
+        return {
+            "initial_capital": self._initial_capital,
+            "realized_pnl": self._realized_pnl,
+            "total_commission": self._total_commission,
+            "unrealized_pnl": self._unrealized_pnl,
+            "daily_pnl": dict(self._daily_pnl),
+        }
+
+    def restore_runtime_state(self, snapshot: dict) -> None:
+        self._initial_capital = float(snapshot.get("initial_capital", self._initial_capital))
+        self._realized_pnl = float(snapshot.get("realized_pnl", 0.0) or 0.0)
+        self._total_commission = float(snapshot.get("total_commission", 0.0) or 0.0)
+        self._unrealized_pnl = float(snapshot.get("unrealized_pnl", 0.0) or 0.0)
+        self._daily_pnl = {
+            str(key): float(value) for key, value in dict(snapshot.get("daily_pnl", {})).items()
+        }
+

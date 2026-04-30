@@ -21,6 +21,7 @@ import structlog
 
 from jackbot.core.constants import GridDirection, GridLevelState, OrderSide
 from jackbot.core.events import FillEvent, GridProfitEvent, GridSignalEvent
+from jackbot.core.ownership import make_grid_client_order_id
 
 logger = structlog.get_logger(__name__)
 
@@ -84,8 +85,19 @@ class GridEngine:
     def active_grids(self) -> list[GridInstance]:
         return [g for g in self._grids.values() if not g.closed]
 
+    @property
+    def all_grids(self) -> list[GridInstance]:
+        return list(self._grids.values())
+
     def get_grid(self, grid_id: str) -> GridInstance | None:
         return self._grids.get(grid_id)
+
+    def restore_grid(self, grid: GridInstance) -> None:
+        """Hydrate a persisted grid back into the engine."""
+        self._grids[grid.grid_id] = grid
+
+    def replace_grids(self, grids: list[GridInstance]) -> None:
+        self._grids = {grid.grid_id: grid for grid in grids}
 
     # ── Grid creation ─────────────────────────────────────────────────
 
@@ -332,10 +344,11 @@ class GridEngine:
                 continue
             pnl = 0.0
             for level in grid.levels:
+                qty = level.filled_quantity or level.quantity
                 if level.state == GridLevelState.FILLED_BUY and level.buy_fill_price > 0:
-                    pnl += (current_price - level.buy_fill_price) * level.filled_quantity
+                    pnl += (current_price - level.buy_fill_price) * qty
                 elif level.state == GridLevelState.FILLED_SELL and level.sell_fill_price > 0:
-                    pnl += (level.sell_fill_price - current_price) * level.filled_quantity
+                    pnl += (level.sell_fill_price - current_price) * qty
             grid.unrealized_pnl = round(pnl, 4)
 
     def check_margin_rate(
@@ -463,6 +476,9 @@ class GridEngine:
                     cancel_order_id=order_id,
                     grid_id=grid.grid_id,
                     level_index=level.index,
+                    client_order_id=make_grid_client_order_id(
+                        grid.grid_id, level.index, OrderSide.BUY.value, 99
+                    ),
                 ))
 
             level.state = GridLevelState.CANCELLED
@@ -538,6 +554,9 @@ class GridEngine:
             quantity=level.quantity,
             grid_id=grid.grid_id,
             level_index=level.index,
+            client_order_id=make_grid_client_order_id(
+                grid.grid_id, level.index, side.value, level.matched_count
+            ),
             metadata={
                 "leverage": grid.leverage,
                 "upper": grid.upper_price,

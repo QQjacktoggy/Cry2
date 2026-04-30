@@ -1,0 +1,4 @@
+variant,config_path,period_start,period_end,initial_capital,ending_equity,net_profit,roi_pct,gross_profit,commission,commission_to_gross_profit,max_drawdown,total_fills,matched_trades,forced_close_events,stop_losses,breakouts,review_closes,daily_reset_total,max_daily_resets_used,maker_fee_total,taker_fee_total,grid_pnl,trend_pnl
+baseline_grid,config\backtest_baseline_grid.yaml,2025-04-30,2026-04-30,150.0,4053.4498,3903.4498,2602.3,8462.2161,4558.7663,0.5387,872.284,13525,2967,3137,168,1882,1087,3137,10,2335.713,2019.061733,3903.4498,0.0
+fee_aware_grid,config\backtest_fee_aware_grid.yaml,2025-04-30,2026-04-30,150.0,1360.0354,1210.0354,806.69,3374.0305,2163.9951,0.6414,356.347,9453,2160,1860,140,1062,658,1860,6,1171.799566,894.422148,1210.0354,0.0
+hybrid_trend_grid,config\backtest_hybrid_trend_grid.yaml,2025-04-30,2026-04-30,150.0,224.4909,74.4909,49.66,1234.6875,1160.1966,0.9397,498.886,7988,1798,1828,143,1117,568,1828,6,592.057067,512.418206,81.0278,-6.536
