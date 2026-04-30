@@ -44,7 +44,8 @@ class JackbotCommander:
         self._repair_callback = repair_callback
         self._stop_event = stop_event
         self._offset: int = 0
-        self._authorized_chat_id = str(bot._chat_id)
+        raw_chat_id = getattr(bot, "_chat_id", "")
+        self._authorized_chat_id = "" if raw_chat_id in (None, "", "None") else str(raw_chat_id)
         self._authorization_enabled = bool(self._authorized_chat_id)
         self._client = httpx.AsyncClient(timeout=_POLL_TIMEOUT + 5.0)
         self._backoff_until = 0.0
