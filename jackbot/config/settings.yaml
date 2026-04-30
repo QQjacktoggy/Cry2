@@ -89,13 +89,13 @@ variants:
     adaptive_spacing_atr_weight: 0.9
     adaptive_spacing_max_mult: 2.3
     max_daily_resets: 6
-    grid_allocation_pct: 70.0
-    trend_allocation_pct: 20.0
+    grid_allocation_pct: 75.0
+    trend_allocation_pct: 15.0
     buffer_allocation_pct: 10.0
-    directional_adx_threshold: 22.0
-    trend_activation_adx: 28.0
-    trend_activation_slope: 1.0
-    trend_trailing_atr_mult: 2.2
+    directional_adx_threshold: 24.0
+    trend_activation_adx: 32.0
+    trend_activation_slope: 1.5
+    trend_trailing_atr_mult: 2.8
 
 telegram:
   enabled: true
