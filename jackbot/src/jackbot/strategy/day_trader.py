@@ -136,6 +136,7 @@ class DayTrader:
         self._bar_counts: dict[str, int] = {}
         self._last_review_bar: dict[str, int] = {}  # symbol → bar count at last review
         self._last_prices: dict[str, float] = {}     # symbol → latest close price
+        self._last_report_date: str = ""
 
     # ── Properties ────────────────────────────────────────────────────
 
@@ -153,6 +154,11 @@ class DayTrader:
         return self._daily_profit
 
     @property
+    def unrealized_pnl(self) -> float:
+        """Sum of unrealized PnL from all active grids."""
+        return sum(grid.unrealized_pnl for grid in self._engine.active_grids)
+
+    @property
     def is_halted(self) -> bool:
         return self._halted
 
@@ -161,6 +167,7 @@ class DayTrader:
     def on_bar(self, event: MarketEvent) -> list[GridSignalEvent]:
         """Process a new 5m bar. Returns grid signals to execute."""
         self._check_daily_reset()
+        self._check_daily_report()
 
         if self._halted:
             return []
@@ -246,6 +253,19 @@ class DayTrader:
 
         return signals
 
+    def _check_daily_report(self) -> None:
+        """Trigger daily summary report at 13:00 UTC (21:00 TPE)."""
+        now = self._clock.now()
+        today = now.strftime("%Y-%m-%d")
+        
+        # Trigger if it's 13:00 UTC or later, and we haven't reported today
+        if now.hour >= 13 and self._last_report_date != today:
+            self._last_report_date = today
+            logger.info("daily_report_triggered", time=now.isoformat())
+            # Use GridProfitEvent as a carrier or create a dedicated event
+            # For simplicity, we trigger a dedicated status push via EventBus
+            self._bus.publish_status_report()
+
     # ── Fill handler ──────────────────────────────────────────────────
 
     def on_fill(self, fill: FillEvent) -> list[GridSignalEvent]:
@@ -253,7 +273,8 @@ class DayTrader:
         counter_signals, profit_event = self._engine.on_fill(fill)
 
         if profit_event is not None:
-            self._daily_profit += profit_event.profit_usd
+            net_profit = profit_event.profit_usd - profit_event.commission
+            self._record_realized_pnl(net_profit)
             self._bus.publish(profit_event)
 
             logger.info(
@@ -280,6 +301,13 @@ class DayTrader:
             self._halt("daily_loss_limit_reached")
 
         return counter_signals
+
+    def record_realized_pnl(self, net_pnl: float) -> None:
+        """Record realized PnL that did not arrive through a GridProfitEvent."""
+        self._record_realized_pnl(net_pnl)
+
+    def _record_realized_pnl(self, net_pnl: float) -> None:
+        self._daily_profit += net_pnl
 
     # ── Grid creation ─────────────────────────────────────────────────
 
@@ -517,20 +545,3 @@ class DayTrader:
         for grid in list(self._engine.active_grids):
             signals.extend(self._engine.close_grid(grid.grid_id, reason=reason))
         return signals
-
-    def manual_halt(self, reason: str = "manual") -> None:
-        """Manually halt trading via external control (e.g. Telegram)."""
-        if not self._halted:
-            self._halt(reason)
-
-    def manual_resume(self) -> bool:
-        """Resume trading if hard risk constraints are not currently violated."""
-        max_allowed_loss = self._cfg.total_capital_usd * (self._cfg.daily_loss_limit_pct / 100.0)
-        if self._daily_loss >= max_allowed_loss:
-            return False
-        self._halted = False
-        return True
-
-    def set_mode(self, mode: TradingMode) -> None:
-        """Force trading mode via external control."""
-        self._mode = mode
