@@ -1,0 +1,6 @@
+strategy:
+  variant: hybrid_trend_grid
+
+trading:
+  symbols: [ETHUSDC]
+  per_symbol_alloc_pct: 100

@@ -31,9 +31,16 @@ class MarketAssessment:
     current_price: float
     adx: float
     atr: float
+    atr_pct: float
     confidence: float                  # 0.0 ~ 1.0
     suggested_grid_count: int
     suggested_leverage: int
+    plus_di: float
+    minus_di: float
+    adx_slope: float
+    ema_fast: float
+    ema_slow: float
+    range_pct: float
 
 
 class MarketAssessor:
@@ -54,6 +61,8 @@ class MarketAssessor:
         bb_period: int = 20,
         bb_std: float = 2.0,
         atr_period: int = 14,
+        ema_fast_period: int = 20,
+        ema_slow_period: int = 50,
         max_leverage: int = 20,
         min_leverage: int = 5,
         default_grid_count: int = 10,
@@ -64,6 +73,8 @@ class MarketAssessor:
         self._bb_period = bb_period
         self._bb_std = bb_std
         self._atr_period = atr_period
+        self._ema_fast_period = ema_fast_period
+        self._ema_slow_period = ema_slow_period
         self._max_leverage = max_leverage
         self._min_leverage = min_leverage
         self._default_grid_count = default_grid_count
@@ -88,6 +99,7 @@ class MarketAssessor:
                 "prev_close": None,
                 "plus_di": 0.0,
                 "minus_di": 0.0,
+                "adx_history": deque(maxlen=8),
             }
 
         self._bars[symbol].append({"high": high, "low": low, "close": close})
@@ -112,12 +124,16 @@ class MarketAssessor:
 
         # ATR → volatility
         atr = self._calc_atr(highs, lows, closes)
+        atr_pct = atr / current_price * 100 if current_price > 0 else 0.0
+        ema_fast = self._calc_ema(closes, self._ema_fast_period)
+        ema_slow = self._calc_ema(closes, self._ema_slow_period)
 
         # ADX + DI → regime & direction
         state = self._adx_state[symbol]
         adx_val = state["adx"]
         plus_di = state["plus_di"]
         minus_di = state["minus_di"]
+        adx_slope = self._calc_adx_slope(state)
 
         regime = self._classify_regime(adx_val)
         direction = self._determine_direction(regime, plus_di, minus_di)
@@ -151,9 +167,16 @@ class MarketAssessor:
             current_price=current_price,
             adx=round(adx_val, 2),
             atr=round(atr, 4),
+            atr_pct=round(atr_pct, 4),
             confidence=round(confidence, 3),
             suggested_grid_count=grid_count,
             suggested_leverage=leverage,
+            plus_di=round(plus_di, 2),
+            minus_di=round(minus_di, 2),
+            adx_slope=round(adx_slope, 3),
+            ema_fast=round(ema_fast, 4),
+            ema_slow=round(ema_slow, 4),
+            range_pct=round(range_pct, 4),
         )
 
         logger.debug(
@@ -162,6 +185,8 @@ class MarketAssessor:
             direction=direction.value,
             regime=regime.value,
             adx=round(adx_val, 1),
+            adx_slope=round(adx_slope, 3),
+            atr_pct=round(atr_pct, 3),
             leverage=leverage,
             grids=grid_count,
             range_pct=f"{range_pct:.2f}%",
@@ -218,6 +243,7 @@ class MarketAssessor:
             s["adx"] = dx
         else:
             s["adx"] = (s["adx"] * (period - 1) + dx) / period
+        s["adx_history"].append(s["adx"])
 
     def _compute_di(self, s: dict) -> None:
         if s["smooth_tr"] > 0:
@@ -254,6 +280,26 @@ class MarketAssessor:
 
         # Simple moving average of last `period` TRs
         return sum(trs[-period:]) / period
+
+    def _calc_ema(self, closes: list[float], period: int) -> float:
+        """Calculate a simple EMA from the current close history."""
+        if not closes:
+            return 0.0
+        window = closes[-max(period * 3, period):]
+        multiplier = 2 / (period + 1)
+        ema = window[0]
+        for value in window[1:]:
+            ema = (value - ema) * multiplier + ema
+        return ema
+
+    def _calc_adx_slope(self, state: dict) -> float:
+        history = state.get("adx_history")
+        if history is None or len(history) < 2:
+            return 0.0
+        first = history[0]
+        last = history[-1]
+        steps = max(len(history) - 1, 1)
+        return (last - first) / steps
 
     # ── Decision helpers ─────────────────────────────────────────────
 

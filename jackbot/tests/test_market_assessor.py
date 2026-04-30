@@ -104,3 +104,14 @@ class TestMarketAssessor:
         # They should have different assessments
         assert btc.symbol == "BTCUSDT"
         assert eth.symbol == "ETHUSDT"
+
+    def test_assessment_exposes_trend_features(self):
+        assessor = MarketAssessor()
+        _feed_trending_up_bars(assessor, "BTCUSDT")
+
+        result = assessor.assess("BTCUSDT")
+        assert result is not None
+        assert result.ema_fast > 0
+        assert result.ema_slow > 0
+        assert isinstance(result.adx_slope, float)
+        assert result.atr_pct > 0

@@ -4,6 +4,9 @@ __pycache__/
 data/*.db
 data/*.json
 data/*.lock
+!data/baseline_grid_result.json
+!data/fee_aware_grid_result.json
+!data/hybrid_trend_grid_result.json
 *.egg-info/
 .mypy_cache/
 .pytest_cache/
