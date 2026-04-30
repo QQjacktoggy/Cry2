@@ -45,11 +45,15 @@ class JackbotCommander:
         self._stop_event = stop_event
         self._offset: int = 0
         self._authorized_chat_id = str(bot._chat_id)
+        self._authorization_enabled = bool(self._authorized_chat_id)
         self._client = httpx.AsyncClient(timeout=_POLL_TIMEOUT + 5.0)
         self._backoff_until = 0.0
 
     async def run(self) -> None:
         if not self._bot or not self._bot._enabled:
+            return
+        if not self._authorization_enabled:
+            logger.error("commander_disabled_missing_chat_id")
             return
         logger.info("commander_started", chat_id=self._authorized_chat_id)
         while not self._stop_event.is_set():
@@ -87,7 +91,9 @@ class JackbotCommander:
             if not msg: continue
             
             chat_id = str(msg.get("chat", {}).get("id", ""))
-            if self._authorized_chat_id and chat_id != self._authorized_chat_id:
+            if not self._authorization_enabled:
+                continue
+            if chat_id != self._authorized_chat_id:
                 continue
                 
             text = (msg.get("text") or "").strip()

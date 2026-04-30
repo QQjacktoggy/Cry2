@@ -40,23 +40,17 @@ class UserDataStream:
 
         self._running = False
         self._listen_key = ""
+        self._listen_key_expired = False
         self.on_fill: Callable[[FillEvent], None] | None = None
 
     async def start(self) -> None:
         """Start the stream and keep-alive loop."""
-        try:
-            self._listen_key = self._api.get_listen_key()
-        except Exception as e:
-            logger.error("user_data_stream_key_error", error=str(e))
-            return
-
-        if not self._listen_key:
+        url = await self._refresh_stream_url()
+        if not url:
             logger.error("user_data_stream_failed_no_key")
             return
 
         self._running = True
-        url = f"{self._ws_url_base}/{self._listen_key}"
-
         logger.info("user_data_stream_starting", url=f"{self._ws_url_base}/<key>")
 
         await asyncio.gather(
@@ -77,12 +71,20 @@ class UserDataStream:
                         if not self._running:
                             break
                         self._process_message(raw)
+                        if self._listen_key_expired:
+                            logger.warning("listen_key_expired_refreshing")
+                            self._listen_key_expired = False
+                            refreshed_url = await self._refresh_stream_url()
+                            if refreshed_url:
+                                url = refreshed_url
+                            await ws.close()
+                            break
             except websockets.ConnectionClosed:
                 if self._running:
                     logger.warning("user_data_stream_reconnecting")
-                    # Refresh key on reconnect
-                    self._listen_key = self._api.get_listen_key()
-                    url = f"{self._ws_url_base}/{self._listen_key}"
+                    refreshed_url = await self._refresh_stream_url()
+                    if refreshed_url:
+                        url = refreshed_url
                     await asyncio.sleep(3)
             except Exception as e:
                 logger.error("user_data_stream_error", error=str(e))
@@ -99,6 +101,9 @@ class UserDataStream:
                     logger.info("user_data_stream_keepalive_ok")
                 else:
                     logger.warning("user_data_stream_keepalive_failed")
+                    refreshed_url = await self._refresh_stream_url()
+                    if refreshed_url:
+                        logger.info("user_data_stream_key_refreshed_after_keepalive_failure")
 
     def _process_message(self, raw: str) -> None:
         try:
@@ -138,9 +143,18 @@ class UserDataStream:
                         self.on_fill(fill)
 
             elif event_type == "listenKeyExpired":
-                logger.warning("listen_key_expired_restarting")
-                self._running = False # This will trigger reconnect logic if handled properly, 
-                                      # but here we'll just wait for the loop to restart it.
+                logger.warning("listen_key_expired_received")
+                self._listen_key_expired = True
 
         except Exception as e:
             logger.error("user_data_parse_error", error=str(e))
+
+    async def _refresh_stream_url(self) -> str:
+        try:
+            self._listen_key = self._api.get_listen_key()
+        except Exception as e:
+            logger.error("user_data_stream_key_error", error=str(e))
+            return ""
+        if not self._listen_key:
+            return ""
+        return f"{self._ws_url_base}/{self._listen_key}"

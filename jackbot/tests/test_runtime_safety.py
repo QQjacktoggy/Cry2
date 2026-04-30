@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 import importlib.util
+import json
 from pathlib import Path
+
+import pytest
 
 from jackbot.core.constants import GridDirection, GridLevelState
 from jackbot.core.events import FillEvent
+from jackbot.exchange.user_data import UserDataStream
+from jackbot.notify.commander import JackbotCommander
 from jackbot.core.ownership import make_grid_client_order_id, parse_jackbot_client_order_id
 from jackbot.portfolio.exchange_journal import ExchangeJournal
 from jackbot.strategy.grid_engine import GridInstance, GridLevel
@@ -24,9 +30,9 @@ def _load_runner_module():
 
 class _DummyTelegramBot:
     def __init__(self, *args, **kwargs) -> None:
-        self._enabled = False
-        self._token = ""
-        self._chat_id = ""
+        self._enabled = kwargs.get("enabled", False)
+        self._token = kwargs.get("bot_token", "")
+        self._chat_id = kwargs.get("chat_id", "")
         self.messages: list[str] = []
 
     def send(self, text: str) -> None:
@@ -119,6 +125,21 @@ class _FakeClient:
 
     def close(self) -> None:
         return None
+
+    def ping(self) -> int:
+        return 12
+
+    def get_balance(self) -> float:
+        return 150.0
+
+    def load_symbol_info(self, symbols: list[str]) -> None:
+        return None
+
+    def get_listen_key(self) -> str:
+        return "listen-key-1"
+
+    def keep_alive_listen_key(self) -> bool:
+        return True
 
 
 def _make_runner(tmp_path, monkeypatch):
@@ -368,3 +389,113 @@ def test_repair_confirm_places_recoverable_order_on_testnet(tmp_path, monkeypatc
     assert len(open_orders) == 1
     assert open_orders[0]["side"] == "SELL"
     assert open_orders[0]["clientOrderId"].startswith("jb_grid_grid_ETHUSDC_repair02_01_S_")
+
+
+@pytest.mark.asyncio
+async def test_commander_run_fails_closed_without_chat_id() -> None:
+    bot = _DummyTelegramBot(enabled=True, bot_token="token", chat_id="")
+    commander = JackbotCommander(
+        bot=bot,
+        trader=object(),
+        portfolio=object(),
+        client=object(),
+        stop_event=asyncio.Event(),
+    )
+
+    called = False
+
+    async def fake_poll_once() -> None:
+        nonlocal called
+        called = True
+
+    commander._poll_once = fake_poll_once  # type: ignore[method-assign]
+    await commander.run()
+
+    assert called is False
+
+
+def test_user_data_listen_key_expired_sets_refresh_flag() -> None:
+    stream = UserDataStream(api_client=_FakeClient(), testnet=True)
+    stream._running = True
+
+    stream._process_message(json.dumps({"e": "listenKeyExpired"}))
+
+    assert stream._running is True
+    assert stream._listen_key_expired is True
+
+
+@pytest.mark.asyncio
+async def test_runner_wires_repair_executor_into_commander(tmp_path, monkeypatch) -> None:
+    runner_module = _load_runner_module()
+
+    class RecordingCommander:
+        last_kwargs: dict | None = None
+
+        def __init__(self, *args, **kwargs) -> None:
+            RecordingCommander.last_kwargs = kwargs
+
+        async def run(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        runner_module,
+        "ExchangeJournal",
+        lambda: ExchangeJournal(tmp_path / "exchange_journal.db"),
+    )
+    monkeypatch.setattr(runner_module, "TelegramBot", _DummyTelegramBot)
+    monkeypatch.setattr(runner_module, "KlineFeed", _DummyKlineFeed)
+    monkeypatch.setattr(runner_module, "UserDataStream", _DummyUserDataStream)
+    monkeypatch.setattr(runner_module, "BinanceClient", _FakeClient)
+
+    import jackbot.notify.commander as commander_module
+
+    monkeypatch.setattr(commander_module, "JackbotCommander", RecordingCommander)
+
+    config = {
+        "strategy": {"variant": "baseline_grid"},
+        "exchange": {
+            "mode": "testnet",
+            "base_url": "https://testnet.binancefuture.com",
+            "ws_url": "wss://fstream.binancefuture.com",
+            "api_key_env": "TEST_API_KEY",
+            "api_secret_env": "TEST_API_SECRET",
+        },
+        "trading": {
+            "symbols": ["ETHUSDC"],
+            "timeframe": "5m",
+            "total_capital_usd": 150.0,
+        },
+        "grid": {
+            "default_grid_count": 8,
+            "max_leverage": 10,
+            "min_leverage": 5,
+            "warmup_bars": 10,
+        },
+        "targets": {
+            "daily_profit_target_usd": 4.5,
+            "daily_loss_limit_pct": 10.0,
+            "grid_stop_loss_pct": 3.0,
+        },
+        "risk": {
+            "max_concurrent_grids": 2,
+            "max_daily_resets": 10,
+        },
+        "telegram": {
+            "enabled": False,
+        },
+    }
+    runner = runner_module.JackbotRunner(config=config, dry_run=False)
+
+    async def fake_warmup(symbol: str) -> None:
+        return None
+
+    async def fake_health() -> None:
+        return None
+
+    runner._warmup_symbol = fake_warmup  # type: ignore[method-assign]
+    runner._health_check_loop = fake_health  # type: ignore[method-assign]
+
+    await runner.run()
+
+    assert RecordingCommander.last_kwargs is not None
+    assert RecordingCommander.last_kwargs["repair_callback"] == runner._execute_repair_plan

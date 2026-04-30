@@ -324,7 +324,14 @@ class JackbotRunner:
     def _execute_signal(self, signal: GridSignalEvent, *, allow_safe_mode_bypass: bool = False) -> bool:
         """Execute a grid signal on the exchange."""
         notional = self._client.order_notional(signal.symbol, signal.price, signal.quantity)
-        signal_key = signal.client_order_id or f"cancel:{signal.cancel_order_id}"
+        signal_key = (
+            signal.client_order_id
+            or (f"cancel:{signal.cancel_order_id}" if signal.cancel_order_id else "")
+            or (
+                f"runtime:{signal.symbol}:{signal.side}:{signal.order_type}:"
+                f"{int(signal.timestamp.timestamp() * 1000)}:{signal.level_index}"
+            )
+        )
         try:
             if (
                 self._safe_mode_reason
@@ -415,8 +422,37 @@ class JackbotRunner:
             # Set leverage before first order for each grid
             leverage = signal.metadata.get("leverage", 0)
             if leverage > 0:
+                self._journal.save_order_signal(
+                    client_order_id=signal_key,
+                    grid_id=signal.grid_id,
+                    level_index=signal.level_index,
+                    symbol=signal.symbol,
+                    side=signal.side,
+                    order_type=signal.order_type,
+                    price=signal.price,
+                    quantity=signal.quantity,
+                    reduce_only=signal.reduce_only,
+                    cancel_order_id=signal.cancel_order_id,
+                    notional=notional,
+                    status="pending_submission",
+                )
                 self._client.set_margin_type(signal.symbol, "ISOLATED")
                 self._client.set_leverage(signal.symbol, leverage)
+            else:
+                self._journal.save_order_signal(
+                    client_order_id=signal_key,
+                    grid_id=signal.grid_id,
+                    level_index=signal.level_index,
+                    symbol=signal.symbol,
+                    side=signal.side,
+                    order_type=signal.order_type,
+                    price=signal.price,
+                    quantity=signal.quantity,
+                    reduce_only=signal.reduce_only,
+                    cancel_order_id=signal.cancel_order_id,
+                    notional=notional,
+                    status="pending_submission",
+                )
 
             if signal.order_type == "LIMIT":
                 result = self._client.place_limit_order(
@@ -892,7 +928,7 @@ class JackbotRunner:
                 status_provider=self.status,
                 reconcile_callback=self._reconcile_exchange_state,
                 safe_mode_callback=self._enter_safe_mode,
-                repair_callback=self._build_repair_plan,
+                repair_callback=self._execute_repair_plan,
             )
             
             await asyncio.gather(

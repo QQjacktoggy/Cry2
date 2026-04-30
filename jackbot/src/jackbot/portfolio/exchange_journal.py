@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,15 +31,18 @@ class ExchangeJournal:
     def __init__(self, path: str | Path = "data/exchange_journal.db") -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._write_lock = threading.Lock()
         self._init_schema()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path)
+        conn = sqlite3.connect(self.path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        conn.execute("pragma journal_mode=WAL")
+        conn.execute("pragma synchronous=NORMAL")
         return conn
 
     def _init_schema(self) -> None:
-        with self._connect() as conn:
+        with self._write_lock, self._connect() as conn:
             conn.execute(
                 """
                 create table if not exists exchange_fills (
@@ -244,7 +248,7 @@ class ExchangeJournal:
         timestamp_iso = datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC).isoformat()
         trade_key = self._trade_key(symbol, trade_id, order_id, timestamp_ms, side, quantity, price)
         updated_at = datetime.now(UTC).isoformat()
-        with self._connect() as conn:
+        with self._write_lock, self._connect() as conn:
             before = conn.total_changes
             conn.execute(
                 """
@@ -295,7 +299,7 @@ class ExchangeJournal:
 
     def save_grid_snapshot(self, grid: GridInstance) -> None:
         updated_at = datetime.now(UTC).isoformat()
-        with self._connect() as conn:
+        with self._write_lock, self._connect() as conn:
             conn.execute(
                 """
                 insert into grids (
@@ -394,7 +398,7 @@ class ExchangeJournal:
         error_message: str = "",
     ) -> None:
         updated_at = datetime.now(UTC).isoformat()
-        with self._connect() as conn:
+        with self._write_lock, self._connect() as conn:
             conn.execute(
                 """
                 insert into exchange_orders (
@@ -446,7 +450,7 @@ class ExchangeJournal:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         updated_at = datetime.now(UTC).isoformat()
-        with self._connect() as conn:
+        with self._write_lock, self._connect() as conn:
             conn.execute(
                 """
                 insert into runtime_state (
@@ -493,7 +497,7 @@ class ExchangeJournal:
         }
 
     def append_reconcile_event(self, report: dict[str, Any]) -> None:
-        with self._connect() as conn:
+        with self._write_lock, self._connect() as conn:
             conn.execute(
                 """
                 insert into reconcile_events (status, details_json, created_at)
