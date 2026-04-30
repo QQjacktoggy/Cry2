@@ -118,10 +118,13 @@ class UserDataStream:
                         quantity=float(order["l"]),
                         price=float(order["L"]),
                         commission=float(order.get("n", 0)),
+                        commission_asset=order.get("N", ""),
                         realized_pnl=float(order.get("rp", 0)),
                         order_id=str(order["i"]),
+                        trade_id=str(order.get("t", "")),
                         client_order_id=order.get("c", ""),
                         source="user_data",
+                        raw=order,
                     )
                     logger.info(
                         "fill_received",

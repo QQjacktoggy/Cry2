@@ -166,6 +166,8 @@ class DayTrader:
         self._daily_resets: int = 0
         self._daily_loss: float = 0.0
         self._halted: bool = False
+        self._safe_mode: bool = False
+        self._safe_mode_reason: str = ""
         self._last_reset_date: str = ""
         self._warming_up: bool = True
 
@@ -204,6 +206,66 @@ class DayTrader:
     def is_halted(self) -> bool:
         return self._halted
 
+    @property
+    def safe_mode(self) -> bool:
+        return self._safe_mode
+
+    def enter_safe_mode(self, reason: str) -> None:
+        self._safe_mode = True
+        self._safe_mode_reason = reason
+        logger.warning("day_trader_safe_mode_entered", reason=reason)
+
+    def exit_safe_mode(self) -> None:
+        self._safe_mode = False
+        self._safe_mode_reason = ""
+        logger.info("day_trader_safe_mode_exited")
+
+    def snapshot_runtime_state(self) -> dict[str, Any]:
+        """Return the minimal state needed to continue after a restart."""
+        return {
+            "mode": self._mode.value,
+            "daily_profit": self._daily_profit,
+            "daily_loss": self._daily_loss,
+            "daily_resets": self._daily_resets,
+            "halted": self._halted,
+            "safe_mode": self._safe_mode,
+            "safe_mode_reason": self._safe_mode_reason,
+            "last_reset_date": self._last_reset_date,
+            "bar_counts": dict(self._bar_counts),
+            "last_review_bar": dict(self._last_review_bar),
+            "last_prices": dict(self._last_prices),
+            "last_report_date": self._last_report_date,
+            "grid_cooldown_until_bar": dict(self._grid_cooldown_until_bar),
+            "latest_variant_regime": dict(self._latest_variant_regime),
+            "grid_pnl_net": self._grid_pnl_net,
+            "trend_pnl_net": self._trend_pnl_net,
+        }
+
+    def restore_runtime_state(self, snapshot: dict[str, Any]) -> None:
+        """Restore state captured by ``snapshot_runtime_state``."""
+        self._mode = TradingMode(snapshot.get("mode", self._mode.value))
+        self._daily_profit = float(snapshot.get("daily_profit", 0.0) or 0.0)
+        self._daily_loss = float(snapshot.get("daily_loss", 0.0) or 0.0)
+        self._daily_resets = int(snapshot.get("daily_resets", 0) or 0)
+        self._halted = bool(snapshot.get("halted", False))
+        self._safe_mode = bool(snapshot.get("safe_mode", False))
+        self._safe_mode_reason = str(snapshot.get("safe_mode_reason", "") or "")
+        self._last_reset_date = str(snapshot.get("last_reset_date", "") or "")
+        self._bar_counts = {str(k): int(v) for k, v in dict(snapshot.get("bar_counts", {})).items()}
+        self._last_review_bar = {
+            str(k): int(v) for k, v in dict(snapshot.get("last_review_bar", {})).items()
+        }
+        self._last_prices = {str(k): float(v) for k, v in dict(snapshot.get("last_prices", {})).items()}
+        self._last_report_date = str(snapshot.get("last_report_date", "") or "")
+        self._grid_cooldown_until_bar = {
+            str(k): int(v) for k, v in dict(snapshot.get("grid_cooldown_until_bar", {})).items()
+        }
+        self._latest_variant_regime = {
+            str(k): str(v) for k, v in dict(snapshot.get("latest_variant_regime", {})).items()
+        }
+        self._grid_pnl_net = float(snapshot.get("grid_pnl_net", 0.0) or 0.0)
+        self._trend_pnl_net = float(snapshot.get("trend_pnl_net", 0.0) or 0.0)
+
     # ── Main bar handler ──────────────────────────────────────────────
 
     def on_bar(self, event: MarketEvent) -> list[GridSignalEvent]:
@@ -211,7 +273,7 @@ class DayTrader:
         self._check_daily_reset()
         self._check_daily_report()
 
-        if self._halted:
+        if self._halted or self._safe_mode:
             return []
 
         symbol = event.symbol
@@ -876,6 +938,8 @@ class DayTrader:
             "daily_loss": round(self._daily_loss, 4),
             "daily_resets": self._daily_resets,
             "halted": self._halted,
+            "safe_mode": self._safe_mode,
+            "safe_mode_reason": self._safe_mode_reason,
             "latest_variant_regime": dict(self._latest_variant_regime),
             "active_grids": self._engine.get_status(),
             "trend_positions": {

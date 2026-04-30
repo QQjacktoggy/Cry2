@@ -67,6 +67,7 @@ class BinanceClient:
         self._price_precision: dict[str, int] = {}
         self._tick_size: dict[str, float] = {}
         self._step_size: dict[str, float] = {}
+        self._min_notional: dict[str, float] = {}
 
     def close(self) -> None:
         self._client.close()
@@ -109,6 +110,15 @@ class BinanceClient:
         resp.raise_for_status()
         return float(resp.json()["price"])
 
+    def min_notional(self, symbol: str) -> float:
+        """Return Binance's minimum order notional for a symbol, if known."""
+        return self._min_notional.get(symbol, 0.0)
+
+    def order_notional(self, symbol: str, price: float, quantity: float) -> float:
+        """Compute notional using the limit price or the latest ticker for market orders."""
+        ref_price = price if price > 0 else self.get_ticker_price(symbol)
+        return ref_price * quantity
+
     def load_symbol_info(self, symbols: list[str]) -> None:
         """Fetch and cache qty/price precision from actual filter tick sizes.
 
@@ -124,10 +134,16 @@ class BinanceClient:
             filters = {f["filterType"]: f for f in sym_info.get("filters", [])}
             tick = filters.get("PRICE_FILTER", {}).get("tickSize", "0.01")
             step = filters.get("LOT_SIZE", {}).get("stepSize", "0.001")
+            min_notional = (
+                filters.get("MIN_NOTIONAL", {}).get("notional")
+                or filters.get("NOTIONAL", {}).get("minNotional")
+                or "0"
+            )
             self._price_precision[sym_info["symbol"]] = _decimals(tick)
             self._qty_precision[sym_info["symbol"]] = _decimals(step)
             self._tick_size[sym_info["symbol"]] = float(tick)
             self._step_size[sym_info["symbol"]] = float(step)
+            self._min_notional[sym_info["symbol"]] = float(min_notional)
             logger.info(
                 "symbol_info_loaded",
                 symbol=sym_info["symbol"],
@@ -135,6 +151,7 @@ class BinanceClient:
                 qty_precision=self._qty_precision[sym_info["symbol"]],
                 tick_size=tick,
                 step_size=step,
+                min_notional=min_notional,
                 margin_asset=sym_info.get("marginAsset"),
             )
 

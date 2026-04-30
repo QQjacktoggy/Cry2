@@ -38,6 +38,7 @@ class GridSignalEvent(BaseModel, frozen=True):
     level_index: int = -1            # grid level number
     reduce_only: bool = False
     cancel_order_id: str = ""        # non-empty → cancel this order
+    client_order_id: str = ""        # strategy-owned exchange clientOrderId
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -52,10 +53,13 @@ class FillEvent(BaseModel, frozen=True):
     commission: float = 0.0
     realized_pnl: float = 0.0
     order_id: str = ""
+    trade_id: str = ""
     client_order_id: str = ""
+    commission_asset: str = ""
     grid_id: str = ""
     level_index: int = -1
     source: str = "exchange"
+    raw: dict[str, Any] = Field(default_factory=dict)
 
 
 class GridProfitEvent(BaseModel, frozen=True):
