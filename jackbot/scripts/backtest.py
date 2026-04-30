@@ -147,11 +147,17 @@ class FillSimulator:
     """Simulates limit order fills based on bar high/low.
 
     Grid limit orders are treated as maker fills (zero fee on Binance).
-    SL/breakout/review market closes are taker fills (0.04% + ATR slippage).
+    Risk-driven closes (stop-loss / breakout / margin protection) are
+    treated as taker fills (0.04% + ATR slippage).
     Partial fills: 50–100% random fill rate per level.
     """
 
     _ATR_PERIOD = 14
+    _MARKET_CLOSE_REASONS = {
+        "breakout",
+        "margin_rate",
+        "stop_loss",
+    }
 
     def __init__(self, maker_rate: float = 0.0, taker_rate: float = 0.0004) -> None:
         self._fill_count = 0
@@ -174,6 +180,11 @@ class FillSimulator:
         if close_price <= 0 or notional <= 0:
             return 0.0
         return notional * (atr / close_price) * 0.02
+
+    def _close_order_type(self, close_kind: str) -> str:
+        if close_kind in self._MARKET_CLOSE_REASONS or close_kind.startswith("daily_loss"):
+            return "MARKET"
+        return "LIMIT"
 
     def estimate_close_breakdown(self, symbol: str, close_price: float, notional: float, order_type: str) -> dict[str, float]:
         """Estimate close-side fee/slippage breakdown for a forced grid exit."""
@@ -204,7 +215,7 @@ class FillSimulator:
                 realized_pnl += (level.sell_fill_price - bar.close) * level.quantity
                 close_notional += bar.close * level.quantity
 
-        close_order_type = "MARKET" if close_kind == "stop_loss" else "LIMIT"
+        close_order_type = self._close_order_type(close_kind)
         close_breakdown = self.estimate_close_breakdown(grid.symbol, bar.close, close_notional, close_order_type)
         rounded = {key: round(value, 6) for key, value in close_breakdown.items()}
         return round(realized_pnl, 4), rounded
@@ -324,7 +335,8 @@ class BacktestEngine:
         self._matched_trade_pnls.append(event.profit_usd - event.commission)
         self._gross_profit_total += event.profit_usd
         self._realized_profit_total += event.profit_usd
-        self._grid_pnl_net += event.profit_usd - event.commission
+        # Maker fees are booked when fills happen, so matched profit adds gross PnL here.
+        self._grid_pnl_net += event.profit_usd
 
     def _on_strategy_pnl(self, event: StrategyPnLEvent) -> None:
         self._realized_profit_total += event.gross_pnl
@@ -335,6 +347,27 @@ class BacktestEngine:
             self._grid_pnl_net += event.net_pnl
         if event.source.startswith("trend_"):
             self._taker_fee_total += event.commission
+
+    def _record_grid_fill_commission(self, fill: FillEvent) -> None:
+        self._total_commission += fill.commission
+        self._maker_fee_total += fill.commission
+        # Grid sleeve net PnL must absorb fees when the fill occurs, even if the
+        # position is only matched or force-closed later.
+        self._grid_pnl_net -= fill.commission
+
+    def _record_grid_close(self, close_pnl: float, close_breakdown: dict[str, float]) -> float:
+        close_cost = sum(close_breakdown.values())
+        close_net = close_pnl - close_cost
+        self._close_pnls.append(close_pnl)
+        self._close_net_pnls.append(close_net)
+        self._realized_profit_total += close_pnl
+        self._total_commission += close_cost
+        self._maker_fee_total += close_breakdown["maker_fee"]
+        self._taker_fee_total += close_breakdown["taker_fee"]
+        self._slippage_total += close_breakdown["slippage"]
+        self._grid_pnl_net += close_net
+        self._trader.record_realized_pnl(close_net, bucket="grid")
+        return close_net
 
     def run(self, klines_by_symbol: dict[str, list[dict]]) -> dict:
         """Run backtest on merged, time-sorted klines.
@@ -411,16 +444,7 @@ class BacktestEngine:
             for grid in self._trader._engine._grids.values():
                 if grid.closed and not hasattr(grid, "_close_realized"):
                     close_pnl, close_breakdown = self._sim.realize_close(grid, bar, grid.close_reason)
-                    close_cost = sum(close_breakdown.values())
-                    self._close_pnls.append(close_pnl)
-                    self._close_net_pnls.append(close_pnl - close_cost)
-                    self._realized_profit_total += close_pnl
-                    self._total_commission += close_cost
-                    self._maker_fee_total += close_breakdown["maker_fee"]
-                    self._taker_fee_total += close_breakdown["taker_fee"]
-                    self._slippage_total += close_breakdown["slippage"]
-                    self._grid_pnl_net += close_pnl - close_cost
-                    self._trader.record_realized_pnl(close_pnl - close_cost, bucket="grid")
+                    self._record_grid_close(close_pnl, close_breakdown)
                     grid._close_realized = True
 
             # 2. Update ATR then simulate fills for active grids
@@ -430,8 +454,7 @@ class BacktestEngine:
 
             for fill in fills:
                 self._total_fills += 1
-                self._total_commission += fill.commission
-                self._maker_fee_total += fill.commission
+                self._record_grid_fill_commission(fill)
                 # Process fill through DayTrader
                 self._trader.on_fill(fill)
 

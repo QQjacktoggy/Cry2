@@ -320,9 +320,13 @@ class DayTrader:
         """Process fill, place counter-orders, track profit."""
         counter_signals, profit_event = self._engine.on_fill(fill)
 
+        if fill.commission > 0:
+            # Commission is realized the moment the fill happens, even if the
+            # paired grid profit or forced close arrives later.
+            self._record_realized_pnl(-fill.commission, bucket="grid")
+
         if profit_event is not None:
-            net_profit = profit_event.profit_usd - profit_event.commission
-            self._record_realized_pnl(net_profit, bucket="grid")
+            self._record_realized_pnl(profit_event.profit_usd, bucket="grid")
             self._bus.publish(profit_event)
 
             logger.info(
@@ -481,6 +485,7 @@ class DayTrader:
         if self._cfg.adaptive_spacing_max_mult <= 1.0:
             return 1.0
         adx_excess = max(0.0, assessment.adx - self._cfg.trending_threshold)
+        # `atr_pct` is stored in percent units, so 0.35 means 0.35% ATR / price.
         atr_excess = max(0.0, assessment.atr_pct - 0.35)
         bonus = (
             adx_excess * self._cfg.adaptive_spacing_adx_weight / 20.0
