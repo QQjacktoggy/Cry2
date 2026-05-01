@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from jackbot.core.constants import GridDirection, GridLevelState, OrderSide
+from jackbot.core.constants import GridDirection, GridLevelState
 from jackbot.core.events import FillEvent
 from jackbot.strategy.grid_engine import GridEngine
 
@@ -151,6 +151,95 @@ class TestGridFills:
         assert counter_signals[0].side == "SELL"
         assert counter_signals[0].level_index == 3
         assert profit is None  # No profit yet
+
+    def test_partial_buy_fills_accumulate_and_use_unique_counter_ids(self):
+        engine = GridEngine()
+        grid, _ = engine.create_grid(
+            symbol="ETHUSDC",
+            direction=GridDirection.LONG,
+            upper_price=110.0,
+            lower_price=100.0,
+            grid_count=10,
+            leverage=10,
+            total_investment=100.0,
+            current_price=106.0,
+        )
+
+        first_fill = FillEvent(
+            timestamp=_now(),
+            symbol="ETHUSDC",
+            side="BUY",
+            quantity=0.014,
+            price=104.0,
+            order_id="buy-1",
+            grid_id=grid.grid_id,
+            level_index=4,
+        )
+        first_counter, _ = engine.on_fill(first_fill)
+
+        second_fill = FillEvent(
+            timestamp=_now(),
+            symbol="ETHUSDC",
+            side="BUY",
+            quantity=0.018,
+            price=104.5,
+            order_id="buy-1",
+            grid_id=grid.grid_id,
+            level_index=4,
+        )
+        second_counter, _ = engine.on_fill(second_fill)
+
+        buy_level = grid.levels[4]
+        assert abs(buy_level.filled_quantity - 0.032) < 0.000001
+        assert abs(buy_level.buy_fill_price - 104.28125) < 0.000001
+        assert first_counter[0].client_order_id != second_counter[0].client_order_id
+        assert first_counter[0].client_order_id.endswith("_05_S_00")
+        assert second_counter[0].client_order_id.endswith("_05_S_01")
+
+    def test_close_grid_cancels_pending_counter_orders_by_client_id(self):
+        engine = GridEngine()
+        grid, _ = engine.create_grid(
+            symbol="ETHUSDC",
+            direction=GridDirection.LONG,
+            upper_price=110.0,
+            lower_price=100.0,
+            grid_count=10,
+            leverage=10,
+            total_investment=100.0,
+            current_price=106.0,
+        )
+
+        engine.on_fill(FillEvent(
+            timestamp=_now(),
+            symbol="ETHUSDC",
+            side="BUY",
+            quantity=0.014,
+            price=104.0,
+            order_id="buy-1",
+            grid_id=grid.grid_id,
+            level_index=4,
+        ))
+        engine.on_fill(FillEvent(
+            timestamp=_now(),
+            symbol="ETHUSDC",
+            side="BUY",
+            quantity=0.018,
+            price=104.0,
+            order_id="buy-1",
+            grid_id=grid.grid_id,
+            level_index=4,
+        ))
+
+        cancel_signals = engine.close_grid(grid.grid_id, reason="test")
+        level_5_cancels = [
+            signal.cancel_order_id
+            for signal in cancel_signals
+            if signal.level_index == 5
+        ]
+
+        assert len(level_5_cancels) == 2
+        assert level_5_cancels[0].endswith("_05_S_00")
+        assert level_5_cancels[1].endswith("_05_S_01")
 
     def test_matched_profit_on_sell(self):
         engine = GridEngine()

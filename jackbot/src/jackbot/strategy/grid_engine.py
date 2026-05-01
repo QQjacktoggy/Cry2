@@ -35,11 +35,15 @@ class GridLevel:
     state: GridLevelState = GridLevelState.PENDING_BUY
     buy_order_id: str = ""
     sell_order_id: str = ""
+    buy_client_order_ids: list[str] = field(default_factory=list)
+    sell_client_order_ids: list[str] = field(default_factory=list)
     buy_fill_price: float = 0.0
     sell_fill_price: float = 0.0
     quantity: float = 0.0
     filled_quantity: float = 0.0      # actual filled/open quantity for this level
     matched_count: int = 0           # how many buy-sell cycles completed
+    buy_signal_count: int = 0        # unique BUY client-order sequence for this level
+    sell_signal_count: int = 0       # unique SELL client-order sequence for this level
     commission: float = 0.0          # total fee accumulated for this level
 
 
@@ -248,10 +252,15 @@ class GridEngine:
         level.commission += fill.commission
 
         if fill.side == OrderSide.BUY.value:
-            level.buy_fill_price = fill.price
+            previous_qty = level.filled_quantity if level.state == GridLevelState.FILLED_BUY else 0.0
+            total_qty = previous_qty + fill.quantity
+            if total_qty > 0:
+                level.buy_fill_price = (
+                    (level.buy_fill_price * previous_qty) + (fill.price * fill.quantity)
+                ) / total_qty
             level.buy_order_id = fill.order_id
-            level.quantity = fill.quantity
-            level.filled_quantity = fill.quantity
+            level.quantity = total_qty
+            level.filled_quantity = total_qty
             level.state = GridLevelState.FILLED_BUY
 
             # Place SELL at the next higher level
@@ -266,10 +275,15 @@ class GridEngine:
                 ))
 
         elif fill.side == OrderSide.SELL.value:
-            level.sell_fill_price = fill.price
+            previous_qty = level.filled_quantity if level.state == GridLevelState.FILLED_SELL else 0.0
+            total_qty = previous_qty + fill.quantity
+            if total_qty > 0:
+                level.sell_fill_price = (
+                    (level.sell_fill_price * previous_qty) + (fill.price * fill.quantity)
+                ) / total_qty
             level.sell_order_id = fill.order_id
-            level.quantity = fill.quantity
-            level.filled_quantity = fill.quantity
+            level.quantity = total_qty
+            level.filled_quantity = total_qty
             level.state = GridLevelState.FILLED_SELL
 
             # Check for matched profit (buy at lower + sell at this level)
@@ -462,24 +476,25 @@ class GridEngine:
 
         for level in grid.levels:
             # Cancel any pending orders
-            order_id = ""
-            if level.state == GridLevelState.PENDING_BUY and level.buy_order_id:
-                order_id = level.buy_order_id
-            elif level.state == GridLevelState.PENDING_SELL and level.sell_order_id:
-                order_id = level.sell_order_id
+            order_ids: list[str] = []
+            if level.state == GridLevelState.PENDING_BUY:
+                order_ids = level.buy_client_order_ids or ([level.buy_order_id] if level.buy_order_id else [])
+            elif level.state == GridLevelState.PENDING_SELL:
+                order_ids = level.sell_client_order_ids or ([level.sell_order_id] if level.sell_order_id else [])
 
-            if order_id:
-                signals.append(GridSignalEvent(
-                    timestamp=now,
-                    symbol=grid.symbol,
-                    side=OrderSide.BUY.value,
-                    cancel_order_id=order_id,
-                    grid_id=grid.grid_id,
-                    level_index=level.index,
-                    client_order_id=make_grid_client_order_id(
-                        grid.grid_id, level.index, OrderSide.BUY.value, 99
-                    ),
-                ))
+            for order_id in order_ids:
+                if order_id:
+                    signals.append(GridSignalEvent(
+                        timestamp=now,
+                        symbol=grid.symbol,
+                        side=OrderSide.BUY.value,
+                        cancel_order_id=order_id,
+                        grid_id=grid.grid_id,
+                        level_index=level.index,
+                        client_order_id=make_grid_client_order_id(
+                            grid.grid_id, level.index, OrderSide.BUY.value, 99
+                        ),
+                    ))
 
             level.state = GridLevelState.CANCELLED
 
@@ -501,20 +516,20 @@ class GridEngine:
         """Status summary for each active grid."""
         result = []
         for g in self.active_grids:
-            pending = sum(1 for l in g.levels
-                          if l.state in (GridLevelState.PENDING_BUY, GridLevelState.PENDING_SELL))
-            filled = sum(1 for l in g.levels
-                         if l.state in (GridLevelState.FILLED_BUY, GridLevelState.FILLED_SELL))
+            pending = sum(1 for level in g.levels
+                          if level.state in (GridLevelState.PENDING_BUY, GridLevelState.PENDING_SELL))
+            filled = sum(1 for level in g.levels
+                         if level.state in (GridLevelState.FILLED_BUY, GridLevelState.FILLED_SELL))
             age_min = (datetime.now(UTC) - g.created_at).total_seconds() / 60
-            
+
             level_details = [
                 {
-                    "price": l.price,
-                    "state": l.state.value,
-                    "buy_order": l.buy_order_id,
-                    "sell_order": l.sell_order_id,
+                    "price": level.price,
+                    "state": level.state.value,
+                    "buy_order": level.buy_order_id,
+                    "sell_order": level.sell_order_id,
                 }
-                for l in g.levels
+                for level in g.levels
             ]
 
             result.append({
@@ -545,6 +560,19 @@ class GridEngine:
         price: float,
         timestamp: datetime,
     ) -> GridSignalEvent:
+        if side == OrderSide.BUY:
+            cycle = max(level.matched_count, level.buy_signal_count)
+            level.buy_signal_count = cycle + 1
+        else:
+            cycle = max(level.matched_count, level.sell_signal_count)
+            level.sell_signal_count = cycle + 1
+        client_order_id = make_grid_client_order_id(
+            grid.grid_id, level.index, side.value, cycle
+        )
+        if side == OrderSide.BUY:
+            level.buy_client_order_ids.append(client_order_id)
+        else:
+            level.sell_client_order_ids.append(client_order_id)
         return GridSignalEvent(
             timestamp=timestamp,
             symbol=grid.symbol,
@@ -554,9 +582,7 @@ class GridEngine:
             quantity=level.quantity,
             grid_id=grid.grid_id,
             level_index=level.index,
-            client_order_id=make_grid_client_order_id(
-                grid.grid_id, level.index, side.value, level.matched_count
-            ),
+            client_order_id=client_order_id,
             metadata={
                 "leverage": grid.leverage,
                 "upper": grid.upper_price,
