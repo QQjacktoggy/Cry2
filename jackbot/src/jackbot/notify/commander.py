@@ -33,6 +33,7 @@ class JackbotCommander:
         status_provider: Any | None = None,
         reconcile_callback: Any | None = None,
         safe_mode_callback: Any | None = None,
+        resume_callback: Any | None = None,
         repair_callback: Any | None = None,
     ) -> None:
         self._bot = bot
@@ -44,6 +45,7 @@ class JackbotCommander:
         self._status_provider = status_provider
         self._reconcile_callback = reconcile_callback
         self._safe_mode_callback = safe_mode_callback
+        self._resume_callback = resume_callback
         self._repair_callback = repair_callback
         self._stop_event = stop_event
         self._offset: int = 0
@@ -128,6 +130,7 @@ class JackbotCommander:
             "safe": self._cmd_safe,
             "pause": self._cmd_safe,
             "halt": self._cmd_safe,
+            "resume": self._cmd_resume,
         }
 
         handler = handlers.get(cmd)
@@ -277,6 +280,7 @@ class JackbotCommander:
             "/repair   — 產生修復 dry-run 計畫\n"
             "/repair confirm — 執行可安全修復的補單\n"
             "/safe     — 暫停開新單，只保留監控\n"
+            "/resume   — 退出 safe mode（需全倉平倉）\n"
             "/help     — 顯示此幫助"
         )
 
@@ -362,7 +366,7 @@ class JackbotCommander:
         return (
             "💰 <b>帳戶權益資訊 (虛擬)</b>\n\n"
             f"• 初始資金: ${summary['initial_capital']:.2f}\n"
-            f"• 總獲利: ${summary['realized_pnl']:.4f}\n"
+            f"• 總獲利(淨): ${summary['net_realized_pnl']:.4f}\n"
             f"• 未實現: ${summary['unrealized_pnl']:+.4f}\n"
             f"<b>• 當前權益: ${summary['total_equity']:.2f}</b>\n"
             f"• 今日盈虧: ${summary['today_pnl']:+.4f}\n"
@@ -583,3 +587,46 @@ class JackbotCommander:
         if self._safe_mode_callback is not None:
             self._safe_mode_callback(reason)
         return "🛡️ <b>Safe mode 已啟用</b>\nBot 會停止開新單，只保留監控與查詢。"
+
+    async def _cmd_resume(self, args: list[str] | None = None) -> str:
+        if not self._trader.safe_mode:
+            return "ℹ️ Bot 目前不在 safe mode，無需 resume。"
+
+        if self._resume_callback is None:
+            return "⚠️ resume 功能未設定。"
+
+        result = await self._resume_callback()
+        status = result.get("status", "error")
+
+        if status == "orphan_detected":
+            orphan_positions = result.get("orphan_positions", [])
+            orphan_orders = result.get("orphan_orders", [])
+            lines = ["❌ <b>無法退出 safe mode，發現未對齊項目：</b>"]
+            if orphan_positions:
+                lines.append("\n<b>Orphan 倉位（請至交易所手動平倉）</b>")
+                for p in orphan_positions:
+                    symbol = p.get("symbol", "?")
+                    qty = float(p.get("positionAmt", 0) or 0)
+                    entry = float(p.get("entryPrice", 0) or 0)
+                    lines.append(f"  • {symbol}: {qty:+.4f} @ {entry:.2f}")
+            if orphan_orders:
+                lines.append("\n<b>Orphan 掛單（請至交易所手動取消）</b>")
+                for o in orphan_orders[:5]:
+                    symbol = o.get("symbol", "?")
+                    side = o.get("side", "?")
+                    price = float(o.get("price", 0) or 0)
+                    qty = float(o.get("origQty", 0) or 0)
+                    lines.append(f"  • {symbol} {side} {qty:.4f} @ {price:.2f}")
+                if len(orphan_orders) > 5:
+                    lines.append(f"  <i>...還有 {len(orphan_orders) - 5} 筆</i>")
+            lines.append("\n清除後再發 /resume")
+            return "\n".join(lines)
+
+        if status == "error":
+            return f"⚠️ Resume 失敗：{result.get('error', '未知錯誤')}"
+
+        warmup_bars = result.get("warmup_bars", 0)
+        return (
+            "✅ <b>Safe mode 已關閉</b>\n"
+            f"倉位對齊確認，已重新讀取 {warmup_bars} 根 K 線評估策略，Bot 恢復正常開單。"
+        )

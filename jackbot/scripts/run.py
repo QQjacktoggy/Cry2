@@ -384,9 +384,8 @@ class JackbotRunner:
 
             min_notional = self._client.min_notional(signal.symbol)
             if min_notional > 0 and not signal.reduce_only and notional < min_notional:
-                self._enter_safe_mode(
-                    f"order_notional_below_min:{signal.symbol}:{notional:.4f}<{min_notional:.4f}"
-                )
+                # Dust order from partial fill: skip silently instead of entering safe_mode.
+                # safe_mode is reserved for exchange connectivity and orphan position issues.
                 self._journal.save_order_signal(
                     client_order_id=signal_key,
                     grid_id=signal.grid_id,
@@ -399,24 +398,18 @@ class JackbotRunner:
                     reduce_only=signal.reduce_only,
                     cancel_order_id=signal.cancel_order_id,
                     notional=notional,
-                    status="blocked_min_notional",
+                    status="skipped_min_notional",
                     error_message=f"min_notional={min_notional:.4f}",
                 )
-                self._telegram.notify_alert(
-                    "Counter order blocked",
-                    f"{signal.symbol} {signal.side} qty={signal.quantity} notional={notional:.4f} min={min_notional:.4f}",
-                )
-                logger.error(
-                    "signal_blocked_min_notional",
+                logger.warning(
+                    "signal_skipped_min_notional",
                     symbol=signal.symbol,
                     side=signal.side,
                     quantity=signal.quantity,
                     price=signal.price,
                     notional=notional,
                     min_notional=min_notional,
-                    signal=signal.model_dump(),
                 )
-                self._persist_runtime_state()
                 return False
 
             # Set leverage before first order for each grid
@@ -526,6 +519,58 @@ class JackbotRunner:
         self._trader.enter_safe_mode(reason)
         logger.warning("runner_safe_mode_entered", reason=reason)
         self._persist_runtime_state()
+
+    def _exit_safe_mode(self) -> None:
+        self._safe_mode_reason = ""
+        self._trader.exit_safe_mode()
+        logger.info("runner_safe_mode_exited")
+        self._persist_runtime_state()
+
+    async def _resume_handler(self) -> dict:
+        """Reconcile exchange state and exit safe mode, then re-warmup strategy indicators."""
+        try:
+            reconcile = self._reconcile_exchange_state()
+        except Exception as exc:
+            logger.warning("resume_reconcile_failed", error=str(exc))
+            return {"status": "error", "error": str(exc)}
+
+        # Fix 2: treat any API failure during reconcile as blocking
+        if reconcile.get("status") == "error":
+            warnings = reconcile.get("warnings", [])
+            return {
+                "status": "error",
+                "error": "交易所 API 查詢失敗，無法確認倉位狀態：" + ("; ".join(warnings) or "unknown"),
+            }
+
+        orphan_positions = reconcile.get("orphan_positions", [])
+        orphan_orders = reconcile.get("orphan_orders", [])
+        if orphan_positions or orphan_orders:
+            return {
+                "status": "orphan_detected",
+                "orphan_positions": orphan_positions,
+                "orphan_orders": orphan_orders,
+            }
+
+        expected_bars = self._trader._cfg.warmup_bars + 10
+        total_bars = 0
+        warmup_failures: list[str] = []
+        for symbol in self._trader._cfg.symbols:
+            replayed_bars = await self._warmup_symbol(symbol, indicators_only=True)
+            total_bars += replayed_bars
+            if replayed_bars < expected_bars:
+                warmup_failures.append(f"{symbol}:{replayed_bars}/{expected_bars}")
+
+        if warmup_failures:
+            logger.warning("resume_warmup_incomplete", failures=warmup_failures)
+            return {
+                "status": "error",
+                "error": "warmup 失敗，safe mode 維持啟用：" + "; ".join(warmup_failures),
+            }
+
+        self._exit_safe_mode()
+        logger.info("resume_warmup_complete", symbols=list(self._trader._cfg.symbols), bars=total_bars)
+
+        return {"status": "ok", "warmup_bars": total_bars}
 
     def _reconcile_exchange_state(self) -> dict:
         """Compare exchange state with in-memory strategy state."""
@@ -905,6 +950,12 @@ class JackbotRunner:
             # Load symbol precision info (qty/price decimal places)
             self._client.load_symbol_info(self._trader._cfg.symbols)
 
+            if self._safe_mode_reason:
+                self._telegram.notify_alert(
+                    "🛡️ Bot 啟動於 Safe Mode",
+                    f"已從上次 session 還原，原因: {self._safe_mode_reason}\n發 /resume 退出 safe mode",
+                )
+
             reconcile = self._reconcile_exchange_state()
             if reconcile["status"] != "ok":
                 self._enter_safe_mode("startup_exchange_orphan_state")
@@ -912,7 +963,7 @@ class JackbotRunner:
 
             # Warmup: fetch historical klines (indicators only, no order placement)
             for symbol in self._trader._cfg.symbols:
-                await self._warmup_symbol(symbol)
+                await self._warmup_symbol(symbol, indicators_only=True)
             self._trader.mark_warmup_complete()
 
             # Start WebSocket feed and Commander concurrently
@@ -928,6 +979,7 @@ class JackbotRunner:
                 status_provider=self.status,
                 reconcile_callback=self._reconcile_exchange_state,
                 safe_mode_callback=self._enter_safe_mode,
+                resume_callback=self._resume_handler,
                 repair_callback=self._execute_repair_plan,
             )
             
@@ -957,18 +1009,19 @@ class JackbotRunner:
                     self._telegram.notify_alert("高延遲警報", f"交易所連線延遲過高: {latency}ms")
                 
                 # 2. 檢查下單引擎是否有 400 錯誤後的異常
-                # 我們可以從最近的日誌或內部錯誤計數器檢查，這裡先以活躍網格掛單檢查為主
-                for grid in self._trader._engine.active_grids:
-                    orders = self._client.get_open_orders(grid.symbol)
-                    if not orders:
-                        self._telegram.notify_alert("網格掛單失蹤", f"{grid.symbol} 網格活躍中但在交易所找不到掛單")
+                # 只在非 safe_mode 時檢查，safe_mode 下掛單為 0 是預期行為
+                if not self._safe_mode_reason:
+                    for grid in self._trader._engine.active_grids:
+                        orders = self._client.get_open_orders(grid.symbol)
+                        if not orders:
+                            self._telegram.notify_alert("網格掛單失蹤", f"{grid.symbol} 網格活躍中但在交易所找不到掛單")
 
                 logger.debug("health_check_ok")
             except Exception as e:
                 logger.error("health_check_error", error=str(e))
 
-    async def _warmup_symbol(self, symbol: str) -> None:
-        """Fetch historical klines and feed to DayTrader for warmup."""
+    async def _warmup_symbol(self, symbol: str, *, indicators_only: bool = False) -> int:
+        """Fetch historical klines and replay them into the strategy."""
         try:
             klines = self._client.get_klines(
                 symbol=symbol,
@@ -987,11 +1040,16 @@ class JackbotRunner:
                     volume=k["volume"],
                     source="warmup",
                 )
-                self._trader.on_bar(event)
+                if indicators_only:
+                    self._trader.ingest_warmup_bar(event)
+                else:
+                    self._trader.on_bar(event)
 
             logger.info("warmup_complete", symbol=symbol, bars=len(klines))
+            return len(klines)
         except Exception as e:
             logger.warning("warmup_failed", symbol=symbol, error=str(e))
+            return 0
 
     def status(self) -> dict:
         summary = self._portfolio.get_summary()

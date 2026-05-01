@@ -193,6 +193,14 @@ class DayTrader:
         self._warming_up = False
         logger.info("warmup_mode_off")
 
+    def ingest_warmup_bar(self, event: MarketEvent) -> None:
+        """Replay a historical bar for indicators without running trading logic."""
+        if event.symbol not in self._cfg.symbols:
+            return
+        self._bar_counts[event.symbol] = self._bar_counts.get(event.symbol, 0) + 1
+        self._last_prices[event.symbol] = event.close
+        self._assessor.update(event.symbol, event.high, event.low, event.close)
+
     @property
     def daily_profit(self) -> float:
         return self._daily_profit

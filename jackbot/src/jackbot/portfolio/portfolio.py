@@ -106,7 +106,7 @@ class Portfolio:
         self._initial_capital = float(snapshot.get("initial_capital", self._initial_capital))
         self._realized_pnl = float(snapshot.get("realized_pnl", 0.0) or 0.0)
         self._total_commission = float(snapshot.get("total_commission", 0.0) or 0.0)
-        self._unrealized_pnl = float(snapshot.get("unrealized_pnl", 0.0) or 0.0)
+        self._unrealized_pnl = 0.0  # reset: stale snapshot value is wrong; recalculated from first price tick
         self._daily_pnl = {
             str(key): float(value) for key, value in dict(snapshot.get("daily_pnl", {})).items()
         }
