@@ -19,8 +19,9 @@ Supported commands:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -190,6 +191,113 @@ class TelegramCommander:
     async def _send(self, text: str) -> None:
         await self._notifier.send_message(text)
 
+    def _session_fills(self):
+        """Return fills recorded since this commander started."""
+        since = self._session_started_at_iso()
+        fills = self._journal.export_fills(since=since) if since else self._journal.export_fills()
+        if not fills.empty and "timestamp" in fills.columns:
+            fills = fills.sort_values("timestamp")
+        return fills
+
+    def _session_started_at_iso(self) -> str | None:
+        if self._started_at is None:
+            return None
+        started_at = self._started_at
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=UTC)
+        return started_at.isoformat()
+
+    def _journal_summary(self) -> dict[str, object]:
+        try:
+            return dict(self._journal.summary())
+        except Exception as exc:
+            logger.warning("telegram_commander_journal_summary_failed", error=str(exc))
+            return {}
+
+    def _session_pnl_summary(self) -> dict[str, object]:
+        """Summarize session PnL using fills since the bot started."""
+        fills = self._session_fills()
+        summary: dict[str, object] = {
+            "session_fills": int(len(fills)),
+            "session_realized_pnl": 0.0,
+            "session_commission": 0.0,
+            "session_net_pnl": 0.0,
+            "negative_fill_count": 0,
+            "negative_fills": [],
+        }
+
+        if fills.empty:
+            return summary
+
+        if "realized_pnl" in fills.columns:
+            summary["session_realized_pnl"] = float(fills["realized_pnl"].sum())
+            negative = fills[fills["realized_pnl"] < 0]
+            summary["negative_fill_count"] = int(len(negative))
+            if not negative.empty:
+                fields = [
+                    field
+                    for field in (
+                        "timestamp",
+                        "symbol",
+                        "side",
+                        "quantity",
+                        "price",
+                        "realized_pnl",
+                        "commission",
+                        "order_id",
+                        "client_order_id",
+                    )
+                    if field in negative.columns
+                ]
+                summary["negative_fills"] = (
+                    negative.sort_values("timestamp", ascending=False)
+                    .head(5)[fields]
+                    .to_dict("records")
+                )
+
+        if "commission" in fills.columns:
+            summary["session_commission"] = float(fills["commission"].sum())
+
+        summary["session_net_pnl"] = float(summary["session_realized_pnl"]) - float(summary["session_commission"])
+        return summary
+
+    @staticmethod
+    def _open_positions(portfolio: object) -> list[object]:
+        """Return open positions when the portfolio exposes that API."""
+        getter = getattr(portfolio, "get_open_positions", None)
+        if callable(getter):
+            try:
+                positions = getter()
+            except Exception as exc:
+                logger.warning("telegram_commander_open_positions_failed", error=str(exc))
+                return []
+            return list(positions or [])
+        return []
+
+    @staticmethod
+    def _format_negative_fill_lines(negative_fills: list[dict[str, object]]) -> list[str]:
+        """Format negative fills for Telegram output."""
+        if not negative_fills:
+            return []
+
+        lines = []
+        for fill in negative_fills:
+            timestamp = fill.get("timestamp", "?")
+            symbol = fill.get("symbol", "?")
+            side = fill.get("side", "?")
+            quantity = float(fill.get("quantity", 0.0) or 0.0)
+            price = float(fill.get("price", 0.0) or 0.0)
+            realized_pnl = float(fill.get("realized_pnl", 0.0) or 0.0)
+            order_id = fill.get("order_id", "")
+            client_order_id = fill.get("client_order_id", "")
+            order_ref = f" oid={order_id}" if order_id else ""
+            client_ref = f" coid={client_order_id}" if client_order_id else ""
+            lines.append(
+                f"  {timestamp} {symbol} {side} qty={quantity:.3f} "
+                f"price={price:.2f} pnl={realized_pnl:+.5f}{order_ref}{client_ref}"
+            )
+        return lines
+
     # ── Command handlers ───────────────────────────────────────────────────
 
     async def _cmd_help(self) -> str:
@@ -216,12 +324,13 @@ class TelegramCommander:
     async def _cmd_status(self) -> str:
         p = self._portfolio
         uptime = _format_uptime(self._started_at)
-        summary = self._journal.summary()
+        summary = self._session_pnl_summary()
+        journal_summary = self._journal_summary()
         equity   = p.equity
-        pnl_usd  = equity - self._initial_capital
+        pnl_usd  = float(summary["session_realized_pnl"])
         pnl_pct  = (pnl_usd / self._initial_capital * 100) if self._initial_capital else 0.0
         pnl_emoji = "📈" if pnl_usd >= 0 else "📉"
-        open_pos  = p.get_open_positions()
+        open_pos  = self._open_positions(p)
         version   = self._get_version()
 
         lines = [
@@ -229,14 +338,19 @@ class TelegramCommander:
             f"⏱ 運行時間: {uptime}",
             "",
             f"💰 初始資金:   ${self._initial_capital:,.2f}",
-            f"📈 目前權益:   ${equity:,.2f}",
-            f"{pnl_emoji} 總損益:     ${pnl_usd:+,.2f}  ({pnl_pct:+.2f}%)",
+            f"📈 目前權益(Paper): ${equity:,.2f}",
+            f"{pnl_emoji} 啟動後已實現(未扣手續費): ${pnl_usd:+,.2f}  ({pnl_pct:+.2f}%)",
+            f"💸 啟動後手續費: ${float(summary['session_commission']):,.2f}",
+            f"🧾 啟動後淨盈餘: ${float(summary['session_net_pnl']):+,.2f}",
+            f"📊 未實現損益: ${float(getattr(p, 'unrealized_pnl', 0.0)):+,.2f}",
             "",
             f"📋 持倉數量:   {len(open_pos)}",
-            f"🔄 總成交次數: {summary.get('total_fills', 0)}",
-            f"📊 完整交易:   {summary.get('total_trades', 0)}",
-            f"🎯 勝率:       {summary.get('win_rate', 0.0) * 100:.1f}%",
+            f"🔄 啟動後成交: {summary['session_fills']}",
+            f"📊 完整交易:   {int(journal_summary.get('total_trades', 0) or 0)}",
+            f"🎯 勝率:       {float(journal_summary.get('win_rate', 0.0) or 0.0) * 100:.1f}%",
+            f"⚠️ 負PnL 成交: {summary['negative_fill_count']}",
         ]
+        lines.extend(self._format_negative_fill_lines(summary["negative_fills"]))
         return "\n".join(lines)
 
     async def _cmd_balance(self) -> str:
@@ -288,32 +402,35 @@ class TelegramCommander:
         return "\n\n".join(lines)
 
     async def _cmd_pnl(self) -> str:
-        summary  = self._journal.summary()
+        summary  = self._session_pnl_summary()
+        journal_summary = self._journal_summary()
         p        = self._portfolio
-        net_pnl  = summary.get("net_pnl", 0.0)
-        fees     = summary.get("total_fees", 0.0)
-        trades   = summary.get("total_trades", 0)
-        win_rate = summary.get("win_rate", 0.0)
+        net_pnl  = float(summary["session_realized_pnl"])
+        fees     = float(summary["session_commission"])
+        trades   = int(summary["session_fills"])
+        completed_trades = int(journal_summary.get("total_trades", 0) or 0)
+        win_rate = float(journal_summary.get("win_rate", 0.0) or 0.0)
         unrealized = p.unrealized_pnl
-        total_pnl  = net_pnl + unrealized
+        total_pnl  = float(summary["session_net_pnl"]) + unrealized
         pnl_pct    = (total_pnl / self._initial_capital * 100) if self._initial_capital else 0.0
 
         pnl_emoji = "📈" if total_pnl >= 0 else "📉"
         lines = [
             f"{pnl_emoji} <b>損益明細</b>",
             "",
-            f"已實現損益:   ${net_pnl:+,.2f} USDT",
+            f"啟動後已實現(未扣手續費): ${net_pnl:+,.2f} USDT",
             f"未實現損益:   ${unrealized:+,.2f} USDT",
-            f"合計損益:     ${total_pnl:+,.2f} USDT  ({pnl_pct:+.2f}%)",
+            f"啟動後淨盈餘: ${total_pnl:+,.2f} USDT  ({pnl_pct:+.2f}%)",
             "",
             f"手續費支出:   ${fees:,.2f} USDT",
-            f"完整交易數:   {trades}",
+            f"啟動後成交數: {trades}",
+            f"完整交易數:   {completed_trades}",
             f"勝率:         {win_rate * 100:.1f}%",
         ]
 
         # Per-symbol breakdown from journal
         try:
-            fills = self._journal.export_fills()
+            fills = self._session_fills()
             if not fills.empty and "symbol" in fills.columns:
                 sym_pnl = (
                     fills.groupby("symbol")["realized_pnl"]
@@ -325,6 +442,10 @@ class TelegramCommander:
                     for sym, val in sym_pnl.items():
                         e = "📈" if val >= 0 else "📉"
                         lines.append(f"  {e} {sym}: ${val:+,.2f}")
+                negative_lines = self._format_negative_fill_lines(summary["negative_fills"])
+                if negative_lines:
+                    lines.append("\n<b>最近負PnL成交:</b>")
+                    lines.extend(negative_lines)
         except Exception:
             pass
 
@@ -427,7 +548,8 @@ class TelegramCommander:
 
         rm = self._risk_manager
         conservative = rm.conservative_mode
-        daily_pnl = rm.daily_pnl
+        session_summary = self._session_pnl_summary()
+        daily_pnl = float(session_summary["session_realized_pnl"])
         target = getattr(rm, "_daily_profit_target_usd", 0.0)
         regime = rm.regime.value if hasattr(rm.regime, "value") else str(rm.regime)
         adx = rm.adx
@@ -453,7 +575,7 @@ class TelegramCommander:
             return "⚠️ RiskManager 未連接，無法查詢目標進度。"
 
         rm = self._risk_manager
-        daily_pnl = rm.daily_pnl
+        daily_pnl = float(self._session_pnl_summary()["session_realized_pnl"])
         target = getattr(rm, "_daily_profit_target_usd", 0.0)
         conservative = rm.conservative_mode
 
