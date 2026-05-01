@@ -366,7 +366,7 @@ class JackbotCommander:
         return (
             "💰 <b>帳戶權益資訊 (虛擬)</b>\n\n"
             f"• 初始資金: ${summary['initial_capital']:.2f}\n"
-            f"• 總獲利: ${summary['realized_pnl']:.4f}\n"
+            f"• 總獲利(淨): ${summary['net_realized_pnl']:.4f}\n"
             f"• 未實現: ${summary['unrealized_pnl']:+.4f}\n"
             f"<b>• 當前權益: ${summary['total_equity']:.2f}</b>\n"
             f"• 今日盈虧: ${summary['today_pnl']:+.4f}\n"
