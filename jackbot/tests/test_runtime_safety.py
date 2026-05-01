@@ -194,8 +194,14 @@ def _make_runner(tmp_path, monkeypatch):
 def test_grid_client_order_id_round_trip() -> None:
     client_id = make_grid_client_order_id("grid_ETHUSDC_abcdef12", 3, "SELL", 2)
 
-    assert client_id == "jb_grid_grid_ETHUSDC_abcdef12_03_S_02"
+    assert client_id == "jb_ETHUSDC_abcdef12_03_S_02"
     assert parse_jackbot_client_order_id(client_id) == ("grid_ETHUSDC_abcdef12", 3)
+
+
+def test_legacy_grid_client_order_id_still_parses() -> None:
+    legacy_client_id = "jb_grid_grid_ETHUSDC_abcdef12_03_S_02"
+
+    assert parse_jackbot_client_order_id(legacy_client_id) == ("grid_ETHUSDC_abcdef12", 3)
 
 
 def test_exchange_journal_persists_fill_context(tmp_path) -> None:
@@ -388,7 +394,7 @@ def test_repair_confirm_places_recoverable_order_on_testnet(tmp_path, monkeypatc
     open_orders = runner._client.get_open_orders("ETHUSDC")
     assert len(open_orders) == 1
     assert open_orders[0]["side"] == "SELL"
-    assert open_orders[0]["clientOrderId"].startswith("jb_grid_grid_ETHUSDC_repair02_01_S_")
+    assert open_orders[0]["clientOrderId"].startswith("jb_ETHUSDC_repair02_01_S_")
 
 
 @pytest.mark.asyncio

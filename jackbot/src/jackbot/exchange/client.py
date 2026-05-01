@@ -13,12 +13,12 @@ import hashlib
 import hmac
 import os
 import time
+from decimal import Decimal
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
 import structlog
-from decimal import Decimal
 
 logger = structlog.get_logger(__name__)
 
@@ -274,12 +274,14 @@ class BinanceClient:
         return result
 
     def cancel_order(self, symbol: str, order_id: str) -> bool:
-        """Cancel a specific order."""
+        """Cancel a specific order by exchange orderId or clientOrderId."""
         try:
-            self._signed_delete("/fapi/v1/order", {
-                "symbol": symbol,
-                "orderId": order_id,
-            })
+            params = {"symbol": symbol}
+            if str(order_id).isdigit():
+                params["orderId"] = order_id
+            else:
+                params["origClientOrderId"] = order_id
+            self._signed_delete("/fapi/v1/order", params)
             logger.info("order_cancelled", symbol=symbol, order_id=order_id)
             return True
         except httpx.HTTPStatusError as e:
@@ -291,7 +293,7 @@ class BinanceClient:
                     return True
             except Exception:
                 pass
-            
+
             logger.warning("cancel_failed", symbol=symbol, order_id=order_id, error=str(e))
             return False
         except Exception as e:
