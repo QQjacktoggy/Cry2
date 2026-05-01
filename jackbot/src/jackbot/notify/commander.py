@@ -33,6 +33,7 @@ class JackbotCommander:
         status_provider: Any | None = None,
         reconcile_callback: Any | None = None,
         safe_mode_callback: Any | None = None,
+        exit_safe_mode_callback: Any | None = None,
         repair_callback: Any | None = None,
     ) -> None:
         self._bot = bot
@@ -44,6 +45,7 @@ class JackbotCommander:
         self._status_provider = status_provider
         self._reconcile_callback = reconcile_callback
         self._safe_mode_callback = safe_mode_callback
+        self._exit_safe_mode_callback = exit_safe_mode_callback
         self._repair_callback = repair_callback
         self._stop_event = stop_event
         self._offset: int = 0
@@ -128,6 +130,7 @@ class JackbotCommander:
             "safe": self._cmd_safe,
             "pause": self._cmd_safe,
             "halt": self._cmd_safe,
+            "resume": self._cmd_resume,
         }
 
         handler = handlers.get(cmd)
@@ -277,6 +280,7 @@ class JackbotCommander:
             "/repair   — 產生修復 dry-run 計畫\n"
             "/repair confirm — 執行可安全修復的補單\n"
             "/safe     — 暫停開新單，只保留監控\n"
+            "/resume   — 退出 safe mode（需全倉平倉）\n"
             "/help     — 顯示此幫助"
         )
 
@@ -583,3 +587,33 @@ class JackbotCommander:
         if self._safe_mode_callback is not None:
             self._safe_mode_callback(reason)
         return "🛡️ <b>Safe mode 已啟用</b>\nBot 會停止開新單，只保留監控與查詢。"
+
+    async def _cmd_resume(self, args: list[str] | None = None) -> str:
+        if not self._trader.safe_mode:
+            return "ℹ️ Bot 目前不在 safe mode，無需 resume。"
+
+        # Check exchange positions — must be fully flat before resuming
+        symbols = list(self._trader._cfg.symbols)
+        open_positions = []
+        try:
+            for symbol in symbols:
+                pos = self._client_api.get_position(symbol)
+                qty = float(pos.get("positionAmt", 0) or 0)
+                if qty != 0:
+                    open_positions.append(f"{symbol}: {qty:+.4f}")
+        except Exception as exc:
+            logger.warning("resume_position_check_failed", error=str(exc))
+            return f"⚠️ 無法查詢倉位，無法 resume：{exc}"
+
+        if open_positions:
+            positions_str = "\n".join(f"  • {p}" for p in open_positions)
+            return (
+                "❌ <b>無法退出 safe mode</b>\n"
+                "請先到交易所手動平倉以下倉位：\n"
+                f"{positions_str}\n\n"
+                "平倉後再發 /resume"
+            )
+
+        if self._exit_safe_mode_callback is not None:
+            self._exit_safe_mode_callback()
+        return "✅ <b>Safe mode 已關閉</b>\nBot 恢復正常開單。"

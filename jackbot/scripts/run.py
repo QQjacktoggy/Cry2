@@ -527,6 +527,12 @@ class JackbotRunner:
         logger.warning("runner_safe_mode_entered", reason=reason)
         self._persist_runtime_state()
 
+    def _exit_safe_mode(self) -> None:
+        self._safe_mode_reason = ""
+        self._trader.exit_safe_mode()
+        logger.info("runner_safe_mode_exited")
+        self._persist_runtime_state()
+
     def _reconcile_exchange_state(self) -> dict:
         """Compare exchange state with in-memory strategy state."""
         report = {
@@ -928,6 +934,7 @@ class JackbotRunner:
                 status_provider=self.status,
                 reconcile_callback=self._reconcile_exchange_state,
                 safe_mode_callback=self._enter_safe_mode,
+                exit_safe_mode_callback=self._exit_safe_mode,
                 repair_callback=self._execute_repair_plan,
             )
             
