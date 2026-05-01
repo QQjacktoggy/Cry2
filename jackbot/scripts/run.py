@@ -551,9 +551,21 @@ class JackbotRunner:
                 "orphan_orders": orphan_orders,
             }
 
+        expected_bars = self._trader._cfg.warmup_bars + 10
         total_bars = 0
+        warmup_failures: list[str] = []
         for symbol in self._trader._cfg.symbols:
-            total_bars += await self._warmup_symbol(symbol, indicators_only=True)
+            replayed_bars = await self._warmup_symbol(symbol, indicators_only=True)
+            total_bars += replayed_bars
+            if replayed_bars < expected_bars:
+                warmup_failures.append(f"{symbol}:{replayed_bars}/{expected_bars}")
+
+        if warmup_failures:
+            logger.warning("resume_warmup_incomplete", failures=warmup_failures)
+            return {
+                "status": "error",
+                "error": "warmup 失敗，safe mode 維持啟用：" + "; ".join(warmup_failures),
+            }
 
         self._exit_safe_mode()
         logger.info("resume_warmup_complete", symbols=list(self._trader._cfg.symbols), bars=total_bars)
