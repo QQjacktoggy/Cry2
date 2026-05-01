@@ -534,6 +534,14 @@ class JackbotRunner:
             logger.warning("resume_reconcile_failed", error=str(exc))
             return {"status": "error", "error": str(exc)}
 
+        # Fix 2: treat any API failure during reconcile as blocking
+        if reconcile.get("status") == "error":
+            warnings = reconcile.get("warnings", [])
+            return {
+                "status": "error",
+                "error": "交易所 API 查詢失敗，無法確認倉位狀態：" + ("; ".join(warnings) or "unknown"),
+            }
+
         orphan_positions = reconcile.get("orphan_positions", [])
         orphan_orders = reconcile.get("orphan_orders", [])
         if orphan_positions or orphan_orders:
@@ -543,13 +551,20 @@ class JackbotRunner:
                 "orphan_orders": orphan_orders,
             }
 
-        self._exit_safe_mode()
-
+        # Fix 1: re-enable warmup mode before replaying bars so on_bar() only
+        # updates indicators and cannot create/close grids against stale data.
+        # Safe mode stays on during replay; cleared only after warmup completes.
+        self._trader._warming_up = True
         total_bars = 0
-        for symbol in self._trader._cfg.symbols:
-            await self._warmup_symbol(symbol)
-            total_bars += self._trader._cfg.warmup_bars
+        try:
+            for symbol in self._trader._cfg.symbols:
+                await self._warmup_symbol(symbol)
+                total_bars += self._trader._cfg.warmup_bars
+        finally:
+            self._trader.mark_warmup_complete()
+
         logger.info("resume_warmup_complete", symbols=list(self._trader._cfg.symbols), bars=total_bars)
+        self._exit_safe_mode()
 
         return {"status": "ok", "warmup_bars": total_bars}
 
