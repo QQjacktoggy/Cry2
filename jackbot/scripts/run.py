@@ -384,9 +384,8 @@ class JackbotRunner:
 
             min_notional = self._client.min_notional(signal.symbol)
             if min_notional > 0 and not signal.reduce_only and notional < min_notional:
-                self._enter_safe_mode(
-                    f"order_notional_below_min:{signal.symbol}:{notional:.4f}<{min_notional:.4f}"
-                )
+                # Dust order from partial fill: skip silently instead of entering safe_mode.
+                # safe_mode is reserved for exchange connectivity and orphan position issues.
                 self._journal.save_order_signal(
                     client_order_id=signal_key,
                     grid_id=signal.grid_id,
@@ -399,24 +398,18 @@ class JackbotRunner:
                     reduce_only=signal.reduce_only,
                     cancel_order_id=signal.cancel_order_id,
                     notional=notional,
-                    status="blocked_min_notional",
+                    status="skipped_min_notional",
                     error_message=f"min_notional={min_notional:.4f}",
                 )
-                self._telegram.notify_alert(
-                    "Counter order blocked",
-                    f"{signal.symbol} {signal.side} qty={signal.quantity} notional={notional:.4f} min={min_notional:.4f}",
-                )
-                logger.error(
-                    "signal_blocked_min_notional",
+                logger.warning(
+                    "signal_skipped_min_notional",
                     symbol=signal.symbol,
                     side=signal.side,
                     quantity=signal.quantity,
                     price=signal.price,
                     notional=notional,
                     min_notional=min_notional,
-                    signal=signal.model_dump(),
                 )
-                self._persist_runtime_state()
                 return False
 
             # Set leverage before first order for each grid
@@ -938,6 +931,12 @@ class JackbotRunner:
             # Load symbol precision info (qty/price decimal places)
             self._client.load_symbol_info(self._trader._cfg.symbols)
 
+            if self._safe_mode_reason:
+                self._telegram.notify_alert(
+                    "🛡️ Bot 啟動於 Safe Mode",
+                    f"已從上次 session 還原，原因: {self._safe_mode_reason}\n發 /resume 退出 safe mode",
+                )
+
             reconcile = self._reconcile_exchange_state()
             if reconcile["status"] != "ok":
                 self._enter_safe_mode("startup_exchange_orphan_state")
@@ -991,11 +990,12 @@ class JackbotRunner:
                     self._telegram.notify_alert("高延遲警報", f"交易所連線延遲過高: {latency}ms")
                 
                 # 2. 檢查下單引擎是否有 400 錯誤後的異常
-                # 我們可以從最近的日誌或內部錯誤計數器檢查，這裡先以活躍網格掛單檢查為主
-                for grid in self._trader._engine.active_grids:
-                    orders = self._client.get_open_orders(grid.symbol)
-                    if not orders:
-                        self._telegram.notify_alert("網格掛單失蹤", f"{grid.symbol} 網格活躍中但在交易所找不到掛單")
+                # 只在非 safe_mode 時檢查，safe_mode 下掛單為 0 是預期行為
+                if not self._safe_mode_reason:
+                    for grid in self._trader._engine.active_grids:
+                        orders = self._client.get_open_orders(grid.symbol)
+                        if not orders:
+                            self._telegram.notify_alert("網格掛單失蹤", f"{grid.symbol} 網格活躍中但在交易所找不到掛單")
 
                 logger.debug("health_check_ok")
             except Exception as e:
