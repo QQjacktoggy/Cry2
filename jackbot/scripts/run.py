@@ -533,6 +533,33 @@ class JackbotRunner:
         logger.info("runner_safe_mode_exited")
         self._persist_runtime_state()
 
+    async def _resume_handler(self) -> dict:
+        """Reconcile exchange state and exit safe mode, then re-warmup strategy indicators."""
+        try:
+            reconcile = self._reconcile_exchange_state()
+        except Exception as exc:
+            logger.warning("resume_reconcile_failed", error=str(exc))
+            return {"status": "error", "error": str(exc)}
+
+        orphan_positions = reconcile.get("orphan_positions", [])
+        orphan_orders = reconcile.get("orphan_orders", [])
+        if orphan_positions or orphan_orders:
+            return {
+                "status": "orphan_detected",
+                "orphan_positions": orphan_positions,
+                "orphan_orders": orphan_orders,
+            }
+
+        self._exit_safe_mode()
+
+        total_bars = 0
+        for symbol in self._trader._cfg.symbols:
+            await self._warmup_symbol(symbol)
+            total_bars += self._trader._cfg.warmup_bars
+        logger.info("resume_warmup_complete", symbols=list(self._trader._cfg.symbols), bars=total_bars)
+
+        return {"status": "ok", "warmup_bars": total_bars}
+
     def _reconcile_exchange_state(self) -> dict:
         """Compare exchange state with in-memory strategy state."""
         report = {
@@ -934,7 +961,7 @@ class JackbotRunner:
                 status_provider=self.status,
                 reconcile_callback=self._reconcile_exchange_state,
                 safe_mode_callback=self._enter_safe_mode,
-                exit_safe_mode_callback=self._exit_safe_mode,
+                resume_callback=self._resume_handler,
                 repair_callback=self._execute_repair_plan,
             )
             

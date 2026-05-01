@@ -33,7 +33,7 @@ class JackbotCommander:
         status_provider: Any | None = None,
         reconcile_callback: Any | None = None,
         safe_mode_callback: Any | None = None,
-        exit_safe_mode_callback: Any | None = None,
+        resume_callback: Any | None = None,
         repair_callback: Any | None = None,
     ) -> None:
         self._bot = bot
@@ -45,7 +45,7 @@ class JackbotCommander:
         self._status_provider = status_provider
         self._reconcile_callback = reconcile_callback
         self._safe_mode_callback = safe_mode_callback
-        self._exit_safe_mode_callback = exit_safe_mode_callback
+        self._resume_callback = resume_callback
         self._repair_callback = repair_callback
         self._stop_event = stop_event
         self._offset: int = 0
@@ -592,28 +592,41 @@ class JackbotCommander:
         if not self._trader.safe_mode:
             return "ℹ️ Bot 目前不在 safe mode，無需 resume。"
 
-        # Check exchange positions — must be fully flat before resuming
-        symbols = list(self._trader._cfg.symbols)
-        open_positions = []
-        try:
-            for symbol in symbols:
-                pos = self._client_api.get_position(symbol)
-                qty = float(pos.get("positionAmt", 0) or 0)
-                if qty != 0:
-                    open_positions.append(f"{symbol}: {qty:+.4f}")
-        except Exception as exc:
-            logger.warning("resume_position_check_failed", error=str(exc))
-            return f"⚠️ 無法查詢倉位，無法 resume：{exc}"
+        if self._resume_callback is None:
+            return "⚠️ resume 功能未設定。"
 
-        if open_positions:
-            positions_str = "\n".join(f"  • {p}" for p in open_positions)
-            return (
-                "❌ <b>無法退出 safe mode</b>\n"
-                "請先到交易所手動平倉以下倉位：\n"
-                f"{positions_str}\n\n"
-                "平倉後再發 /resume"
-            )
+        result = await self._resume_callback()
+        status = result.get("status", "error")
 
-        if self._exit_safe_mode_callback is not None:
-            self._exit_safe_mode_callback()
-        return "✅ <b>Safe mode 已關閉</b>\nBot 恢復正常開單。"
+        if status == "orphan_detected":
+            orphan_positions = result.get("orphan_positions", [])
+            orphan_orders = result.get("orphan_orders", [])
+            lines = ["❌ <b>無法退出 safe mode，發現未對齊項目：</b>"]
+            if orphan_positions:
+                lines.append("\n<b>Orphan 倉位（請至交易所手動平倉）</b>")
+                for p in orphan_positions:
+                    symbol = p.get("symbol", "?")
+                    qty = float(p.get("positionAmt", 0) or 0)
+                    entry = float(p.get("entryPrice", 0) or 0)
+                    lines.append(f"  • {symbol}: {qty:+.4f} @ {entry:.2f}")
+            if orphan_orders:
+                lines.append("\n<b>Orphan 掛單（請至交易所手動取消）</b>")
+                for o in orphan_orders[:5]:
+                    symbol = o.get("symbol", "?")
+                    side = o.get("side", "?")
+                    price = float(o.get("price", 0) or 0)
+                    qty = float(o.get("origQty", 0) or 0)
+                    lines.append(f"  • {symbol} {side} {qty:.4f} @ {price:.2f}")
+                if len(orphan_orders) > 5:
+                    lines.append(f"  <i>...還有 {len(orphan_orders) - 5} 筆</i>")
+            lines.append("\n清除後再發 /resume")
+            return "\n".join(lines)
+
+        if status == "error":
+            return f"⚠️ Resume 失敗：{result.get('error', '未知錯誤')}"
+
+        warmup_bars = result.get("warmup_bars", 0)
+        return (
+            "✅ <b>Safe mode 已關閉</b>\n"
+            f"倉位對齊確認，已重新讀取 {warmup_bars} 根 K 線評估策略，Bot 恢復正常開單。"
+        )
