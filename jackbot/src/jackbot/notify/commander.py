@@ -1,21 +1,24 @@
 """Jackbot Commander — interactive command handler for the running bot."""
 from __future__ import annotations
+
 import asyncio
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+
 import httpx
 import structlog
 
 if TYPE_CHECKING:
     from jackbot.notify.telegram import TelegramBot
-    from jackbot.strategy.day_trader import DayTrader
-    from jackbot.portfolio.portfolio import Portfolio
     from jackbot.portfolio.exchange_journal import ExchangeJournal
+    from jackbot.portfolio.portfolio import Portfolio
+    from jackbot.strategy.day_trader import DayTrader
 
 logger = structlog.get_logger(__name__)
 
 _POLL_INTERVAL = 5.0
 _POLL_TIMEOUT = 15
+
 
 class JackbotCommander:
     def __init__(
@@ -83,20 +86,22 @@ class JackbotCommander:
         resp = await self._client.get(url, params=params)
         resp.raise_for_status()
         data = resp.json()
-        if not data.get("ok"): return
+        if not data.get("ok"):
+            return
         updates = data.get("result", [])
-            
+
         for update in updates:
             self._offset = update["update_id"] + 1
             msg = update.get("message")
-            if not msg: continue
-            
+            if not msg:
+                continue
+
             chat_id = str(msg.get("chat", {}).get("id", ""))
             if not self._authorization_enabled:
                 continue
             if chat_id != self._authorized_chat_id:
                 continue
-                
+
             text = (msg.get("text") or "").strip()
             if text.startswith("/"):
                 await self._dispatch(text, chat_id)
@@ -104,7 +109,7 @@ class JackbotCommander:
     async def _dispatch(self, text: str, chat_id: str) -> None:
         parts = text.split()
         cmd = parts[0].lower().lstrip("/")
-        
+
         handlers = {
             "help": self._cmd_help,
             "status": self._cmd_status,
@@ -124,7 +129,7 @@ class JackbotCommander:
             "pause": self._cmd_safe,
             "halt": self._cmd_safe,
         }
-        
+
         handler = handlers.get(cmd)
         if handler:
             try:
@@ -182,6 +187,43 @@ class JackbotCommander:
             "negative_fills": negative_fills,
         }
 
+    def _exchange_summary_from_status(self, status: dict[str, Any]) -> dict[str, object]:
+        """Return exchange-first PnL/trade numbers for Telegram commands."""
+        session_summary = self._session_summary()
+        realized = float(
+            status.get(
+                "exchange_today_realized_pnl",
+                status.get("session_realized_pnl", session_summary["session_realized_pnl"]),
+            )
+            or 0.0
+        )
+        commission = float(
+            status.get(
+                "exchange_today_commission",
+                status.get("session_commission", session_summary["session_commission"]),
+            )
+            or 0.0
+        )
+        fills = int(
+            status.get(
+                "exchange_today_fills",
+                status.get("session_fills", session_summary["session_fills"]),
+            )
+            or 0
+        )
+        negative_fills = list(status.get("session_negative_fills", session_summary["negative_fills"]) or [])
+        return {
+            "realized_pnl": realized,
+            "commission": commission,
+            "net_pnl": realized - commission,
+            "fills": fills,
+            "last_fill_at": status.get("exchange_last_fill_at", session_summary["session_last_fill_at"]),
+            "negative_fill_count": int(
+                status.get("session_negative_fill_count", session_summary["negative_fill_count"]) or 0
+            ),
+            "negative_fills": negative_fills,
+        }
+
     @staticmethod
     def _format_negative_fill_lines(negative_fills: list[dict[str, object]]) -> list[str]:
         """Format negative fills for Telegram output."""
@@ -228,60 +270,60 @@ class JackbotCommander:
         )
 
     async def _cmd_status(self, args: list[str] | None = None) -> str:
-        summary = self._session_summary()
         status = self._status_provider() if self._status_provider else self._trader.get_status()
+        exchange_summary = self._exchange_summary_from_status(status)
         active = status.get("active_grids", [])
         repair = status.get("exchange_repair_plan", {})
         portfolio_summary = self._portfolio.get_summary()
         started_label = self._started_at.strftime("%m-%d %H:%M UTC")
 
-        lines = [f"📊 <b>Jackbot 狀態</b>"]
+        lines = ["📊 <b>Jackbot 狀態</b>"]
         lines.append(f"• 策略: {status.get('strategy_variant', '?')}")
         lines.append(f"• 模式: {status.get('mode', '?')}")
         lines.append(f"• Safe mode: {status.get('safe_mode', False)} {status.get('safe_mode_reason', '')}")
         lines.append(f"⚡ <i>PnL 起算: {started_label} (Docker 啟動)</i>")
-        lines.append(f"• 已實現: ${float(summary['session_realized_pnl']):+.4f} USDT")
-        lines.append(f"• 手續費: ${float(summary['session_commission']):.6f} USDT")
-        lines.append(f"• 淨盈餘: ${float(summary['session_net_pnl']):+.4f} USDT")
-        lines.append(f"• 當前權益: <b>${portfolio_summary['total_equity']:.2f}</b>")
+        lines.append(f"• 交易所已實現: ${float(exchange_summary['realized_pnl']):+.4f} USDT")
+        lines.append(f"• 交易所手續費: ${float(exchange_summary['commission']):.6f} USDT")
+        lines.append(f"• 交易所淨盈餘: ${float(exchange_summary['net_pnl']):+.4f} USDT")
+        lines.append(f"• Paper 權益: <b>${portfolio_summary['total_equity']:.2f}</b>")
         lines.append(f"• 活躍網格: {len(active)} 個")
         lines.append(f"• 交易所掛單: {len(status.get('exchange_open_orders', []))} 筆")
         lines.append(f"• Orphan 掛單: {len(status.get('exchange_orphan_orders', []))} 筆")
         lines.append(f"• Orphan 倉位: {len(status.get('exchange_orphan_positions', []))} 筆")
         lines.append(f"• Recoverable 修復: {len(repair.get('recoverable_actions', []))} 筆")
         lines.append(f"• Blocking 問題: {len(repair.get('blocking_issues', []))} 筆")
-        lines.append(f"• 成交筆數: {summary['session_fills']} 筆")
-        lines.append(f"• 負PnL 成交: {summary['negative_fill_count']} 筆")
+        lines.append(f"• 交易所成交筆數: {exchange_summary['fills']} 筆")
+        lines.append(f"• 負PnL 成交: {exchange_summary['negative_fill_count']} 筆")
 
         for g in active:
             lines.append(f"\n🏷 <b>{g['symbol']} ({g['direction']})</b>")
             lines.append(f"  - 範圍: {g['range']}")
             lines.append(f"  - 槓桿: {g['leverage']}x")
             lines.append(f"  - 浮盈: ${g['unrealized_pnl']:.2f}")
-            
+
             level_details = g.get("level_details", [])
             if level_details:
-                pending = [l for l in level_details if "pending" in l["state"]]
-                filled = [l for l in level_details if "filled" in l["state"]]
+                pending = [level for level in level_details if "pending" in level["state"]]
+                filled = [level for level in level_details if "filled" in level["state"]]
                 lines.append(f"  - 狀態: {len(filled)} 已成交, {len(pending)} 等待中")
 
-        lines.extend(self._format_negative_fill_lines(summary["negative_fills"]))
+        lines.extend(self._format_negative_fill_lines(exchange_summary["negative_fills"]))
         return "\n".join(lines)
 
     async def _cmd_pnl(self, args: list[str] | None = None) -> str:
-        summary = self._session_summary()
         fills = self._session_fills()
-        status = self._trader.get_status()
+        status = self._status_provider() if self._status_provider else self._trader.get_status()
+        exchange_summary = self._exchange_summary_from_status(status)
         active = status.get("active_grids", [])
         started_label = self._started_at.strftime("%Y-%m-%d %H:%M UTC")
 
-        lines = [f"📈 <b>損益明細</b>"]
+        lines = ["📈 <b>損益明細</b>"]
         lines.append(f"⚡ <i>起算: {started_label} (Docker 啟動時間)</i>\n")
-        lines.append(f"• 已實現: ${float(summary['session_realized_pnl']):+.4f} USDT")
-        lines.append(f"• 手續費: ${float(summary['session_commission']):.6f} USDT")
-        lines.append(f"• 淨盈餘: ${float(summary['session_net_pnl']):+.4f} USDT")
-        lines.append(f"• 成交筆數: {summary['session_fills']} 次")
-        lines.append(f"• 負PnL 成交: {summary['negative_fill_count']} 筆")
+        lines.append(f"• 交易所已實現: ${float(exchange_summary['realized_pnl']):+.4f} USDT")
+        lines.append(f"• 交易所手續費: ${float(exchange_summary['commission']):.6f} USDT")
+        lines.append(f"• 交易所淨盈餘: ${float(exchange_summary['net_pnl']):+.4f} USDT")
+        lines.append(f"• 交易所成交筆數: {exchange_summary['fills']} 次")
+        lines.append(f"• 負PnL 成交: {exchange_summary['negative_fill_count']} 筆")
 
         if active:
             lines.append(f"\n<b>活躍網格:</b> {len(active)} 個")
@@ -299,7 +341,7 @@ class JackbotCommander:
                 lines.append(f"  {emoji} {sym}: ${pnl:+.4f}")
 
         lines.append("\n<b>最近負PnL 成交:</b>")
-        lines.extend(self._format_negative_fill_lines(summary["negative_fills"]))
+        lines.extend(self._format_negative_fill_lines(exchange_summary["negative_fills"]))
         return "\n".join(lines)
 
     async def _cmd_balance(self, args: list[str] | None = None) -> str:
@@ -318,13 +360,13 @@ class JackbotCommander:
         """Query real Binance balance."""
         loop = asyncio.get_event_loop()
         account = await loop.run_in_executor(None, self._client_api.get_account_info)
-        
+
         lines = ["💳 <b>Binance 錢包餘額</b>\n"]
         assets = [a for a in account.get("assets", []) if float(a.get("walletBalance", 0)) > 0.01]
-        
+
         for a in assets:
             lines.append(f"• <b>{a['asset']}</b>: {float(a['walletBalance']):.4f}")
-            
+
         lines.append(f"\n<b>總權益:</b> ${float(account.get('totalMarginBalance', 0)):.2f} USDT")
         lines.append(f"<b>可用保證金:</b> ${float(account.get('availableBalance', 0)):.2f} USDT")
         return "\n".join(lines)
@@ -333,7 +375,7 @@ class JackbotCommander:
         """Query open orders."""
         lines = ["📋 <b>當前掛單明細</b>"]
         loop = asyncio.get_event_loop()
-        
+
         any_order = False
         for symbol in self._trader._cfg.symbols:
             orders = await loop.run_in_executor(None, self._client_api.get_open_orders, symbol)
@@ -343,10 +385,10 @@ class JackbotCommander:
                 for o in orders:
                     side = "買" if o["side"] == "BUY" else "賣"
                     lines.append(f"  - {side} {o['origQty']} @ {o['price']}")
-        
+
         if not any_order:
             return "📋 <b>目前沒有任何掛單</b>"
-            
+
         return "\n".join(lines)
 
     async def _cmd_pos(self, args: list[str] | None = None) -> str:
