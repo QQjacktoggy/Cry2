@@ -551,20 +551,12 @@ class JackbotRunner:
                 "orphan_orders": orphan_orders,
             }
 
-        # Fix 1: re-enable warmup mode before replaying bars so on_bar() only
-        # updates indicators and cannot create/close grids against stale data.
-        # Safe mode stays on during replay; cleared only after warmup completes.
-        self._trader._warming_up = True
         total_bars = 0
-        try:
-            for symbol in self._trader._cfg.symbols:
-                await self._warmup_symbol(symbol)
-                total_bars += self._trader._cfg.warmup_bars
-        finally:
-            self._trader.mark_warmup_complete()
+        for symbol in self._trader._cfg.symbols:
+            total_bars += await self._warmup_symbol(symbol, indicators_only=True)
 
-        logger.info("resume_warmup_complete", symbols=list(self._trader._cfg.symbols), bars=total_bars)
         self._exit_safe_mode()
+        logger.info("resume_warmup_complete", symbols=list(self._trader._cfg.symbols), bars=total_bars)
 
         return {"status": "ok", "warmup_bars": total_bars}
 
@@ -959,7 +951,7 @@ class JackbotRunner:
 
             # Warmup: fetch historical klines (indicators only, no order placement)
             for symbol in self._trader._cfg.symbols:
-                await self._warmup_symbol(symbol)
+                await self._warmup_symbol(symbol, indicators_only=True)
             self._trader.mark_warmup_complete()
 
             # Start WebSocket feed and Commander concurrently
@@ -1016,8 +1008,8 @@ class JackbotRunner:
             except Exception as e:
                 logger.error("health_check_error", error=str(e))
 
-    async def _warmup_symbol(self, symbol: str) -> None:
-        """Fetch historical klines and feed to DayTrader for warmup."""
+    async def _warmup_symbol(self, symbol: str, *, indicators_only: bool = False) -> int:
+        """Fetch historical klines and replay them into the strategy."""
         try:
             klines = self._client.get_klines(
                 symbol=symbol,
@@ -1036,11 +1028,16 @@ class JackbotRunner:
                     volume=k["volume"],
                     source="warmup",
                 )
-                self._trader.on_bar(event)
+                if indicators_only:
+                    self._trader.ingest_warmup_bar(event)
+                else:
+                    self._trader.on_bar(event)
 
             logger.info("warmup_complete", symbol=symbol, bars=len(klines))
+            return len(klines)
         except Exception as e:
             logger.warning("warmup_failed", symbol=symbol, error=str(e))
+            return 0
 
     def status(self) -> dict:
         summary = self._portfolio.get_summary()
