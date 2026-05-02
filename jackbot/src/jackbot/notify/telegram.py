@@ -172,6 +172,7 @@ class TelegramBot:
         self,
         *,
         symbol: str,
+        side: str,
         quantity: float,
         price: float,
         exchange_pnl: float,
@@ -179,9 +180,9 @@ class TelegramBot:
         commission_asset: str = "",
         grid_id: str = "",
     ) -> None:
-        """SELL fill that closed a position but had no matching BUY in the grid tracker.
+        """Exit fill that closed a position but had no matching entry in the grid tracker.
 
-        This happens when a grid breaks out or is closed before the counter-sell is paired.
+        This happens when a grid breaks out or is closed before the counter-order is paired.
         Shows the exchange-reported PnL for transparency — this is Binance's position accounting,
         not grid profit, so it may differ from what the grid would have calculated.
         """
@@ -189,7 +190,7 @@ class TelegramBot:
         grid_str = f"\nGrid: <code>{grid_id}</code> (已關閉)" if grid_id else ""
         msg = (
             f"📤 <b>成交 (無配對)</b>\n"
-            f"{symbol} SELL <code>{quantity:.4f}</code> @ <code>{price:.4f}</code>\n"
+            f"{symbol} {side} <code>{quantity:.4f}</code> @ <code>{price:.4f}</code>\n"
             f"交易所 PnL: <code>{pnl_prefix}${exchange_pnl:.5f}</code>\n"
             f"手續費: <code>-${commission:.6f} {commission_asset or 'USDC'}</code>"
             f"{grid_str}"
@@ -231,6 +232,7 @@ class TelegramBot:
         else:
             self.notify_unmatched_fill(
                 symbol=symbol,
+                side=side,
                 quantity=quantity,
                 price=price,
                 exchange_pnl=realized_pnl,

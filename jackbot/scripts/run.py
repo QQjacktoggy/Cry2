@@ -270,6 +270,7 @@ class JackbotRunner:
         if not self._is_entry_fill(fill) and fill.realized_pnl != 0 and not profit_matched:
             self._telegram.notify_unmatched_fill(
                 symbol=fill.symbol,
+                side=fill.side,
                 quantity=fill.quantity,
                 price=fill.price,
                 exchange_pnl=fill.realized_pnl,
