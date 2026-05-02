@@ -234,8 +234,8 @@ class JackbotRunner:
         session_commission = float(session_summary.today_commission)
         session_net_pnl = session_realized - session_commission
 
-        # BUY fills (pnl=0) = entry confirmation only, no profit yet
-        if fill.realized_pnl == 0:
+        # BUY fills = entry confirmation only, no profit yet
+        if fill.side == "BUY":
             self._telegram.notify_entry_fill(
                 symbol=fill.symbol,
                 side=fill.side,

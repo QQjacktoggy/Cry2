@@ -215,7 +215,7 @@ class TelegramBot:
         daily_target: float = 0.0,
     ) -> None:
         """Legacy method — routes to the appropriate focused notifier."""
-        if abs(realized_pnl) < 1e-12:
+        if side == "BUY":
             self.notify_entry_fill(
                 symbol=symbol,
                 side=side,
