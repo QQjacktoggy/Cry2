@@ -79,6 +79,9 @@ class DayTraderConfig:
     expected_edge_floor_bps: float = 0.0
     slippage_buffer_bps: float = 0.0
     safety_margin_bps: float = 0.0
+    # Non-bypassable guard: reject grids whose step_bps < round-trip fee × this ratio.
+    # Set to 0 to disable. Independent of variant — protects against fee-induced losses.
+    hard_fee_margin_ratio: float = 1.5
     breakout_cooldown_bars: int = 0
     adaptive_spacing_adx_weight: float = 0.0
     adaptive_spacing_atr_weight: float = 0.0
@@ -508,6 +511,23 @@ class DayTrader:
 
         if self._cfg.strategy_variant == "hybrid_trend_grid" and variant_regime in {"directional", "trend"}:
             grid_count = max(4, int(round(grid_count * 0.8)))
+
+        if self._cfg.hard_fee_margin_ratio > 0 and current_price > 0 and grid_count > 0 and upper > lower:
+            fee_bps_guard = (self._cfg.maker_fee_rate * 2 + self._cfg.taker_fee_rate) * 10000
+            step_bps_guard = (upper - lower) / grid_count / current_price * 10000
+            required_step_bps = fee_bps_guard * self._cfg.hard_fee_margin_ratio
+            if step_bps_guard < required_step_bps:
+                logger.info(
+                    "hard_fee_guard_skip",
+                    symbol=symbol,
+                    variant=self._cfg.strategy_variant,
+                    regime=variant_regime,
+                    step_bps=round(step_bps_guard, 3),
+                    fee_bps=round(fee_bps_guard, 3),
+                    required_step_bps=round(required_step_bps, 3),
+                    ratio=self._cfg.hard_fee_margin_ratio,
+                )
+                return []
 
         expected_edge_bps = self._compute_expected_edge_bps(current_price, upper, lower, grid_count)
         if expected_edge_bps < self._cfg.expected_edge_floor_bps:

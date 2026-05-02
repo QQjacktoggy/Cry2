@@ -41,6 +41,9 @@ conservative:
 risk:
   max_concurrent_grids: 2
   max_daily_resets: 10
+  # Hard fee guard: reject any grid whose per-step bps < round-trip fee × this ratio.
+  # 1.5 = step must be at least 150% of round-trip fee. Set 0 to disable.
+  hard_fee_margin_ratio: 1.5
 
 fees:
   maker: 0.00018

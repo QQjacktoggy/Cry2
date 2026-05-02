@@ -252,6 +252,79 @@ class TestVariantBehaviors:
         signals = trader.on_bar(_make_bar("BTCUSDT", 95000.0, offset=55))
         assert signals == []
 
+    def test_hard_fee_guard_skips_thin_grid(self):
+        """Grid whose step_bps is below fee × hard_fee_margin_ratio must be rejected,
+        regardless of variant or expected_edge_floor_bps."""
+        bus = EventBus()
+        config = DayTraderConfig(
+            symbols=["BTCUSDT"],
+            strategy_variant="baseline_grid",
+            expected_edge_floor_bps=0.0,
+            slippage_buffer_bps=0.0,
+            safety_margin_bps=0.0,
+            maker_fee_rate=0.00018,
+            taker_fee_rate=0.00045,
+            hard_fee_margin_ratio=1.5,
+            warmup_bars=50,
+        )
+        trader = DayTrader(config=config, event_bus=bus)
+        _warmup(trader, "BTCUSDT", 95000.0)
+        trader.mark_warmup_complete()
+
+        from jackbot.core.constants import GridDirection, Regime
+
+        thin = MarketAssessment(
+            symbol="BTCUSDT",
+            direction=GridDirection.NEUTRAL,
+            regime=Regime.RANGING,
+            upper_price=95005.0,
+            lower_price=94995.0,
+            current_price=95000.0,
+            adx=18.0, atr=80.0, atr_pct=0.08,
+            confidence=0.8,
+            suggested_grid_count=8,
+            suggested_leverage=5,
+            plus_di=15.0, minus_di=14.0, adx_slope=0.1,
+            ema_fast=95000.0, ema_slow=95000.0, range_pct=0.01,
+        )
+        signals = trader._try_create_grid("BTCUSDT", 95000.0, thin)
+        assert signals == []
+
+    def test_hard_fee_guard_allows_wide_grid(self):
+        """Grid with step_bps comfortably above fee threshold is allowed through the guard."""
+        bus = EventBus()
+        config = DayTraderConfig(
+            symbols=["BTCUSDT"],
+            strategy_variant="baseline_grid",
+            expected_edge_floor_bps=0.0,
+            maker_fee_rate=0.00018,
+            taker_fee_rate=0.00045,
+            hard_fee_margin_ratio=1.5,
+            warmup_bars=50,
+        )
+        trader = DayTrader(config=config, event_bus=bus)
+        _warmup(trader, "BTCUSDT", 95000.0)
+        trader.mark_warmup_complete()
+
+        from jackbot.core.constants import GridDirection, Regime
+
+        wide = MarketAssessment(
+            symbol="BTCUSDT",
+            direction=GridDirection.NEUTRAL,
+            regime=Regime.RANGING,
+            upper_price=96000.0,
+            lower_price=94000.0,
+            current_price=95000.0,
+            adx=22.0, atr=400.0, atr_pct=0.42,
+            confidence=0.8,
+            suggested_grid_count=8,
+            suggested_leverage=5,
+            plus_di=18.0, minus_di=15.0, adx_slope=0.2,
+            ema_fast=95100.0, ema_slow=94900.0, range_pct=2.1,
+        )
+        signals = trader._try_create_grid("BTCUSDT", 95000.0, wide)
+        assert isinstance(signals, list)
+
     def test_breakout_cooldown_blocks_immediate_rebuild(self):
         bus = EventBus()
         config = DayTraderConfig(
