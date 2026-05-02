@@ -89,6 +89,7 @@ class JackbotRunner:
         self._journal = ExchangeJournal()
         self._testnet = testnet
         self._safe_mode_reason = ""
+        self._last_profit_fired = False
         self._last_reconcile: dict = {
             "status": "not_run",
             "positions": [],
@@ -233,18 +234,15 @@ class JackbotRunner:
         session_commission = float(session_summary.today_commission)
         session_net_pnl = session_realized - session_commission
 
+        # BUY fills (pnl=0) = entry confirmation only, no profit yet
         if fill.realized_pnl == 0:
-            self._telegram.notify_exchange_fill(
+            self._telegram.notify_entry_fill(
                 symbol=fill.symbol,
                 side=fill.side,
                 quantity=fill.quantity,
                 price=fill.price,
                 commission=fill.commission,
                 commission_asset=fill.commission_asset,
-                realized_pnl=fill.realized_pnl,
-                order_id=fill.order_id,
-                trade_id=fill.trade_id,
-                client_order_id=fill.client_order_id,
                 grid_id=fill.grid_id,
                 level_index=fill.level_index,
                 daily_profit=session_net_pnl,
@@ -262,9 +260,24 @@ class JackbotRunner:
             self._persist_runtime_state()
             return
 
-        # Pass to trader
+        # Pass to trader; _on_profit fires synchronously via event bus if a cycle completes
+        self._last_profit_fired = False
         signals = self._trader.on_fill(fill)
-        
+        profit_matched = self._last_profit_fired
+
+        # SELL fills with exchange pnl that didn't complete a grid cycle (e.g. grid broke out
+        # before the counter-sell was paired) get no notification otherwise — surface them.
+        if fill.side == "SELL" and fill.realized_pnl != 0 and not profit_matched:
+            self._telegram.notify_unmatched_fill(
+                symbol=fill.symbol,
+                quantity=fill.quantity,
+                price=fill.price,
+                exchange_pnl=fill.realized_pnl,
+                commission=fill.commission,
+                commission_asset=fill.commission_asset,
+                grid_id=fill.grid_id,
+            )
+
         # Execute any resulting counter-orders
         for s in signals:
             self._execute_signal(s)
@@ -859,6 +872,7 @@ class JackbotRunner:
 
     def _on_profit(self, event: GridProfitEvent) -> None:
         """Handle grid profit event."""
+        self._last_profit_fired = True
         trade = TradeRecord(
             timestamp=event.timestamp,
             symbol=event.symbol,
