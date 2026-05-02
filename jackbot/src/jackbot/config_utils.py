@@ -62,6 +62,12 @@ def build_day_trader_params(
     if leverage_cfg:
         trader_params.update(leverage_cfg)
 
+    fees = config.get("fees", {})
+    if "maker" in fees:
+        trader_params["maker_fee_rate"] = fees["maker"]
+    if "taker" in fees:
+        trader_params["taker_fee_rate"] = fees["taker"]
+
     if capital_override is not None:
         trader_params["total_capital_usd"] = capital_override
     if maker_rate is not None:

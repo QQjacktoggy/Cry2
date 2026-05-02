@@ -1,12 +1,16 @@
 """Unit tests for DayTrader."""
 
 from datetime import UTC, datetime
+from pathlib import Path
 
+from jackbot.config_utils import build_day_trader_params, load_yaml_file
 from jackbot.core.constants import TradingMode
 from jackbot.core.event_bus import EventBus
 from jackbot.core.events import FillEvent, MarketEvent
 from jackbot.strategy.day_trader import DayTrader, DayTraderConfig
 from jackbot.strategy.market_assessor import MarketAssessment
+
+_SETTINGS_PATH = Path(__file__).parent.parent / "config" / "settings.yaml"
 
 
 def _make_bar(symbol: str, price: float, offset: int = 0) -> MarketEvent:
@@ -431,3 +435,38 @@ class TestVariantBehaviors:
         assert "BTCUSDT" not in trader._trend_positions
         assert events[-1].source == "trend_exit"
 
+
+
+class TestFeeWiringIntegration:
+    """Verify that fees from settings.yaml reach DayTraderConfig via build_day_trader_params."""
+
+    def test_settings_fees_wired_to_config(self):
+        """build_day_trader_params must propagate fees.maker / fees.taker to DayTraderConfig."""
+        config = load_yaml_file(_SETTINGS_PATH)
+        params = build_day_trader_params(config)
+        dt_config = DayTraderConfig.from_dict(params)
+
+        expected_maker = config["fees"]["maker"]
+        expected_taker = config["fees"]["taker"]
+        assert dt_config.maker_fee_rate == expected_maker, (
+            f"maker_fee_rate {dt_config.maker_fee_rate} != settings.yaml fees.maker {expected_maker}"
+        )
+        assert dt_config.taker_fee_rate == expected_taker, (
+            f"taker_fee_rate {dt_config.taker_fee_rate} != settings.yaml fees.taker {expected_taker}"
+        )
+
+    def test_hard_fee_guard_threshold_uses_real_fees(self):
+        """With real fees (0.00018/0.00045), the hard guard threshold must be ≥ 12 bps,
+        so the documented ~6.8 bps thin-grid is correctly rejected."""
+        config = load_yaml_file(_SETTINGS_PATH)
+        params = build_day_trader_params(config)
+        dt_config = DayTraderConfig.from_dict(params)
+
+        fee_bps = (dt_config.maker_fee_rate * 2 + dt_config.taker_fee_rate) * 10000
+        threshold = fee_bps * dt_config.hard_fee_margin_ratio
+        thin_grid_step_bps = 6.8
+
+        assert threshold > thin_grid_step_bps, (
+            f"Guard threshold {threshold:.2f} bps is too low to block the "
+            f"thin-grid case ({thin_grid_step_bps} bps). Check fee wiring."
+        )
