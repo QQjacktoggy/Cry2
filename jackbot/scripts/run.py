@@ -25,7 +25,7 @@ import structlog
 from dotenv import load_dotenv
 
 from jackbot.config_utils import build_day_trader_params, load_merged_config
-from jackbot.core.constants import GridLevelState
+from jackbot.core.constants import GridDirection, GridLevelState
 from jackbot.core.event_bus import EventBus
 from jackbot.core.events import FillEvent, GridProfitEvent, GridSignalEvent, MarketEvent
 from jackbot.core.ownership import make_grid_client_order_id, parse_jackbot_client_order_id
@@ -234,8 +234,8 @@ class JackbotRunner:
         session_commission = float(session_summary.today_commission)
         session_net_pnl = session_realized - session_commission
 
-        # BUY fills = entry confirmation only, no profit yet
-        if fill.side == "BUY":
+        # Entry fills (opening a position) = confirmation only, no profit yet
+        if self._is_entry_fill(fill):
             self._telegram.notify_entry_fill(
                 symbol=fill.symbol,
                 side=fill.side,
@@ -265,9 +265,9 @@ class JackbotRunner:
         signals = self._trader.on_fill(fill)
         profit_matched = self._last_profit_fired
 
-        # SELL fills with exchange pnl that didn't complete a grid cycle (e.g. grid broke out
-        # before the counter-sell was paired) get no notification otherwise — surface them.
-        if fill.side == "SELL" and fill.realized_pnl != 0 and not profit_matched:
+        # Exit fills that didn't complete a grid cycle (e.g. grid broke out before the
+        # counter-order was paired) get no notification otherwise — surface them.
+        if not self._is_entry_fill(fill) and fill.realized_pnl != 0 and not profit_matched:
             self._telegram.notify_unmatched_fill(
                 symbol=fill.symbol,
                 quantity=fill.quantity,
@@ -282,6 +282,22 @@ class JackbotRunner:
         for s in signals:
             self._execute_signal(s)
         self._persist_runtime_state()
+
+    def _is_entry_fill(self, fill: FillEvent) -> bool:
+        """Return True if this fill opens a position rather than closes one.
+
+        For LONG/NEUTRAL grids: BUY = entry.
+        For SHORT grids: SELL = entry.
+        Falls back to realized_pnl == 0 when the grid is no longer in memory
+        (already closed before this fill was processed).
+        """
+        if fill.grid_id:
+            for grid in self._trader._engine.all_grids:
+                if grid.grid_id == fill.grid_id:
+                    if grid.direction == GridDirection.SHORT:
+                        return fill.side == "SELL"
+                    return fill.side == "BUY"
+        return fill.realized_pnl == 0
 
     def _attach_grid_context(self, fill: FillEvent) -> FillEvent:
         """Attach grid_id/level from clientOrderId or the in-memory grid map."""
