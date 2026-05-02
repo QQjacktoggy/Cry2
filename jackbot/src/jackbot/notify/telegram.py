@@ -133,6 +133,70 @@ class TelegramBot:
         )
         self.send(msg)
 
+    def notify_entry_fill(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: float,
+        price: float,
+        commission: float,
+        commission_asset: str = "",
+        grid_id: str = "",
+        level_index: int = -1,
+        daily_profit: float = 0.0,
+        daily_target: float = 0.0,
+    ) -> None:
+        """Entry fill confirmation (pnl=0 fills). Shows cost only — profit comes later via notify_grid_cycle."""
+        progress = ""
+        if daily_target > 0:
+            pct = max(min(daily_profit / daily_target * 100, 100.0), 0.0)
+            progress = f"\n啟動後淨盈餘: ${daily_profit:+.4f}  ({pct:.1f}% / ${daily_target:.2f})"
+        elif daily_profit != 0.0:
+            progress = f"\n啟動後淨盈餘: ${daily_profit:+.4f}"
+
+        grid_context = ""
+        if grid_id:
+            grid_context = f"\nGrid: <code>{grid_id}</code> L{level_index if level_index >= 0 else '-'}"
+
+        msg = (
+            f"📥 <b>Grid 開倉</b>\n"
+            f"{symbol} {side} <code>{quantity:.4f}</code> @ <code>{price:.4f}</code>\n"
+            f"手續費: <code>-${commission:.6f} {commission_asset or 'USDC'}</code>"
+            f"{grid_context}"
+            f"{progress}"
+        )
+        self.send(msg)
+
+    def notify_unmatched_fill(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: float,
+        price: float,
+        exchange_pnl: float,
+        commission: float,
+        commission_asset: str = "",
+        grid_id: str = "",
+    ) -> None:
+        """Exit fill that closed a position but had no matching entry in the grid tracker.
+
+        This happens when a grid breaks out or is closed before the counter-order is paired.
+        Shows the exchange-reported PnL for transparency — this is Binance's position accounting,
+        not grid profit, so it may differ from what the grid would have calculated.
+        """
+        pnl_prefix = "+" if exchange_pnl >= 0 else ""
+        grid_str = f"\nGrid: <code>{grid_id}</code> (已關閉)" if grid_id else ""
+        msg = (
+            f"📤 <b>成交 (無配對)</b>\n"
+            f"{symbol} {side} <code>{quantity:.4f}</code> @ <code>{price:.4f}</code>\n"
+            f"交易所 PnL: <code>{pnl_prefix}${exchange_pnl:.5f}</code>\n"
+            f"手續費: <code>-${commission:.6f} {commission_asset or 'USDC'}</code>"
+            f"{grid_str}"
+        )
+        self.send(msg)
+
     def notify_exchange_fill(
         self,
         *,
@@ -148,39 +212,34 @@ class TelegramBot:
         trade_id: str = "",
         grid_id: str = "",
         level_index: int = -1,
-        daily_profit: float = 0.0,   # session net PnL since Docker start
+        daily_profit: float = 0.0,
         daily_target: float = 0.0,
     ) -> None:
-        """Send an exchange-sourced fill notification.
-
-        ``daily_profit`` is session net PnL since Docker start, not exchange
-        calendar-day PnL.  The label in Telegram reflects this explicitly.
-        """
-        pnl_prefix = "+" if realized_pnl >= 0 else ""
-        progress = ""
-        if daily_target > 0:
-            pct = max(min(daily_profit / daily_target * 100, 100.0), 0.0)
-            progress = f"\n啟動後淨盈餘: ${daily_profit:+.4f}  ({pct:.1f}% / ${daily_target:.2f})"
-        elif daily_profit != 0.0:
-            progress = f"\n啟動後淨盈餘: ${daily_profit:+.4f}"
-
-        grid_context = ""
-        if grid_id:
-            grid_context = f"\nGrid: {grid_id} L{level_index if level_index >= 0 else '-'}"
-
-        title = "📥 <b>Grid 成交</b>" if abs(realized_pnl) < 1e-12 else "📌 <b>成交更新</b>"
-        msg = (
-            f"{title}\n"
-            f"{symbol} {side} {quantity:.4f} @ {price:.4f}\n"
-            f"PnL: {pnl_prefix}${realized_pnl:.5f}\n"
-            f"Commission: -${commission:.6f} {commission_asset or 'USDT'}\n"
-            f"Order ID: <code>{order_id}</code>\n"
-            f"Trade ID: <code>{trade_id or '-'}</code>\n"
-            f"Client ID: <code>{client_order_id or '-'}</code>"
-            f"{grid_context}"
-            f"{progress}"
-        )
-        self.send(msg)
+        """Legacy method — routes to the appropriate focused notifier."""
+        if side == "BUY":
+            self.notify_entry_fill(
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                price=price,
+                commission=commission,
+                commission_asset=commission_asset,
+                grid_id=grid_id,
+                level_index=level_index,
+                daily_profit=daily_profit,
+                daily_target=daily_target,
+            )
+        else:
+            self.notify_unmatched_fill(
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                price=price,
+                exchange_pnl=realized_pnl,
+                commission=commission,
+                commission_asset=commission_asset,
+                grid_id=grid_id,
+            )
 
     def notify_reconcile(self, report: dict, safe_mode: bool = False) -> None:
         status = report.get("status", "?")
